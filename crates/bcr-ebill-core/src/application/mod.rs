@@ -9,6 +9,7 @@ pub mod company;
 pub mod contact;
 mod event;
 pub mod identity;
+pub mod nostr;
 pub mod nostr_contact;
 pub mod notification;
 

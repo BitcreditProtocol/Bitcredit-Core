@@ -8,6 +8,9 @@
 * Remove deprecated nip04 code
 * Migrate from `chrono` to `time`
 * Fix backwards-compat issue introduced by the Nostr 0.45 upgrade - `nostr::event::Signature` on `nostr::event::Event` is serialized differently. We use a custom serialization type now.
+* Add functionality for viewing and requeuing resend queue entries
+    * Add endpoint `fetch_resend_queue_entries` to view a list of pending, or failed resend queue messages
+    * Add endpoint `requeue_failed_resend_queue_entry` to requeue a failed resend queue message
 
 # 0.5.15-hotfix1
 

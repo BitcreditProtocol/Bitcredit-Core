@@ -16,6 +16,10 @@ document.getElementById("get_active_notif_status").addEventListener("click", get
 document.getElementById("get_notif_list").addEventListener("click", getNotifList);
 document.getElementById("get_email_notifications_preferences_link").addEventListener("click", get_email_notifications_preferences_link);
 
+// resend queue
+document.getElementById("fetch_resend_queue_entries").addEventListener("click", fetchResendQueueEntries);
+document.getElementById("requeue_resend_queue_entry").addEventListener("click", requeueResendQueueEntry);
+
 // contacts
 document.getElementById("contact_test").addEventListener("click", triggerContact);
 document.getElementById("contact_test_anon").addEventListener("click", triggerAnonContact);
@@ -1252,6 +1256,21 @@ async function getNotifList() {
 async function get_email_notifications_preferences_link() {
   let measured = measure(async () => {
     return success_or_fail(await window.notifApi.get_email_notifications_preferences_link());
+  });
+  await measured();
+}
+
+async function fetchResendQueueEntries() {
+  let measured = measure(async () => {
+    return success_or_fail(await window.generalApi.fetch_resend_queue_entries({}));
+  });
+  await measured();
+}
+
+async function requeueResendQueueEntry() {
+  let id = document.getElementById("resend_queue_entry_id").value;
+  let measured = measure(async () => {
+    return success_or_fail(await window.generalApi.requeue_failed_resend_queue_entry({ id }));
   });
   await measured();
 }

@@ -5,6 +5,8 @@ use bcr_common::core::NodeId;
 use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
 use bcr_ebill_api::util::validate_node_id_network;
 use bcr_ebill_core::application::ServiceTraitBounds;
+use bcr_ebill_core::application::nostr::ResendQueueEntry;
+use bcr_ebill_core::application::nostr::ResendQueueEntryStatus;
 use bcr_ebill_core::application::nostr_contact::TrustLevel;
 use bcr_ebill_core::protocol::Address;
 use bcr_ebill_core::protocol::City;
@@ -17,8 +19,13 @@ use bcr_ebill_core::protocol::blockchain::bill::{
     participant::{BillAnonParticipant, BillIdentParticipant, BillParticipant},
 };
 use bcr_ebill_core::protocol::crypto::BcrKeys;
+use bcr_ebill_core::protocol::event::BillBlockEvent;
+use bcr_ebill_core::protocol::event::CompanyBlockEvent;
+use bcr_ebill_core::protocol::event::EventType;
+use bcr_ebill_core::protocol::event::IdentityBlockEvent;
 use bcr_ebill_core::protocol::event::{BillChainEventPayload, Event, EventEnvelope};
 use bcr_ebill_persistence::ContactStoreApi;
+use bcr_ebill_persistence::nostr::NostrQueuedMessageStatus;
 use bcr_ebill_persistence::nostr::{
     NostrChainEvent, NostrChainEventStoreApi, NostrContactStoreApi, NostrQueuedMessage,
     NostrQueuedMessageStoreApi,
@@ -53,7 +60,7 @@ impl ServiceTraitBounds for NostrTransportService {}
 
 impl NostrTransportService {
     // the number of times we want to retry sending a block message
-    const NOSTR_MAX_RETRIES: i32 = 10;
+    const NOSTR_MAX_RETRIES: i32 = 25;
 
     pub fn new(
         nostr_client: Arc<dyn TransportClientApi>,
@@ -242,6 +249,29 @@ impl NostrTransportService {
         Ok(())
     }
 
+    pub(crate) async fn fetch_resend_queue_entries(&self) -> Result<Vec<ResendQueueEntry>> {
+        let entries = self
+            .queued_message_store
+            .get_non_succeeded_retry_messages()
+            .await
+            .map_err(|e| {
+                Error::Persistence(format!(
+                    "failed to get non-succeeded resend queue messages: {e}"
+                ))
+            })?;
+        Ok(convert_to_resend_queue_entries(entries))
+    }
+
+    pub(crate) async fn requeue_resend_queue_entry(&self, id: &str) -> Result<()> {
+        self.queued_message_store
+            .requeue_failed_entry(id)
+            .await
+            .map_err(|e| {
+                Error::Persistence(format!("failed to requeue failed resend entry: {e}"))
+            })?;
+        Ok(())
+    }
+
     pub(crate) async fn find_root_and_previous_event(
         &self,
         previous_hash: &Sha256Hash,
@@ -302,6 +332,7 @@ impl NostrTransportService {
 
     pub(crate) async fn send_retry_messages(&self) -> Result<()> {
         let mut failed_ids = vec![];
+
         while let Ok(Some(queued_message)) = self
             .queued_message_store
             .get_retry_messages(1)
@@ -417,5 +448,183 @@ impl NostrTransportService {
         if let Err(e) = self.nostr_client.connect().await {
             error!("Failed to connect to transport: {e}");
         }
+    }
+}
+
+fn convert_to_resend_queue_entries(
+    entries: Vec<(NostrQueuedMessage, NostrQueuedMessageStatus)>,
+) -> Vec<ResendQueueEntry> {
+    entries
+        .into_iter()
+        .filter_map(|entry| match convert_to_resend_queue_entry(&entry) {
+            Ok(entry) => Some(entry),
+            Err(e) => {
+                log::error!(
+                    "Couldn't convert resend queue entry with id {} and status {:?}: {e}",
+                    entry.0.id,
+                    entry.1
+                );
+                None
+            }
+        })
+        .collect()
+}
+
+fn convert_to_resend_queue_entry(
+    entry: &(NostrQueuedMessage, NostrQueuedMessageStatus),
+) -> Result<ResendQueueEntry> {
+    let (msg, status) = entry;
+    let st = match status {
+        NostrQueuedMessageStatus::Pending => ResendQueueEntryStatus::Pending,
+        NostrQueuedMessageStatus::Failed => ResendQueueEntryStatus::Failed,
+    };
+    let event_type;
+    let mut block_height = None;
+    let mut block_op_code = None;
+
+    match msg.recipient {
+        // private msg - EventEnvelope
+        Some(_) => {
+            let decoded = base58::decode(&msg.payload)?;
+            let deserialized = borsh::from_slice::<EventEnvelope>(&decoded)?;
+            event_type = deserialized.event_type.to_string();
+        }
+        // public msg - Event JSON with EventEnvelope inside
+        None => {
+            let deserialized_json = serde_json::from_str::<nostr::event::Event>(&msg.payload)?;
+            let decoded = base58::decode(&deserialized_json.content)?;
+            let deserialized = borsh::from_slice::<EventEnvelope>(&decoded)?;
+            event_type = deserialized.event_type.to_string();
+            match deserialized.event_type {
+                EventType::Bill
+                | EventType::BillChainInvite
+                | EventType::CompanyChainInvite
+                | EventType::ContactShare => {
+                    // private events - shouldn't happen
+                    return Err(Error::Message(format!(
+                        "resend queue message with id {} has private event type and public event format",
+                        msg.id,
+                    )));
+                }
+                EventType::BillChain => {
+                    let evt = Event::<BillBlockEvent>::try_from(deserialized.clone())?;
+                    block_height = Some(evt.data.block_height);
+                    block_op_code = Some(evt.data.block.op_code.to_string());
+                }
+                EventType::IdentityChain => {
+                    let evt = Event::<IdentityBlockEvent>::try_from(deserialized.clone())?;
+                    block_height = Some(evt.data.block_height);
+                    block_op_code = Some(evt.data.block.op_code.to_string());
+                }
+                EventType::CompanyChain => {
+                    let evt = Event::<CompanyBlockEvent>::try_from(deserialized.clone())?;
+                    block_height = Some(evt.data.block_height);
+                    block_op_code = Some(evt.data.block.op_code.to_string());
+                }
+            };
+        }
+    }
+
+    Ok(ResendQueueEntry {
+        id: msg.id.clone(),
+        sender_id: msg.sender_id.clone(),
+        event_type,
+        status: st,
+        recipient: msg.recipient.clone(),
+        block_height,
+        block_op_code,
+    })
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        test_utils::{bill_id_test, node_id_test, private_key_test},
+        transport::create_public_chain_event,
+    };
+    use bcr_ebill_core::protocol::{
+        BlockId, SchnorrSignature, Timestamp,
+        blockchain::bill::{BillBlock, BillOpCode},
+    };
+    use nostr::event::FinalizeEvent;
+
+    const VALID_SIG: &str =
+        "23u7iXhvpRBYhdHQW3jEk5LyQWJGDcnCoCfiPvjPHXQqmun6z3ZrYX7eXMrBmZk4mHW4Y5DQbASJb1LZU1KrkgGH";
+
+    fn test_nostr_queued_msg(
+        recipient: Option<NodeId>,
+        payload: String,
+    ) -> (NostrQueuedMessage, NostrQueuedMessageStatus) {
+        let msg = NostrQueuedMessage {
+            id: "some_id".to_string(),
+            sender_id: node_id_test(),
+            recipient,
+            payload,
+        };
+        (msg, NostrQueuedMessageStatus::Failed)
+    }
+
+    #[test]
+    fn convert_to_resend_queue_entry_private_msg() {
+        let evt = EventEnvelope {
+            event_type: EventType::BillChainInvite,
+            version: "1".to_string(),
+            data: vec![],
+        };
+        let priv_payload = base58::encode(&borsh::to_vec(&evt).unwrap());
+        let priv_msg = test_nostr_queued_msg(Some(node_id_test()), priv_payload);
+        let res = convert_to_resend_queue_entry(&priv_msg).unwrap();
+        assert!(matches!(res.status, ResendQueueEntryStatus::Failed));
+        assert_eq!(res.id, "some_id".to_owned());
+        assert_eq!(res.recipient, Some(node_id_test()));
+        assert_eq!(res.event_type, EventType::BillChainInvite.to_string());
+    }
+
+    #[test]
+    fn convert_to_resend_queue_entry_public_event() {
+        let block = BillBlock {
+            bill_id: bill_id_test(),
+            id: BlockId::first(),
+            plaintext_hash: Sha256Hash::new(""),
+            hash: Sha256Hash::new(""),
+            previous_hash: Sha256Hash::new(""),
+            timestamp: Timestamp::now(),
+            data: vec![],
+            public_key: node_id_test().pub_key(),
+            signature: SchnorrSignature::new(VALID_SIG).expect("works"),
+            op_code: BillOpCode::Accept,
+        };
+
+        let block_event = Event::new_bill_chain(BillBlockEvent {
+            bill_id: bill_id_test(),
+            block,
+            block_height: 3,
+        })
+        .try_into()
+        .expect("could not create envelope");
+        let keys = BcrKeys::from_private_key(&private_key_test());
+
+        let nostr_event = create_public_chain_event(
+            &bill_id_test().to_string(),
+            block_event,
+            Timestamp::new(1000).unwrap(),
+            BlockchainType::Bill,
+            None,
+            None,
+        )
+        .expect("could not create chain event")
+        .finalize(&keys.get_nostr_keys())
+        .expect("could not sign event");
+
+        let priv_payload = serde_json::to_string(&nostr_event).unwrap();
+
+        let priv_msg = test_nostr_queued_msg(None, priv_payload);
+        let res = convert_to_resend_queue_entry(&priv_msg).unwrap();
+        assert!(matches!(res.status, ResendQueueEntryStatus::Failed));
+        assert_eq!(res.id, "some_id".to_owned());
+        assert_eq!(res.recipient, None);
+        assert_eq!(res.event_type, EventType::BillChain.to_string());
+        assert_eq!(res.block_height, Some(3));
+        assert_eq!(res.block_op_code, Some(BillOpCode::Accept.to_string()));
     }
 }

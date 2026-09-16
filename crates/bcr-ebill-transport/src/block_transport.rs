@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_api::get_config;
 use bcr_ebill_api::service::transport_service::{BlockTransportServiceApi, ResyncMode};
+use bcr_ebill_core::application::nostr::ResendQueueEntry;
 use bcr_ebill_core::application::{ServiceTraitBounds, ValidationError};
 use bcr_ebill_core::protocol::Sha256Hash;
 use bcr_ebill_core::protocol::blockchain::BlockchainType;
@@ -372,6 +373,14 @@ impl BlockTransportServiceApi for BlockTransportService {
         }
         // didn't find all blocks exactly in any chain - invalid
         Ok(false)
+    }
+
+    async fn fetch_resend_queue_entries(&self) -> Result<Vec<ResendQueueEntry>> {
+        self.nostr_transport.fetch_resend_queue_entries().await
+    }
+
+    async fn requeue_resend_queue_entry(&self, id: &str) -> Result<()> {
+        self.nostr_transport.requeue_resend_queue_entry(id).await
     }
 }
 

@@ -7372,7 +7372,7 @@ async fn check_mint_state_minting_enabled_proofs() {
     });
     ctx.mint_client.expect_get_keyset_info().returning(|_, _| {
         Ok(ecash::KeySet {
-            id: cdk02::Id::try_from("00c7b45973e5f0fc".to_owned()).unwrap(),
+            id: ecash::Id::V1([0; 7]),
             unit: bcr_common::cashu::CurrencyUnit::Sat,
             keys: bcr_common::cashu::Keys::new(std::collections::BTreeMap::default()),
             final_expiry: None,
@@ -7427,16 +7427,6 @@ async fn check_mint_state_minting_enabled_check_spent() {
     let identity = get_baseline_identity();
 
     let req_node_id = identity.identity.node_id.clone();
-    ctx.mint_client.expect_get_keyset_info().returning(|_, _| {
-        Ok(ecash::KeySet {
-            id: cdk02::Id::try_from("00c7b45973e5f0fc".to_owned()).unwrap(),
-            unit: bcr_common::cashu::CurrencyUnit::Sat,
-            keys: bcr_common::cashu::Keys::new(std::collections::BTreeMap::default()),
-            final_expiry: None,
-            active: Some(true),
-            input_fee_ppk: 0,
-        })
-    });
     ctx.mint_client
         .expect_check_if_proofs_are_spent()
         .returning(|_, _, _| Ok(true));
