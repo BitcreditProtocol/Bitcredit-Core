@@ -171,6 +171,9 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
                             ResyncMode::NostrAuthoritative => {
                                 find_first_difference(existing_chain.blocks(), &blocks)
                             }
+
+                            // In this mode, we don't care about local, or remote chain divergences, we're just adding missing metadata
+                            ResyncMode::OnlyMissingMetadata => None,
                         };
 
                         if matches!(mode, ResyncMode::NostrAuthoritative)

@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::handler::public_chain_helpers::{BlockData, resolve_event_chains};
@@ -65,10 +66,45 @@ impl BlockTransportService {
             .find_root_and_previous_event(previous_hash, chain_id, chain_type)
             .await?;
 
+        // if we're missing the previous event, we attempt to fetch the missing metadata
         if previous_event.is_none() && block_height > 1 {
-            return Err(Error::Blockchain(format!(
-                "Cannot publish block: missing previous block for {chain_type:?} chain {chain_id} at height {block_height}"
-            )));
+            log::warn!(
+                "Cannot publish block: missing previous block for {chain_type:?} chain {chain_id} at height {block_height} - RESYNCING missing metadata"
+            );
+            match chain_type {
+                BlockchainType::Bill => {
+                    let bill_id = BillId::from_str(chain_id).map_err(|_| {
+                        Error::Blockchain(format!("invalid bill chain id {chain_id}"))
+                    })?;
+                    self.bill_chain_event_processor
+                        .resync_chain(&bill_id, true, ResyncMode::OnlyMissingMetadata)
+                        .await?;
+                }
+                BlockchainType::Company => {
+                    let company_id = NodeId::from_str(chain_id).map_err(|_| {
+                        Error::Blockchain(format!("invalid company chain id {chain_id}"))
+                    })?;
+                    self.company_chain_event_processor
+                        .resync_chain(&company_id)
+                        .await?;
+                }
+                BlockchainType::Identity => {
+                    self.identity_chain_event_processor.resync_chain().await?;
+                }
+            };
+
+            let (previous_event, root_event) = self
+                .nostr_transport
+                .find_root_and_previous_event(previous_hash, chain_id, chain_type)
+                .await?;
+
+            if previous_event.is_none() && block_height > 1 {
+                return Err(Error::Blockchain(format!(
+                    "Cannot publish block: missing previous block after resync for {chain_type:?} chain {chain_id} at height {block_height}"
+                )));
+            }
+
+            return Ok((previous_event, root_event));
         }
 
         Ok((previous_event, root_event))
@@ -454,6 +490,24 @@ mod tests {
         get_service_with_transport(MockNotificationJsonTransport::new(), chain_event_store)
     }
 
+    fn get_service_with_bill_chain_event_processor(
+        bill_chain_event_processor: MockBillChainEventProcessorApi,
+        chain_event_store: MockNostrChainEventStore,
+    ) -> BlockTransportService {
+        BlockTransportService::new(
+            Arc::new(get_nostr_transport(
+                MockNotificationJsonTransport::new(),
+                MockContactStore::new(),
+                MockNostrContactStore::new(),
+                MockNostrQueuedMessageStore::new(),
+                chain_event_store,
+            )),
+            Arc::new(bill_chain_event_processor),
+            Arc::new(MockCompanyChainEventProcessorApi::new()),
+            Arc::new(MockIdentityChainEventProcessorApi::new()),
+        )
+    }
+
     #[tokio::test]
     async fn test_validate_previous_event_exists_allows_genesis() {
         let mut chain_event_store = MockNostrChainEventStore::new();
@@ -486,11 +540,19 @@ mod tests {
             .expect_find_by_block_hash()
             .returning(|_| Ok(None));
 
-        let service = get_service(chain_event_store);
+        let mut bill_chain_event_processor = MockBillChainEventProcessorApi::new();
+        bill_chain_event_processor
+            .expect_resync_chain()
+            .returning(|_, _, _| Ok(()));
+
+        let service = get_service_with_bill_chain_event_processor(
+            bill_chain_event_processor,
+            chain_event_store,
+        );
         let result = service
             .validate_previous_event_exists(
                 &Sha256Hash::new("missing_hash"),
-                "test_chain",
+                &bill_id_test().to_string(),
                 BlockchainType::Bill,
                 2,
             )
@@ -498,6 +560,7 @@ mod tests {
 
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
+        println!("{err_msg}");
         assert!(err_msg.contains("Cannot publish block"));
         assert!(err_msg.contains("missing previous block"));
     }
