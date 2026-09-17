@@ -142,7 +142,7 @@ pub trait CompanyChainEventProcessorApi: ServiceTraitBounds {
     /// Tries to resync the chain for the given node id. This will try to find the company keys and
     /// then try to find the chain data for the given company id. Will add all potentially missing
     /// blocks to the chain.
-    async fn resync_chain(&self, company_id: &NodeId) -> Result<()>;
+    async fn resync_chain(&self, company_id: &NodeId, mode: ResyncMode) -> Result<()>;
 }
 
 #[cfg(test)]
@@ -172,7 +172,7 @@ pub trait IdentityChainEventProcessorApi: ServiceTraitBounds {
 
     /// Tries to resync the chain for the primary local identity. This will try to find the chain data for the current identity.
     /// Will add all potentially missing blocks to the chain.
-    async fn resync_chain(&self) -> Result<()>;
+    async fn resync_chain(&self, mode: ResyncMode) -> Result<()>;
 }
 
 #[cfg(test)]

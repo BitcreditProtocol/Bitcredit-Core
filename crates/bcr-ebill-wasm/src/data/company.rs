@@ -252,6 +252,12 @@ pub struct ResyncCompanyPayload {
     pub node_id: NodeId,
 }
 
+#[derive(Tsify, Debug, Clone, Deserialize)]
+pub struct OverrideCompanyFromNostrPayload {
+    #[tsify(type = "string")]
+    pub node_id: NodeId,
+}
+
 #[derive(Tsify, Debug, Deserialize)]
 pub struct ChangeSignatoryEmailPayload {
     pub id: String,

@@ -98,19 +98,31 @@ pub fn resolve_fork<B: Block>(local: &[B], remote: &[B]) -> (bool, Option<BlockI
 }
 
 /// Finds the first difference between two chains and returns the block height of the differing block
-pub fn find_first_difference(local: &[BillBlock], remote: &[BillBlock]) -> Option<BlockId> {
+pub fn find_first_difference<T: Block>(local: &[T], remote: &[T]) -> Option<BlockId> {
     for (local_block, remote_block) in local.iter().zip(remote.iter()) {
-        if local_block.id != remote_block.id || local_block.hash != remote_block.hash {
-            return Some(local_block.id);
+        if local_block.id() != remote_block.id() || local_block.hash() != remote_block.hash() {
+            return Some(local_block.id());
         }
     }
 
     // Local chain has more blocks than Nostr, so difference starts at the latest shared block
     if local.len() > remote.len() {
-        return Some(local[remote.len()].id);
+        return Some(local[remote.len()].id());
     }
 
     None
+}
+
+/// Checks if the remote chain matches the local chain up to the local block height
+pub fn chain_matches_local<T: Block>(local: &[T], remote: &[T]) -> bool {
+    if remote.len() < local.len() {
+        return false;
+    }
+
+    local
+        .iter()
+        .zip(remote.iter())
+        .all(|(local, remote)| local.id() == remote.id() && local.hash() == remote.hash())
 }
 
 /// Determines if the remote block can be considered a fork point in the chain:
@@ -877,5 +889,64 @@ mod tests {
         let result = find_first_difference(&local, &remote);
 
         assert_eq!(result, Some(local[2].id()));
+    }
+
+    #[test]
+    fn test_chain_matches_local_identical() {
+        let local = make_test_chain_with_timestamps(&[1000, 1500, 2000]);
+        let remote = local.clone();
+
+        assert!(chain_matches_local(&local, &remote));
+    }
+
+    #[test]
+    fn test_chain_matches_local_remote_longer() {
+        let local = make_test_chain_with_timestamps(&[1000, 1500, 2000]);
+        let mut remote = local.clone();
+
+        let block4 = make_test_block(
+            BlockId::next_from_previous_block_id(&remote[2].id()),
+            remote[2].hash.clone(),
+            Timestamp::new(2500).unwrap(),
+        );
+
+        remote.push(block4);
+
+        // Local is prefix of remote
+        assert!(chain_matches_local(&local, &remote));
+    }
+
+    #[test]
+    fn test_chain_matches_local_remote_shorter() {
+        let remote = make_test_chain_with_timestamps(&[1000, 1500]);
+        let mut local = remote.clone();
+
+        local.push(make_test_block(
+            BlockId::next_from_previous_block_id(&local[1].id()),
+            local[1].hash.clone(),
+            Timestamp::new(2000).unwrap(),
+        ));
+
+        assert!(!chain_matches_local(&local, &remote));
+    }
+
+    #[test]
+    fn test_chain_matches_local_hash_diverges() {
+        let local = make_test_chain_with_timestamps(&[1000, 1500]);
+
+        let mut remote = local.clone();
+        remote[1].hash = Sha256Hash::new("different_hash");
+
+        assert!(!chain_matches_local(&local, &remote));
+    }
+
+    #[test]
+    fn test_chain_matches_local_block_id_diverges() {
+        let local = make_test_chain_with_timestamps(&[1000, 1500]);
+
+        let mut remote = local.clone();
+        remote[1].id = BlockId::next_from_previous_block_id(&remote[1].id);
+
+        assert!(!chain_matches_local(&local, &remote));
     }
 }

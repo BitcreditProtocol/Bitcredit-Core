@@ -6,6 +6,7 @@ use bcr_common::core::NodeId;
 use bcr_ebill_api::service::{
     Error,
     file_upload_service::{UploadFileHandler, detect_content_type_for_bytes},
+    transport_service::ResyncMode,
 };
 use bcr_ebill_core::{
     application::company::CompanySignatory,
@@ -27,8 +28,8 @@ use crate::{
             AcceptCompanyInvitePayload, ChangeSignatoryEmailPayload, CompaniesResponse,
             CompanyKeysWeb, CompanyWeb, ConfirmEmailPayload, CreateCompanyPayload,
             EditCompanyPayload, InviteSignatoryPayload, ListSignatoriesResponse,
-            LocallyHideSignatoryPayload, RemoveSignatoryPayload, ResyncCompanyPayload,
-            SignatoryResponse, VerifyEmailPayload,
+            LocallyHideSignatoryPayload, OverrideCompanyFromNostrPayload, RemoveSignatoryPayload,
+            ResyncCompanyPayload, SignatoryResponse, VerifyEmailPayload,
         },
         edit_field_mode,
         identity::{IdentityEmailConfirmationWeb, ShareCompanyContactTo},
@@ -482,7 +483,26 @@ impl Company {
             get_ctx()
                 .transport_service
                 .block_transport()
-                .resync_company_chain(&payload.node_id)
+                .resync_company_chain(&payload.node_id, ResyncMode::Normal)
+                .await?;
+            Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+
+    /// Given a company id, override the company chain with the state from nostr
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
+    pub async fn dev_mode_override_company_chain_from_nostr(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "OverrideCompanyFromNostrPayload")] payload: JsValue,
+    ) -> JsValue {
+        let res: Result<()> = async {
+            let payload: OverrideCompanyFromNostrPayload = serde_wasm_bindgen::from_value(payload)?;
+            get_ctx()
+                .transport_service
+                .block_transport()
+                .resync_company_chain(&payload.node_id, ResyncMode::NostrAuthoritative)
                 .await?;
             Ok(())
         }
