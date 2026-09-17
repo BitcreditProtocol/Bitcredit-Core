@@ -64,6 +64,18 @@ pub trait NostrQueuedMessageStoreApi: ServiceTraitBounds {
     async fn fail_retry(&self, id: &str) -> Result<()>;
     /// Flags a retry as successful
     async fn succeed_retry(&self, id: &str) -> Result<()>;
+    /// Re-queue a failed entry
+    async fn requeue_failed_entry(&self, id: &str) -> Result<()>;
+    /// Fetches all messages that are either pending, or failed
+    async fn get_non_succeeded_retry_messages(
+        &self,
+    ) -> Result<Vec<(NostrQueuedMessage, NostrQueuedMessageStatus)>>;
+}
+
+#[derive(Clone, Debug)]
+pub enum NostrQueuedMessageStatus {
+    Pending,
+    Failed,
 }
 
 #[derive(Clone, Debug)]

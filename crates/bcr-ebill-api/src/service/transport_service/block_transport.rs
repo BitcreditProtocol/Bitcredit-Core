@@ -3,7 +3,7 @@ use crate::service::transport_service::ResyncMode;
 use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::{
-    application::ServiceTraitBounds,
+    application::{ServiceTraitBounds, nostr::ResendQueueEntry},
     protocol::{
         blockchain::bill::BillBlock,
         event::{BillChainEvent, CompanyChainEvent, IdentityChainEvent},
@@ -43,6 +43,10 @@ pub trait BlockTransportServiceApi: ServiceTraitBounds {
         bill_id: &BillId,
         blocks: &[BillBlock],
     ) -> Result<bool>;
+    /// Fetch failed and pending resend queue entries
+    async fn fetch_resend_queue_entries(&self) -> Result<Vec<ResendQueueEntry>>;
+    /// Requeue a failed resend queue entry by ID
+    async fn requeue_resend_queue_entry(&self, id: &str) -> Result<()>;
 }
 
 #[cfg(test)]

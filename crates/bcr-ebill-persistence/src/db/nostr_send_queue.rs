@@ -2,7 +2,10 @@ use super::{
     Result,
     surreal::{Bindings, SurrealWrapper},
 };
-use crate::constants::{DB_IDS, DB_LIMIT, DB_TABLE, NOSTR_QUEUE_PROCESSING_TIMEOUT_SECS};
+use crate::{
+    constants::{DB_IDS, DB_LIMIT, DB_TABLE, NOSTR_QUEUE_PROCESSING_TIMEOUT_SECS},
+    nostr::NostrQueuedMessageStatus,
+};
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
 use bcr_ebill_core::{application::ServiceTraitBounds, protocol::DateTimeUtc, protocol::Timestamp};
@@ -90,7 +93,11 @@ impl NostrQueuedMessageStoreApi for SurrealNostrEventQueueStore {
         if let Some(mut msg) = current {
             msg.num_retries += 1;
             msg.last_try = Timestamp::now().to_datetime();
-            msg.completed = msg.num_retries >= msg.max_retries;
+            let terminated = msg.num_retries >= msg.max_retries;
+            msg.completed = terminated;
+            if terminated {
+                msg.failed = true;
+            }
             msg.processing_started_at = Timestamp::zero().to_datetime();
             let _: Option<QueuedMessageDb> =
                 self.db.update(Self::TABLE, id.to_owned(), msg).await?;
@@ -110,6 +117,50 @@ impl NostrQueuedMessageStoreApi for SurrealNostrEventQueueStore {
         }
         Ok(())
     }
+
+    /// Re-queue a failed entry
+    async fn requeue_failed_entry(&self, id: &str) -> Result<()> {
+        let current: Option<QueuedMessageDb> =
+            self.db.select_one(Self::TABLE, id.to_owned()).await?;
+        let Some(mut msg) = current else {
+            return Ok(());
+        };
+
+        if !msg.completed || !msg.failed {
+            return Ok(());
+        }
+
+        msg.completed = false;
+        msg.failed = false;
+        msg.num_retries = 0;
+        msg.processing_started_at = Timestamp::zero().to_datetime();
+        let _: Option<QueuedMessageDb> = self.db.update(Self::TABLE, id.to_owned(), msg).await?;
+        Ok(())
+    }
+
+    /// Fetches all messages that are either pending, or failed
+    async fn get_non_succeeded_retry_messages(
+        &self,
+    ) -> Result<Vec<(NostrQueuedMessage, NostrQueuedMessageStatus)>> {
+        let mut bindings = Bindings::default();
+        bindings.add(DB_TABLE, Self::TABLE)?;
+        let items: Vec<QueuedMessageDb> = self
+            .db
+            .query("SELECT * FROM type::table($table) WHERE completed = false OR failed = true ORDER BY created ASC", bindings)
+            .await?;
+        let res: Vec<(NostrQueuedMessage, NostrQueuedMessageStatus)> = items
+            .into_iter()
+            .map(|msg| {
+                let status = if msg.failed {
+                    NostrQueuedMessageStatus::Failed
+                } else {
+                    NostrQueuedMessageStatus::Pending
+                };
+                (msg.into(), status)
+            })
+            .collect();
+        Ok(res)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -126,6 +177,8 @@ struct QueuedMessageDb {
     pub num_retries: i32,
     pub max_retries: i32,
     pub completed: bool,
+    #[serde(default)]
+    pub failed: bool,
     #[serde(with = "time::serde::rfc3339")]
     pub processing_started_at: DateTimeUtc,
 }
@@ -145,6 +198,7 @@ impl QueuedMessageDb {
             num_retries: 0,
             max_retries,
             completed: false,
+            failed: false,
             processing_started_at: Timestamp::zero().to_datetime(),
         }
     }
@@ -358,6 +412,58 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_fail_retry_with_more_than_max_retries_fails_the_entry() {
+        let store = get_store().await;
+        store
+            .add_message(get_test_message("test_message"), 3)
+            .await
+            .expect("could not add message");
+
+        let messages = store
+            .get_retry_messages(1)
+            .await
+            .expect("could not get messages");
+
+        // first
+        store
+            .fail_retry(&messages[0].id)
+            .await
+            .expect("could not mark retry as failed");
+
+        // second
+        store
+            .fail_retry(&messages[0].id)
+            .await
+            .expect("could not mark retry as failed");
+
+        let record: Option<QueuedMessageDb> = store
+            .db
+            .select_one(SurrealNostrEventQueueStore::TABLE, messages[0].id.clone())
+            .await
+            .expect("could not load queued message");
+
+        let record = record.expect("queued message should exist");
+        assert!(!record.completed,);
+        assert!(!record.failed,);
+
+        // third - max retry
+        store
+            .fail_retry(&messages[0].id)
+            .await
+            .expect("could not mark retry as failed");
+
+        let record: Option<QueuedMessageDb> = store
+            .db
+            .select_one(SurrealNostrEventQueueStore::TABLE, messages[0].id.clone())
+            .await
+            .expect("could not load queued message");
+
+        let record = record.expect("queued message should exist");
+        assert!(record.completed,);
+        assert!(record.failed,);
+    }
+
+    #[tokio::test]
     async fn test_succeed_retry_resets_processing_started_at() {
         let store = get_store().await;
         store
@@ -387,6 +493,152 @@ mod tests {
             record.processing_started_at,
             Timestamp::zero().to_datetime()
         );
+    }
+
+    #[tokio::test]
+    async fn test_succeed_retry_doesnt_set_failed() {
+        let store = get_store().await;
+        store
+            .add_message(get_test_message("test_message"), 3)
+            .await
+            .expect("could not add message");
+
+        let messages = store
+            .get_retry_messages(1)
+            .await
+            .expect("could not get messages");
+
+        store
+            .succeed_retry(&messages[0].id)
+            .await
+            .expect("could not mark retry as successful");
+
+        let record: Option<QueuedMessageDb> = store
+            .db
+            .select_one(SurrealNostrEventQueueStore::TABLE, messages[0].id.clone())
+            .await
+            .expect("could not load queued message");
+
+        let record = record.expect("queued message should exist");
+        assert!(record.completed);
+        assert!(!record.failed);
+        assert_eq!(
+            record.processing_started_at,
+            Timestamp::zero().to_datetime()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_requeue_failed_entry_resets_entry() {
+        let store = get_store().await;
+        store
+            .add_message(get_test_message("test_message"), 1)
+            .await
+            .expect("could not add message");
+
+        let messages = store
+            .get_retry_messages(1)
+            .await
+            .expect("could not get messages");
+
+        store
+            .fail_retry(&messages[0].id)
+            .await
+            .expect("could not mark retry as failed");
+
+        let record: Option<QueuedMessageDb> = store
+            .db
+            .select_one(SurrealNostrEventQueueStore::TABLE, messages[0].id.clone())
+            .await
+            .expect("could not load queued message");
+
+        let record = record.expect("queued message should exist");
+        assert!(record.completed);
+        assert!(record.failed);
+
+        store
+            .requeue_failed_entry(&messages[0].id)
+            .await
+            .expect("could not requeue failed entry");
+
+        let record: Option<QueuedMessageDb> = store
+            .db
+            .select_one(SurrealNostrEventQueueStore::TABLE, messages[0].id.clone())
+            .await
+            .expect("could not load queued message");
+
+        let record = record.expect("queued message should exist");
+        assert_eq!(record.num_retries, 0);
+        assert!(!record.completed);
+        assert!(!record.failed);
+        assert_eq!(
+            record.processing_started_at,
+            Timestamp::zero().to_datetime()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_non_succeeded_retry_messages() {
+        let store = get_store().await;
+        store
+            .add_message(get_test_message("test_message_succeed"), 1)
+            .await
+            .expect("could not add message");
+
+        store
+            .add_message(get_test_message("test_message_fail"), 1)
+            .await
+            .expect("could not add message");
+
+        let messages = store
+            .get_non_succeeded_retry_messages()
+            .await
+            .expect("could not get messages");
+        assert_eq!(messages.len(), 2);
+        assert!(matches!(messages[0].1, NostrQueuedMessageStatus::Pending));
+        assert!(matches!(messages[1].1, NostrQueuedMessageStatus::Pending));
+
+        // succeed one
+        store
+            .succeed_retry(&messages[0].0.id)
+            .await
+            .expect("could not mark retry as succeeded");
+
+        // succeeded shouldn't come back anymore
+        let messages = store
+            .get_non_succeeded_retry_messages()
+            .await
+            .expect("could not get messages");
+        assert_eq!(messages.len(), 1);
+        assert!(matches!(messages[0].1, NostrQueuedMessageStatus::Pending));
+
+        // fail one
+        store
+            .fail_retry(&messages[0].0.id)
+            .await
+            .expect("could not mark retry as failed");
+
+        // failed should come back as failed
+        let messages = store
+            .get_non_succeeded_retry_messages()
+            .await
+            .expect("could not get messages");
+        assert_eq!(messages.len(), 1);
+        assert!(matches!(messages[0].1, NostrQueuedMessageStatus::Failed));
+
+        // requeue
+        store
+            .requeue_failed_entry(&messages[0].0.id)
+            .await
+            .expect("could not requeue failed entry");
+
+        // requeued should come back as pending
+        let messages = store
+            .get_non_succeeded_retry_messages()
+            .await
+            .expect("could not get messages");
+        assert_eq!(messages.len(), 1);
+        assert!(matches!(messages[0].1, NostrQueuedMessageStatus::Pending));
     }
 
     async fn get_store() -> SurrealNostrEventQueueStore {

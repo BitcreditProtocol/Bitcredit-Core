@@ -518,6 +518,8 @@ mockall::mock! {
             bill_id: &BillId,
             blocks: &[BillBlock],
         ) -> Result<bool>;
+        async fn fetch_resend_queue_entries(&self) -> Result<Vec<bcr_ebill_core::application::nostr::ResendQueueEntry>>;
+        async fn requeue_resend_queue_entry(&self, id: &str) -> Result<()>;
     }
 }
 
@@ -791,6 +793,8 @@ mockall::mock! {
         async fn get_retry_messages(&self, limit: u64) -> bcr_ebill_persistence::Result<Vec<bcr_ebill_persistence::nostr::NostrQueuedMessage>>;
         async fn fail_retry(&self, id: &str) -> bcr_ebill_persistence::Result<()>;
         async fn succeed_retry(&self, id: &str) -> bcr_ebill_persistence::Result<()>;
+        async fn requeue_failed_entry(&self, id: &str) -> bcr_ebill_persistence::Result<()>;
+        async fn get_non_succeeded_retry_messages(&self) -> bcr_ebill_persistence::Result<Vec<(bcr_ebill_persistence::nostr::NostrQueuedMessage, bcr_ebill_persistence::nostr::NostrQueuedMessageStatus)>>;
     }
 }
 
