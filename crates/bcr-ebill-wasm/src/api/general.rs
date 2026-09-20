@@ -221,7 +221,7 @@ impl General {
         TSResult::res_to_js(res)
     }
 
-    #[wasm_bindgen(unchecked_return_type = "TSResult<()>")]
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
     pub async fn requeue_failed_resend_queue_entry(
         &self,
         #[wasm_bindgen(unchecked_param_type = "RequeueFailedResendMessagePayload")]
