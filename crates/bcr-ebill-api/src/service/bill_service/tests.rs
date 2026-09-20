@@ -7899,7 +7899,9 @@ fn minting_test_keyset() -> ecash::KeySet {
     )
     .unwrap();
     ecash::KeySet {
-        id: cdk02::Id::try_from("00c7b45973e5f0fc".to_owned()).unwrap(),
+        id: cdk02::Id::try_from("00c7b45973e5f0fc".to_owned())
+            .unwrap()
+            .into(),
         unit: bcr_common::cashu::CurrencyUnit::Sat,
         keys: bcr_common::cashu::Keys::new(
             (0..=10)

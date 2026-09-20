@@ -914,7 +914,7 @@ pub(crate) fn recover_blinds(
             .map_err(|_| Error::RecoveryData)?;
         blinded_messages.push(cashu::BlindedMessage::new(
             amount,
-            keyset.id,
+            keyset.id.into(),
             blinded_secret,
         ));
         secrets.push(secret);
