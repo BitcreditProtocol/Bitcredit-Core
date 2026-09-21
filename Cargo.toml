@@ -48,7 +48,7 @@ anyhow = { version = "1", default-features = false }
 thiserror = { version = "2", default-features = false }
 uuid = { version = "1", default-features = false, features = ["v4", "js"] }
 bitcoin = { version = "0.32.7", default-features = false, features = ["serde"] }
-bip39 = { version = "2.1", features = ["rand"] }
+bip39 = { version = "3.0", features = ["rand"] }
 ecies = { version = "0.2", default-features = false, features = ["pure"] }
 nostr = { version = "0.45", features = ["nip59"] }
 nostr-sdk = { version = "0.45" }
