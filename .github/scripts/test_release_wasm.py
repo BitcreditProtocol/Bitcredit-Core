@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """Exercise native npm packaging and simulated GitHub/npm failures without writes."""
 
-import base64
 import copy
-import hashlib
 import io
 import json
 import os
@@ -132,6 +130,21 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(remote.writes, before)
         self.assertFalse(remote.release["draft"])
         self.assertEqual(remote.integrity, remote.plan["integrity"])
+
+    def test_published_release_missing_an_asset_or_npm_stops_without_writes(self):
+        # Finishing a public release would contradict the draft-until-confirmed guarantee.
+        for missing in ("asset", "npm"):
+            with self.subTest(missing=missing):
+                remote = Remote(self.folder, self.ctx)
+                self.run_publish(remote)
+                before = list(remote.writes)
+                if missing == "asset":
+                    remote.assets.pop(next(iter(remote.assets)))
+                else:
+                    remote.integrity = None
+                with self.assertRaises(release.ReleaseError):
+                    self.run_publish(remote)
+                self.assertEqual(remote.writes, before)
 
     def test_process_stop_after_each_write_recovers_original_bytes(self):
         assets = ["asset:" + Path(name).name for name in json.loads((self.folder / release.PLAN).read_text())["files"]

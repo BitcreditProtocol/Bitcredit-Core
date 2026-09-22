@@ -18,3 +18,4 @@ target/
 .idea/
 .worktrees/
 Cargo.lock
+__pycache__/

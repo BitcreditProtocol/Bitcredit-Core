@@ -50,7 +50,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 .github/scripts/release_wasm.py restore "$RUNNER_TEMP/release-package"
 
-      - name: Create Github App token
+      - name: Create GitHub App token
         if: steps.package.outputs.restored != 'true'
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0

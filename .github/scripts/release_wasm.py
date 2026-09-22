@@ -211,7 +211,10 @@ def validate(folder, ctx):
     if plan.get("integrity") != integrity or plan.get("registry_version") != canonical_version(ctx["version"]):
         raise ReleaseError("Invalid package integrity or registry version")
     with tarfile.open(folder / "package.tgz", "r:gz") as archive:
-        package = json.load(archive.extractfile("package/package.json"))
+        manifest = archive.extractfile("package/package.json")
+        if manifest is None:
+            raise ReleaseError("Saved npm manifest is unreadable")
+        package = json.load(manifest)
         for name in ("index.js", "index.d.ts", "index_bg.wasm"):
             member = archive.getmember("package/" + name)
             if not member.isfile() or member.size == 0:
@@ -342,10 +345,15 @@ def publish(folder, ctx):
         raise ReleaseError("npm version contains different bytes")
     existing = release(ctx)
     # Complete all initial reads before creating the first external object.
+    complete = True
     if existing:
         for name, info in plan["files"].items():
-            if name.startswith("assets/"):
-                matching_asset(ctx, existing["id"], Path(name).name, info)
+            if name.startswith("assets/") and not matching_asset(ctx, existing["id"], Path(name).name, info):
+                complete = False
+    # A published release is only safe to rerun when nothing is left to write. Finishing an
+    # incomplete one would publish assets and npm bytes while the release is already public.
+    if existing and not existing["draft"] and not (complete and current_npm is not None):
+        raise ReleaseError("Published release is incomplete; rerun the original run that created it")
     if current is None:
         write_once(
             lambda: gh(f"repos/{ctx['repository']}/git/refs", method="POST",
@@ -391,6 +399,8 @@ def publish(folder, ctx):
 
 
 def main():
+    if len(sys.argv) < 3:
+        raise ReleaseError("Usage: release_wasm.py <restore|prepare|publish> <folder> [source]")
     action = sys.argv[1]
     folder = Path(sys.argv[2]).resolve()
     ctx = context()
@@ -399,6 +409,8 @@ def main():
         with open(os.environ["GITHUB_OUTPUT"], "a") as stream:
             stream.write(f"restored={'true' if restored else 'false'}\n")
     elif action == "prepare":
+        if len(sys.argv) < 4:
+            raise ReleaseError("Preparation requires the built package folder")
         prepare(folder, Path(sys.argv[3]).resolve(), ctx)
     elif action == "publish":
         if os.environ.get("GITHUB_EVENT_NAME") != "workflow_dispatch":
