@@ -54,7 +54,7 @@ pub mod tests {
         identity::{IdentityChainStoreApi, IdentityStoreApi},
         mint::MintStoreApi,
         nostr::{
-            NostrChainEvent, NostrChainEventStoreApi, NostrQueuedMessage,
+            NostrChainEvent, NostrChainEventStoreApi, NostrQueuedMessage, NostrQueuedMessageStatus,
             NostrQueuedMessageStoreApi, RelaySyncStatus, SyncStatus,
         },
         notification::NotificationFilter,
@@ -133,6 +133,7 @@ pub mod tests {
                 discounted_sum: Sum,
             ) -> Result<()>;
             async fn get_offer(&self, mint_request_id: &Uuid) -> Result<Option<MintOffer>>;
+            async fn dev_mode_reset_for_bill(&self, bill_id: &BillId) -> Result<()>;
         }
     }
 
@@ -372,6 +373,8 @@ pub mod tests {
             async fn get_retry_messages(&self, limit: u64) -> Result<Vec<NostrQueuedMessage>>;
             async fn fail_retry(&self, id: &str) -> Result<()>;
             async fn succeed_retry(&self, id: &str) -> Result<()>;
+            async fn requeue_failed_entry(&self, id: &str) -> Result<()>;
+            async fn get_non_succeeded_retry_messages(&self) -> Result<Vec<(NostrQueuedMessage, NostrQueuedMessageStatus)>>;
         }
     }
 

@@ -6,6 +6,7 @@ use bcr_ebill_api::service::file_upload_service::{
 use bcr_ebill_core::{
     application::{
         GeneralSearchFilterItemType, GeneralSearchResult, UploadFileResult, ValidationError,
+        nostr::{ResendQueueEntry, ResendQueueEntryStatus},
     },
     protocol::{
         Address, City, Country, Date, EditOptionalFieldMode, File, Name, OptionalPostalAddress,
@@ -384,6 +385,53 @@ pub struct MempoolLinkResponse {
 #[derive(Tsify, Debug, Serialize, Clone)]
 pub struct LinkToPayResponse {
     pub link_to_pay: String,
+}
+
+#[derive(Tsify, Debug, Deserialize, Clone)]
+pub struct RequeueFailedResendMessagePayload {
+    pub id: String,
+}
+
+#[derive(Tsify, Debug, Serialize, Clone)]
+pub struct ResendQueueEntryWeb {
+    pub id: String,
+    #[tsify(type = "string")]
+    pub sender_id: NodeId,
+    pub event_type: String,
+    pub status: ResendQueueEntryStatusWeb,
+    #[tsify(type = "string | undefined")]
+    pub recipient: Option<NodeId>,
+    pub block_height: Option<usize>,
+    pub block_op_code: Option<String>,
+}
+
+impl From<ResendQueueEntry> for ResendQueueEntryWeb {
+    fn from(value: ResendQueueEntry) -> Self {
+        ResendQueueEntryWeb {
+            id: value.id,
+            sender_id: value.sender_id,
+            event_type: value.event_type,
+            status: value.status.into(),
+            recipient: value.recipient,
+            block_height: value.block_height,
+            block_op_code: value.block_op_code,
+        }
+    }
+}
+
+#[derive(Tsify, Debug, Clone, Serialize)]
+pub enum ResendQueueEntryStatusWeb {
+    Pending,
+    Failed,
+}
+
+impl From<ResendQueueEntryStatus> for ResendQueueEntryStatusWeb {
+    fn from(value: ResendQueueEntryStatus) -> Self {
+        match value {
+            ResendQueueEntryStatus::Pending => ResendQueueEntryStatusWeb::Pending,
+            ResendQueueEntryStatus::Failed => ResendQueueEntryStatusWeb::Failed,
+        }
+    }
 }
 
 // Checks if the given JS Value has the given field - also works with nested fields like postal_address.zip

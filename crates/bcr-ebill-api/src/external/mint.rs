@@ -247,7 +247,7 @@ impl MintClientApi for MintClient {
         );
         let currency = self
             .client(mint_url)?
-            .keyset_info(keyset.id)
+            .keyset_info(keyset.id.into())
             .await
             .map_err(|e| {
                 log::error!("Error getting keyset info from {mint_url}: {e}");
@@ -458,7 +458,7 @@ pub fn generate_blinds(
 }
 
 pub fn generate_blind(
-    kid: cashu::Id,
+    kid: ecash::Id,
     amount: cashu::Amount,
 ) -> Result<(
     cashu::BlindedMessage,
@@ -468,7 +468,11 @@ pub fn generate_blind(
     let secret = cashu::secret::Secret::new(hex::encode(rand::random::<[u8; 32]>()));
     let (b_, r) =
         cashu::dhke::blind_message(secret.as_bytes(), None).map_err(|_| Error::BlindMessage)?;
-    Ok((cashu::BlindedMessage::new(amount, kid, b_), secret, r))
+    Ok((
+        cashu::BlindedMessage::new(amount, kid.into(), b_),
+        secret,
+        r,
+    ))
 }
 
 #[derive(Debug, Clone)]

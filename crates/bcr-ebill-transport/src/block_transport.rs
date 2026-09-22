@@ -7,8 +7,10 @@ use crate::handler::{
 use crate::nostr_transport::NostrTransportService;
 use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
-use bcr_ebill_api::service::transport_service::BlockTransportServiceApi;
-use bcr_ebill_core::application::ServiceTraitBounds;
+use bcr_ebill_api::get_config;
+use bcr_ebill_api::service::transport_service::{BlockTransportServiceApi, ResyncMode};
+use bcr_ebill_core::application::nostr::ResendQueueEntry;
+use bcr_ebill_core::application::{ServiceTraitBounds, ValidationError};
 use bcr_ebill_core::protocol::Sha256Hash;
 use bcr_ebill_core::protocol::blockchain::BlockchainType;
 use bcr_ebill_core::protocol::blockchain::bill::BillBlock;
@@ -290,9 +292,20 @@ impl BlockTransportServiceApi for BlockTransportService {
 
     /// Resync bill chain. If `from_nostr` is true, fetches missing blocks from Nostr first.
     /// If false, only invalidates the local cache.
-    async fn resync_bill_chain(&self, bill_id: &BillId, from_nostr: bool) -> Result<()> {
+    async fn resync_bill_chain(
+        &self,
+        bill_id: &BillId,
+        from_nostr: bool,
+        mode: ResyncMode,
+    ) -> Result<()> {
+        // if dev mode is off - we return an error
+        if matches!(mode, ResyncMode::NostrAuthoritative) && !get_config().dev_mode_config.on {
+            error!("Called dev mode operation with dev mode disabled - please enable!");
+            return Err(Error::Validation(ValidationError::InvalidOperation));
+        }
+
         self.bill_chain_event_processor
-            .resync_chain(bill_id, from_nostr)
+            .resync_chain(bill_id, from_nostr, mode)
             .await?;
         Ok(())
     }
@@ -360,6 +373,14 @@ impl BlockTransportServiceApi for BlockTransportService {
         }
         // didn't find all blocks exactly in any chain - invalid
         Ok(false)
+    }
+
+    async fn fetch_resend_queue_entries(&self) -> Result<Vec<ResendQueueEntry>> {
+        self.nostr_transport.fetch_resend_queue_entries().await
+    }
+
+    async fn requeue_resend_queue_entry(&self, id: &str) -> Result<()> {
+        self.nostr_transport.requeue_resend_queue_entry(id).await
     }
 }
 

@@ -19,7 +19,7 @@ use crate::{
         BalanceResponse, BinaryFileResponse, BtcAddressAndSumPayload, BtcAddressPayload,
         CurrenciesResponse, CurrencyResponse, GeneralSearchFilterPayload, GeneralSearchResponse,
         LinkToPayResponse, MempoolLinkResponse, OverviewBalanceResponse, OverviewResponse,
-        StatusResponse,
+        RequeueFailedResendMessagePayload, ResendQueueEntryWeb, StatusResponse,
     },
     is_transport_connected,
 };
@@ -202,6 +202,39 @@ impl General {
             Ok(MempoolLinkResponse {
                 mempool_link: get_ctx().bill_service.mempool_link(&parsed_addr),
             })
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "TSResult<ResendQueueEntryWeb[]>")]
+    pub async fn fetch_resend_queue_entries(&self) -> JsValue {
+        let res: Result<Vec<ResendQueueEntryWeb>> = async {
+            let result = get_ctx()
+                .transport_service
+                .block_transport()
+                .fetch_resend_queue_entries()
+                .await?;
+            Ok(result.into_iter().map(|e| e.into()).collect())
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+
+    #[wasm_bindgen(unchecked_return_type = "TSResult<()>")]
+    pub async fn requeue_failed_resend_queue_entry(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "RequeueFailedResendMessagePayload")]
+        payload: JsValue,
+    ) -> JsValue {
+        let res: Result<()> = async {
+            let pl: RequeueFailedResendMessagePayload = serde_wasm_bindgen::from_value(payload)?;
+            get_ctx()
+                .transport_service
+                .block_transport()
+                .requeue_resend_queue_entry(&pl.id)
+                .await?;
+            Ok(())
         }
         .await;
         TSResult::res_to_js(res)

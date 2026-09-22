@@ -57,6 +57,14 @@
         </div>
     </div>
     <div>
+        <h2>Resend Queue Testing</h2>
+        <div>
+            <button type="button" id="fetch_resend_queue_entries">Fetch Resend Queue Entries</button>
+            Resend Queue Entry Id: <input type="text" id="resend_queue_entry_id"/>
+            <button type="button" id="requeue_resend_queue_entry">Requeue Resend Queue Entry</button>
+        </div>
+    </div>
+    <div>
         <h2>Identity Testing</h2>
         <div>Personal identity: <span id="identity"></span></div>
         <div>Active identity: <span id="current_identity"></span></div>
@@ -211,6 +219,7 @@
             <button type="button" id="request_to_mint">Request to Mint</button>
             <button type="button" id="get_mint_state">Get Mint State</button>
             <button type="button" id="check_mint_state">Check Mint State</button>
+            <button type="button" id="dev_mode_reset_mint_state">Reset Mint State (Dev Mode)</button>
             <br />
              Mint Request Id: <input type="text" id="mint_req_id"/>
             <button type="button" id="cancel_req_to_mint">Cancel Mint Request</button>
@@ -246,6 +255,7 @@
             <button type="button" id="bitcoin_keys">Get BTC Keys</button>
             <button type="button" id="sync_bill_chain">Sync Bill Chain</button>
             <button type="button" id="sync_bill_chain_from_nostr">Sync Bill Chain From Nostr</button>
+            <button type="button" id="override_bill_chain_from_nostr">Override Bill Chain From Nostr</button>
             <div>Execution Time: <span id="bill_execution_time"></div>
             <div>Results: <span id="bill_results"></div>
             <img id="bill_attached_file"/>

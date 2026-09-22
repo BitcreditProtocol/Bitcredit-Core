@@ -16,6 +16,10 @@ document.getElementById("get_active_notif_status").addEventListener("click", get
 document.getElementById("get_notif_list").addEventListener("click", getNotifList);
 document.getElementById("get_email_notifications_preferences_link").addEventListener("click", get_email_notifications_preferences_link);
 
+// resend queue
+document.getElementById("fetch_resend_queue_entries").addEventListener("click", fetchResendQueueEntries);
+document.getElementById("requeue_resend_queue_entry").addEventListener("click", requeueResendQueueEntry);
+
 // contacts
 document.getElementById("contact_test").addEventListener("click", triggerContact);
 document.getElementById("contact_test_anon").addEventListener("click", triggerAnonContact);
@@ -74,6 +78,7 @@ document.getElementById("reject_recourse").addEventListener("click", rejectRecou
 document.getElementById("request_to_mint").addEventListener("click", requestToMint);
 document.getElementById("get_mint_state").addEventListener("click", getMintState);
 document.getElementById("check_mint_state").addEventListener("click", checkMintState);
+document.getElementById("dev_mode_reset_mint_state").addEventListener("click", devModeResetMintState);
 document.getElementById("cancel_req_to_mint").addEventListener("click", cancelRegToMint);
 document.getElementById("accept_mint_offer").addEventListener("click", acceptMintOffer);
 document.getElementById("reject_mint_offer").addEventListener("click", rejectMintOffer);
@@ -84,6 +89,7 @@ document.getElementById("clear_bill_cache").addEventListener("click", clearBillC
 document.getElementById("bitcoin_keys").addEventListener("click", getBitcoinKeys);
 document.getElementById("sync_bill_chain").addEventListener("click", syncBillChain);
 document.getElementById("sync_bill_chain_from_nostr").addEventListener("click", syncBillChainFromNostr);
+document.getElementById("override_bill_chain_from_nostr").addEventListener("click", overrideBillChainFromNostr);
 document.getElementById("dev_mode_get_bill_chain").addEventListener("click", devModeGetBillChain);
 document.getElementById("share_bill_with_court").addEventListener("click", shareBillWithCourt);
 document.getElementById("mempool_link").addEventListener("click", mempoolLink);
@@ -771,6 +777,14 @@ async function checkMintState() {
   await measured();
 }
 
+async function devModeResetMintState() {
+  let bill_id = document.getElementById("endorse_bill_id").value;
+  let measured = measure(async () => {
+    return success_or_fail(await window.billApi.dev_mode_reset_bill_mint_quote_state({ bill_id }));
+  });
+  await measured();
+}
+
 async function cancelRegToMint() {
   let mint_request_id = document.getElementById("mint_req_id").value;
   let measured = measure(async () => {
@@ -894,6 +908,15 @@ async function syncBillChainFromNostr() {
   console.log("syncBillChain from Nostr", bill_id);
   let measured = measure(async () => {
     return success_or_fail(await window.billApi.sync_bill_chain({ bill_id: bill_id, from_nostr: true }));
+  });
+  await measured();
+}
+
+async function overrideBillChainFromNostr() {
+  let bill_id = document.getElementById("bill_id").value;
+  console.log("overrideBillChain from Nostr", bill_id);
+  let measured = measure(async () => {
+    return success_or_fail(await window.billApi.dev_mode_override_bill_chain_from_nostr({ bill_id: bill_id }));
   });
   await measured();
 }
@@ -1233,6 +1256,21 @@ async function getNotifList() {
 async function get_email_notifications_preferences_link() {
   let measured = measure(async () => {
     return success_or_fail(await window.notifApi.get_email_notifications_preferences_link());
+  });
+  await measured();
+}
+
+async function fetchResendQueueEntries() {
+  let measured = measure(async () => {
+    return success_or_fail(await window.generalApi.fetch_resend_queue_entries({}));
+  });
+  await measured();
+}
+
+async function requeueResendQueueEntry() {
+  let id = document.getElementById("resend_queue_entry_id").value;
+  let measured = measure(async () => {
+    return success_or_fail(await window.generalApi.requeue_failed_resend_queue_entry({ id }));
   });
   await measured();
 }
