@@ -28,9 +28,10 @@ Full gate before every PR; the workspace suite is one command:
     just wasm    # wasm-pack dev build alone — the fast wasm32 compile check
 
 Needs `wasm-pack` and `cargo-deny` on PATH ([docs/wasm.md](docs/wasm.md) covers wasm-pack).
-CI does not use `just`: `Rust CI` marks fmt, clippy and deny `continue-on-error` and
-`Test coverage` runs `cargo test --workspace`, so a green CI does not prove clippy or fmt
-passed — `just check` is where they are enforced, and the PR checklist asks for both.
+CI does not use `just`: `Rust CI` fails on fmt, deny and clippy errors, but runs clippy without
+`--all-targets -D warnings`, and `Test coverage` runs `cargo test --workspace`, so a green CI
+does not prove clippy warnings are clean — `just check` is where they are enforced, and the PR
+checklist asks for both.
 
 - Tests run natively only; `#[cfg(target_arch = "wasm32")]` branches are compile-checked by
   the wasm build and never executed (there is no `wasm-bindgen-test`).
