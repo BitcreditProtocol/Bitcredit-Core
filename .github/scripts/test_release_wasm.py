@@ -85,6 +85,7 @@ class Remote:
             return subprocess.CompletedProcess(args, 0, b"", b"")
         if args[:2] == ["npm", "publish"]:
             self.integrity = self.plan["integrity"]
+            self.npm_tag = args[args.index("--tag") + 1]
             try:
                 self.wrote("npm")
             except release.ReleaseError:
@@ -118,9 +119,9 @@ class ReleaseTests(unittest.TestCase):
         with patch.object(release, "gh", side_effect=remote.gh), \
                 patch.object(release, "command", side_effect=remote.command), \
                 patch.object(release, "npm_integrity", side_effect=lambda *args: remote.integrity), \
-                patch.object(release, "canonical_version", return_value="1.2.3"), \
+                patch.object(release, "canonical_version", return_value=remote.plan["registry_version"]), \
                 patch.object(release, "note"):
-            release.publish(self.folder, self.ctx)
+            release.publish(remote.folder, remote.ctx)
 
     def test_success_and_complete_repeat_preserve_every_write(self):
         remote = Remote(self.folder, self.ctx)
@@ -348,6 +349,24 @@ class ReleaseTests(unittest.TestCase):
             plan = release.validate(folder, ctx)
             self.assertEqual(plan["version"], "1.2.3+build.7")
             self.assertEqual(plan["registry_version"], "1.2.3")
+
+    def test_hotfix_version_publishes_to_npm_latest_as_a_normal_release(self):
+        # Production hotfixes carry a version suffix (docs/versioning.md); they must still move npm latest.
+        ctx = {**self.ctx, "version": "1.2.3-1", "tag": "v1.2.3-1"}
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source"
+            source.mkdir()
+            for path in self.source.iterdir():
+                (source / path.name).write_bytes(path.read_bytes())
+            package = json.loads((source / "package.json").read_text())
+            package["version"] = ctx["version"]
+            (source / "package.json").write_text(json.dumps(package))
+            folder = Path(tmp) / "saved"
+            release.prepare(folder, source, ctx)
+            remote = Remote(folder, ctx)
+            self.run_publish(remote)
+        self.assertEqual(remote.npm_tag, "latest")
+        self.assertFalse(remote.release["prerelease"])
 
 
 if __name__ == "__main__":

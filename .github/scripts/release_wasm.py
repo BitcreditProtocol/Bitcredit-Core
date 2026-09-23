@@ -378,11 +378,12 @@ def publish(folder, ctx):
             if result.returncode:
                 raise ReleaseError("Asset upload response failed")
         write_once(upload, lambda: matching_asset(ctx, existing["id"], Path(name).name, info), "Asset " + Path(name).name)
-    prerelease = "-" in ctx["version"].split("+", 1)[0]
+    # A version suffix marks a production hotfix (docs/versioning.md), not a prerelease:
+    # every version moves npm latest and becomes a normal GitHub release.
     if current_npm is None:
         def upload_npm():
             result = command(["npm", "publish", str((folder / "package.tgz").resolve()), "--registry", REGISTRY,
-                              "--access", "public", "--provenance", "--ignore-scripts", "--tag", "next" if prerelease else "latest"])
+                              "--access", "public", "--provenance", "--ignore-scripts", "--tag", "latest"])
             if result.returncode:
                 raise ReleaseError("npm publication response failed")
         write_once(upload_npm, lambda: npm_integrity(ctx["package_name"], plan["registry_version"]) == plan["integrity"],
@@ -392,7 +393,7 @@ def publish(folder, ctx):
     if existing["draft"]:
         write_once(
             lambda: gh(f"repos/{ctx['repository']}/releases/{existing['id']}", method="PATCH",
-                       data={"draft": False, "prerelease": prerelease}),
+                       data={"draft": False, "prerelease": False}),
             lambda: release(ctx)["draft"] is False, "Final GitHub release",
         )
     note(f"Release {ctx['tag']} is complete for saved run {ctx['run_id']}.")

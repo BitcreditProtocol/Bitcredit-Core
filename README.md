@@ -75,7 +75,7 @@ write response is checked against remote state before continuing. Conflicting
 content or an unavailable artifact after publication starts stops recovery; do
 not move tags or overwrite assets.
 The GitHub release stays draft until its assets and npm integrity are confirmed.
-Stable versions use npm `latest`; prereleases use `next`.
+Every version, hotfixes included, uses npm `latest` and a normal GitHub release.
 
 GitHub allows native reruns for 30 days after the original run. Keeping the
 artifact for 90 days does not extend that window. Beyond it, retain the evidence
