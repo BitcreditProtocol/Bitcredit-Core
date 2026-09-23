@@ -1,6 +1,6 @@
 use crate::handler::public_chain_helpers::{
-    BlockData, EventContainer, find_first_difference, is_fork_block, resolve_event_chains,
-    resolve_fork,
+    BlockData, EventContainer, chain_matches_local, find_first_difference, is_fork_block,
+    resolve_event_chains, resolve_fork,
 };
 use crate::{Error, Result};
 use async_trait::async_trait;
@@ -29,6 +29,7 @@ use bcr_ebill_persistence::{
 };
 use bitcoin::secp256k1::PublicKey;
 use log::{debug, error, info, warn};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use super::inbound_file_anchor::{anchor_important_file, bill_file_context};
@@ -171,6 +172,99 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
                             ResyncMode::NostrAuthoritative => {
                                 find_first_difference(existing_chain.blocks(), &blocks)
                             }
+
+                            // In this mode, we don't care about local, or remote chain divergences, we're just adding missing metadata for local, unpublished blocks
+                            ResyncMode::OnlyMissingMetadata { ref up_to_hash } => {
+                                let Some(local_chain_end) = existing_chain
+                                    .blocks()
+                                    .iter()
+                                    .position(|block| block.hash() == up_to_hash)
+                                else {
+                                    return Err(Error::Blockchain(format!(
+                                        "Could not restore Nostr metadata for bill {bill_id}: block with hash {up_to_hash} does not exist in the local chain"
+                                    )));
+                                };
+                                let local_blocks = &existing_chain.blocks()[..=local_chain_end];
+
+                                // we're only interested in remote chains with the same blocks we have locally
+                                if !chain_matches_local(local_blocks, &blocks) {
+                                    continue;
+                                }
+
+                                let existing_events = match self
+                                    .chain_event_store
+                                    .find_chain_events(&bill_id.to_string(), BlockchainType::Bill)
+                                    .await
+                                {
+                                    Ok(ev) => ev,
+                                    Err(e) => {
+                                        error!(
+                                            "Failed to fetch chain events for bill {bill_id}: {e}"
+                                        );
+                                        return Err(Error::Persistence(format!(
+                                            "Failed to fetch chain events for bill {bill_id}: {e}"
+                                        )));
+                                    }
+                                };
+
+                                let existing_block_hashes: HashSet<_> = existing_events
+                                    .iter()
+                                    .map(|event| event.block_hash.clone())
+                                    .collect();
+
+                                let mut events_added = 0;
+                                // match local blocks and event containers - these are guaranteed to match because of
+                                // the chain_matches_local check above
+                                for (local_block, event_container) in
+                                    local_blocks
+                                        .iter()
+                                        .zip(data.iter().filter(|event_container| {
+                                            matches!(event_container.block, BlockData::Bill(_))
+                                        }))
+                                {
+                                    let BlockData::Bill(remote_block) = &event_container.block
+                                    else {
+                                        continue;
+                                    };
+
+                                    // if we have the block as a chain event - continue
+                                    if existing_block_hashes.contains(&local_block.hash) {
+                                        continue;
+                                    }
+
+                                    // otherwise, add it
+                                    let event = event_container.as_chain_store_event(
+                                        &bill_id.to_string(),
+                                        BlockchainType::Bill,
+                                        remote_block.id.inner() as usize,
+                                    );
+
+                                    self.chain_event_store
+                                            .add_chain_event(event)
+                                            .await
+                                            .map_err(|e| {
+                                                error!(
+                                                    "Failed to restore missing chain event for bill {bill_id}, block {}: {e}",
+                                                    local_block.id
+                                                );
+
+                                                Error::Persistence(format!(
+                                                        "Failed to restore missing chain event for bill {bill_id}, block {}: {e}",
+                                                        local_block.id
+                                                ))
+                                            })?;
+
+                                    events_added += 1;
+                                }
+
+                                if events_added > 0 {
+                                    info!(
+                                        "Restored {events_added} missing Nostr chain event(s) for bill {bill_id} up to block hash {up_to_hash}"
+                                    );
+                                }
+
+                                return Ok(());
+                            }
                         };
 
                         if matches!(mode, ResyncMode::NostrAuthoritative)
@@ -266,6 +360,15 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
                                 continue;
                             }
                         }
+                    }
+
+                    // if we get here, that means we didn't find a matching chain on nostr to update metadata
+                    if matches!(mode, ResyncMode::OnlyMissingMetadata { .. }) {
+                        let message = format!(
+                            "Could not restore Nostr metadata for bill {bill_id}: no Nostr chain matches the local bill chain"
+                        );
+                        error!("{message}");
+                        return Err(Error::Blockchain(message));
                     }
 
                     debug!("finished bill chain resync for {bill_id}");
@@ -3065,5 +3168,674 @@ mod tests {
             Error::Crypto(msg) => assert!(msg.contains("don't match")),
             other => panic!("unexpected error: {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn test_resync_chain_only_missing_metadata_restores_missing_event() {
+        let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+
+        let bcr_keys = BcrKeys::from_private_key(&private_key_test());
+        let bill_id = BillId::new(bcr_keys.pub_key(), bitcoin::Network::Testnet);
+        let bill = get_test_bitcredit_bill(&bill_id, &payer, &payee, None, None);
+
+        let genesis_chain = get_genesis_chain(Some(bill));
+
+        let ts = genesis_chain.get_latest_block().timestamp + 1000;
+        let block1 = BillBlock::create_block_for_request_to_accept(
+            bill_id.clone(),
+            genesis_chain.get_latest_block(),
+            &BillRequestToAcceptBlockData {
+                requester: BillParticipantBlockData::Ident(payer.clone().into()),
+                signatory: None,
+                signing_timestamp: ts,
+                signing_address: Some(empty_address()),
+                signer_identity_proof: Some(signed_identity_proof_test().into()),
+                acceptance_deadline_timestamp: ts + 2 * ACCEPT_DEADLINE_SECONDS,
+            },
+            &bcr_keys,
+            None,
+            &bcr_keys,
+            ts,
+        )
+        .unwrap();
+
+        let mut local_chain = genesis_chain.clone();
+        assert!(local_chain.try_add_block(block1.clone()));
+
+        let genesis_block = genesis_chain.get_latest_block().clone();
+
+        let event0 = generate_test_event(
+            &bcr_keys,
+            None,
+            None,
+            as_event_payload(&bill_id, &genesis_block),
+            &bill_id,
+        );
+
+        let event1 = generate_test_event(
+            &bcr_keys,
+            Some(event0.clone()),
+            Some(event0.clone()),
+            as_event_payload(&bill_id, &block1),
+            &bill_id,
+        );
+
+        let nostr_events = vec![event0.clone(), event1.clone()];
+
+        // Genesis metadata already exists locally.
+        let existing_genesis_event = EventContainer::new(
+            event0.clone(),
+            None,
+            None,
+            BlockData::Bill(genesis_block.clone()),
+        )
+        .as_chain_store_event(
+            &bill_id.to_string(),
+            BlockchainType::Bill,
+            genesis_block.id.inner() as usize,
+        );
+
+        let (mut bill_chain_store, mut bill_store, contact, mut transport, mut chain_event_store) =
+            create_mocks();
+
+        let local_chain_clone = local_chain.clone();
+        bill_chain_store
+            .expect_get_chain()
+            .with(eq(bill_id.clone()))
+            .times(1)
+            .returning(move |_| Ok(local_chain_clone.clone()));
+
+        // Metadata-only sync must never alter the bill blockchain
+        bill_chain_store.expect_remove_blocks_from_height().times(0);
+
+        bill_chain_store.expect_add_block().times(0);
+
+        let keys_for_store = bcr_keys.clone();
+        bill_store
+            .expect_get_keys()
+            .times(1)
+            .returning(move |_| Ok(keys_for_store.clone()));
+
+        bill_store
+            .expect_is_paid()
+            .times(1)
+            .returning(|_| Ok(false));
+
+        // Metadata changes don't affect cached bill state
+        bill_store.expect_invalidate_bill_in_cache().times(0);
+
+        transport
+            .expect_resolve_public_chain()
+            .with(eq(bill_id.to_string()), eq(BlockchainType::Bill))
+            .times(1)
+            .returning(move |_, _| Ok(nostr_events.clone()));
+
+        chain_event_store
+            .expect_find_chain_events()
+            .with(eq(bill_id.to_string()), eq(BlockchainType::Bill))
+            .times(1)
+            .returning(move |_, _| Ok(vec![existing_genesis_event.clone()]));
+
+        // Metadata-only recovery never clear existing metadata
+        chain_event_store.expect_remove_chain_events().times(0);
+
+        let expected_hash = block1.hash.clone();
+        let expected_height = block1.id.inner() as usize;
+
+        chain_event_store
+            .expect_add_chain_event()
+            .withf(move |event| {
+                event.block_hash == expected_hash && event.block_height == expected_height
+            })
+            .times(1)
+            .returning(|_| Ok(()));
+
+        let handler = BillChainEventProcessor::new(
+            Arc::new(bill_chain_store),
+            Arc::new(bill_store),
+            Arc::new(MockFileReferenceStore::new()),
+            Arc::new(contact),
+            Arc::new(chain_event_store),
+            Arc::new(transport),
+            Arc::new(MockMintClient::new()),
+            bitcoin::Network::Testnet,
+        );
+
+        handler
+            .resync_chain(
+                &bill_id,
+                true,
+                ResyncMode::OnlyMissingMetadata {
+                    up_to_hash: local_chain.get_latest_block().hash().to_owned(),
+                },
+            )
+            .await
+            .expect("missing Nostr metadata should be restored");
+    }
+
+    #[tokio::test]
+    async fn test_resync_chain_only_missing_metadata_does_not_rewrite_existing_event() {
+        let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+
+        let bcr_keys = BcrKeys::from_private_key(&private_key_test());
+        let bill_id = BillId::new(bcr_keys.pub_key(), bitcoin::Network::Testnet);
+        let bill = get_test_bitcredit_bill(&bill_id, &payer, &payee, None, None);
+
+        let local_chain = get_genesis_chain(Some(bill));
+        let genesis = local_chain.get_latest_block().clone();
+
+        let event0 = generate_test_event(
+            &bcr_keys,
+            None,
+            None,
+            as_event_payload(&bill_id, &genesis),
+            &bill_id,
+        );
+
+        let existing_event =
+            EventContainer::new(event0.clone(), None, None, BlockData::Bill(genesis.clone()))
+                .as_chain_store_event(
+                    &bill_id.to_string(),
+                    BlockchainType::Bill,
+                    genesis.id.inner() as usize,
+                );
+
+        let (mut bill_chain_store, mut bill_store, contact, mut transport, mut chain_event_store) =
+            create_mocks();
+
+        let local_chain_clone = local_chain.clone();
+        bill_chain_store
+            .expect_get_chain()
+            .times(1)
+            .returning(move |_| Ok(local_chain_clone.clone()));
+
+        bill_chain_store.expect_add_block().times(0);
+        bill_chain_store.expect_remove_blocks_from_height().times(0);
+
+        let keys_for_store = bcr_keys.clone();
+        bill_store
+            .expect_get_keys()
+            .times(1)
+            .returning(move |_| Ok(keys_for_store.clone()));
+
+        bill_store.expect_is_paid().returning(|_| Ok(false));
+        bill_store.expect_invalidate_bill_in_cache().times(0);
+
+        transport
+            .expect_resolve_public_chain()
+            .returning(move |_, _| Ok(vec![event0.clone()]))
+            .times(1);
+
+        chain_event_store
+            .expect_find_chain_events()
+            .times(1)
+            .returning(move |_, _| Ok(vec![existing_event.clone()]));
+
+        chain_event_store.expect_add_chain_event().times(0);
+
+        chain_event_store.expect_remove_chain_events().times(0);
+
+        let handler = BillChainEventProcessor::new(
+            Arc::new(bill_chain_store),
+            Arc::new(bill_store),
+            Arc::new(MockFileReferenceStore::new()),
+            Arc::new(contact),
+            Arc::new(chain_event_store),
+            Arc::new(transport),
+            Arc::new(MockMintClient::new()),
+            bitcoin::Network::Testnet,
+        );
+
+        handler
+            .resync_chain(
+                &bill_id,
+                true,
+                ResyncMode::OnlyMissingMetadata {
+                    up_to_hash: genesis.hash().to_owned(),
+                },
+            )
+            .await
+            .expect("should be a no-op");
+    }
+
+    #[tokio::test]
+    async fn test_resync_chain_only_missing_metadata_ignores_remote_tail() {
+        let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+
+        let bcr_keys = BcrKeys::from_private_key(&private_key_test());
+        let bill_id = BillId::new(bcr_keys.pub_key(), bitcoin::Network::Testnet);
+        let bill = get_test_bitcredit_bill(&bill_id, &payer, &payee, None, None);
+
+        let local_chain = get_genesis_chain(Some(bill));
+        let genesis = local_chain.get_latest_block().clone();
+
+        let ts = genesis.timestamp + 1000;
+        let remote_block = BillBlock::create_block_for_request_to_accept(
+            bill_id.clone(),
+            &genesis,
+            &BillRequestToAcceptBlockData {
+                requester: BillParticipantBlockData::Ident(payer.clone().into()),
+                signatory: None,
+                signing_timestamp: ts,
+                signing_address: Some(empty_address()),
+                signer_identity_proof: Some(signed_identity_proof_test().into()),
+                acceptance_deadline_timestamp: ts + 2 * ACCEPT_DEADLINE_SECONDS,
+            },
+            &bcr_keys,
+            None,
+            &bcr_keys,
+            ts,
+        )
+        .unwrap();
+
+        let event0 = generate_test_event(
+            &bcr_keys,
+            None,
+            None,
+            as_event_payload(&bill_id, &genesis),
+            &bill_id,
+        );
+
+        let event1 = generate_test_event(
+            &bcr_keys,
+            Some(event0.clone()),
+            Some(event0.clone()),
+            as_event_payload(&bill_id, &remote_block),
+            &bill_id,
+        );
+
+        let (mut bill_chain_store, mut bill_store, contact, mut transport, mut chain_event_store) =
+            create_mocks();
+
+        let local_chain_clone = local_chain.clone();
+        bill_chain_store
+            .expect_get_chain()
+            .times(1)
+            .returning(move |_| Ok(local_chain_clone.clone()));
+
+        bill_chain_store.expect_add_block().times(0);
+        bill_chain_store.expect_remove_blocks_from_height().times(0);
+
+        let keys_for_store = bcr_keys.clone();
+        bill_store
+            .expect_get_keys()
+            .times(1)
+            .returning(move |_| Ok(keys_for_store.clone()));
+
+        bill_store.expect_is_paid().returning(|_| Ok(false));
+        bill_store.expect_invalidate_bill_in_cache().times(0);
+
+        transport
+            .expect_resolve_public_chain()
+            .returning(move |_, _| Ok(vec![event0.clone(), event1.clone()]))
+            .times(1);
+
+        chain_event_store
+            .expect_find_chain_events()
+            .times(1)
+            .returning(|_, _| Ok(vec![]));
+
+        chain_event_store.expect_remove_chain_events().times(0);
+
+        let genesis_hash = genesis.hash.clone();
+
+        // The remote-only second block must not be added
+        chain_event_store
+            .expect_add_chain_event()
+            .withf(move |event| event.block_hash == genesis_hash)
+            .times(1)
+            .returning(|_| Ok(()));
+
+        let handler = BillChainEventProcessor::new(
+            Arc::new(bill_chain_store),
+            Arc::new(bill_store),
+            Arc::new(MockFileReferenceStore::new()),
+            Arc::new(contact),
+            Arc::new(chain_event_store),
+            Arc::new(transport),
+            Arc::new(MockMintClient::new()),
+            bitcoin::Network::Testnet,
+        );
+
+        handler
+            .resync_chain(
+                &bill_id,
+                true,
+                ResyncMode::OnlyMissingMetadata {
+                    up_to_hash: local_chain.get_latest_block().hash().to_owned(),
+                },
+            )
+            .await
+            .expect("works");
+    }
+
+    #[tokio::test]
+    async fn test_resync_chain_only_missing_metadata_skips_non_matching_candidate() {
+        let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+
+        let bcr_keys = BcrKeys::from_private_key(&private_key_test());
+        let bill_id = BillId::new(bcr_keys.pub_key(), bitcoin::Network::Testnet);
+        let bill = get_test_bitcredit_bill(&bill_id, &payer, &payee, None, None);
+
+        let genesis_chain = get_genesis_chain(Some(bill));
+        let genesis = genesis_chain.get_latest_block().clone();
+
+        // Invalid chain - local branch has later timestamp
+        let matching_ts = genesis.timestamp + 2000;
+        let matching_block = BillBlock::create_block_for_request_to_accept(
+            bill_id.clone(),
+            &genesis,
+            &BillRequestToAcceptBlockData {
+                requester: BillParticipantBlockData::Ident(payer.clone().into()),
+                signatory: None,
+                signing_timestamp: matching_ts,
+                signing_address: Some(empty_address()),
+                signer_identity_proof: Some(signed_identity_proof_test().into()),
+                acceptance_deadline_timestamp: matching_ts + 2 * ACCEPT_DEADLINE_SECONDS,
+            },
+            &bcr_keys,
+            None,
+            &bcr_keys,
+            matching_ts,
+        )
+        .unwrap();
+
+        let mut local_chain = genesis_chain.clone();
+        assert!(local_chain.try_add_block(matching_block.clone()));
+
+        // Remote Nostr branch sorts before the matching branch because
+        // its tip timestamp is earlier
+        let competing_ts = genesis.timestamp + 1000;
+        let competing_block = BillBlock::create_block_for_request_to_accept(
+            bill_id.clone(),
+            &genesis,
+            &BillRequestToAcceptBlockData {
+                requester: BillParticipantBlockData::Ident(payer.clone().into()),
+                signatory: None,
+                signing_timestamp: competing_ts,
+                signing_address: Some(empty_address()),
+                signer_identity_proof: Some(signed_identity_proof_test().into()),
+                acceptance_deadline_timestamp: competing_ts + 2 * ACCEPT_DEADLINE_SECONDS,
+            },
+            &bcr_keys,
+            None,
+            &bcr_keys,
+            competing_ts,
+        )
+        .unwrap();
+
+        let event0 = generate_test_event(
+            &bcr_keys,
+            None,
+            None,
+            as_event_payload(&bill_id, &genesis),
+            &bill_id,
+        );
+
+        let competing_event = generate_test_event(
+            &bcr_keys,
+            Some(event0.clone()),
+            Some(event0.clone()),
+            as_event_payload(&bill_id, &competing_block),
+            &bill_id,
+        );
+
+        let matching_event = generate_test_event(
+            &bcr_keys,
+            Some(event0.clone()),
+            Some(event0.clone()),
+            as_event_payload(&bill_id, &matching_block),
+            &bill_id,
+        );
+
+        let existing_genesis =
+            EventContainer::new(event0.clone(), None, None, BlockData::Bill(genesis.clone()))
+                .as_chain_store_event(
+                    &bill_id.to_string(),
+                    BlockchainType::Bill,
+                    genesis.id.inner() as usize,
+                );
+
+        let (mut bill_chain_store, mut bill_store, contact, mut transport, mut chain_event_store) =
+            create_mocks();
+
+        let local_chain_clone = local_chain.clone();
+        bill_chain_store
+            .expect_get_chain()
+            .times(1)
+            .returning(move |_| Ok(local_chain_clone.clone()));
+
+        bill_chain_store.expect_add_block().times(0);
+        bill_chain_store.expect_remove_blocks_from_height().times(0);
+
+        let keys_for_store = bcr_keys.clone();
+        bill_store
+            .expect_get_keys()
+            .times(1)
+            .returning(move |_| Ok(keys_for_store.clone()));
+
+        bill_store.expect_is_paid().returning(|_| Ok(false));
+        bill_store.expect_invalidate_bill_in_cache().times(0);
+
+        transport
+            .expect_resolve_public_chain()
+            .returning(move |_, _| {
+                Ok(vec![
+                    event0.clone(),
+                    competing_event.clone(),
+                    matching_event.clone(),
+                ])
+            })
+            .times(1);
+
+        // once, because non-matching candidate gets skipped
+        chain_event_store
+            .expect_find_chain_events()
+            .times(1)
+            .returning(move |_, _| Ok(vec![existing_genesis.clone()]));
+
+        let matching_hash = matching_block.hash.clone();
+
+        chain_event_store
+            .expect_add_chain_event()
+            .withf(move |event| event.block_hash == matching_hash)
+            .times(1)
+            .returning(|_| Ok(()));
+
+        chain_event_store.expect_remove_chain_events().times(0);
+
+        let handler = BillChainEventProcessor::new(
+            Arc::new(bill_chain_store),
+            Arc::new(bill_store),
+            Arc::new(MockFileReferenceStore::new()),
+            Arc::new(contact),
+            Arc::new(chain_event_store),
+            Arc::new(transport),
+            Arc::new(MockMintClient::new()),
+            bitcoin::Network::Testnet,
+        );
+
+        handler
+            .resync_chain(
+                &bill_id,
+                true,
+                ResyncMode::OnlyMissingMetadata {
+                    up_to_hash: local_chain.get_latest_block().hash().to_owned(),
+                },
+            )
+            .await
+            .expect("matching Nostr branch should be found");
+    }
+
+    #[tokio::test]
+    async fn test_resync_chain_only_missing_metadata_matches_up_to_hash() {
+        let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+
+        let bcr_keys = BcrKeys::from_private_key(&private_key_test());
+        let bill_id = BillId::new(bcr_keys.pub_key(), bitcoin::Network::Testnet);
+        let bill = get_test_bitcredit_bill(&bill_id, &payer, &payee, None, None);
+
+        let genesis_chain = get_genesis_chain(Some(bill));
+        let genesis = genesis_chain.get_latest_block().clone();
+
+        // #2: this is the missing block whose Nostr metadata we want to recover
+        let ts = genesis.timestamp + 1000;
+        let predecessor = BillBlock::create_block_for_request_to_accept(
+            bill_id.clone(),
+            &genesis,
+            &BillRequestToAcceptBlockData {
+                requester: BillParticipantBlockData::Ident(payer.clone().into()),
+                signatory: None,
+                signing_timestamp: ts,
+                signing_address: Some(empty_address()),
+                signer_identity_proof: Some(signed_identity_proof_test().into()),
+                acceptance_deadline_timestamp: ts + 2 * ACCEPT_DEADLINE_SECONDS,
+            },
+            &bcr_keys,
+            None,
+            &bcr_keys,
+            ts,
+        )
+        .unwrap();
+
+        // #3: already persisted locally, but not published to Nostr yet
+        let new_local_block = BillBlock::create_block_for_accept(
+            bill_id.clone(),
+            &predecessor,
+            &BillAcceptBlockData {
+                accepter: payer.clone().into(),
+                signatory: None,
+                signing_timestamp: ts + 1000,
+                signing_address: empty_address(),
+                signer_identity_proof: signed_identity_proof_test().into(),
+            },
+            &bcr_keys,
+            None,
+            &bcr_keys,
+            ts + 1000,
+        )
+        .unwrap();
+
+        let mut local_chain = genesis_chain.clone();
+        assert!(local_chain.try_add_block(predecessor.clone()));
+        assert!(local_chain.try_add_block(new_local_block.clone()));
+
+        // Nostr only has #1 and #2
+        let event0 = generate_test_event(
+            &bcr_keys,
+            None,
+            None,
+            as_event_payload(&bill_id, &genesis),
+            &bill_id,
+        );
+
+        let event1 = generate_test_event(
+            &bcr_keys,
+            Some(event0.clone()),
+            Some(event0.clone()),
+            as_event_payload(&bill_id, &predecessor),
+            &bill_id,
+        );
+
+        let nostr_events = vec![event0.clone(), event1];
+
+        let existing_genesis_event = EventContainer {
+            event: event0,
+            block: BlockData::Bill(genesis.clone()),
+            root_id: None,
+            reply_id: None,
+            children: vec![],
+            block_height: 1,
+        }
+        .as_chain_store_event(
+            &bill_id.to_string(),
+            BlockchainType::Bill,
+            genesis.id.inner() as usize,
+        );
+
+        let (mut bill_chain_store, mut bill_store, contact, mut transport, mut chain_event_store) =
+            create_mocks();
+
+        let local_chain_clone = local_chain.clone();
+        bill_chain_store
+            .expect_get_chain()
+            .with(eq(bill_id.clone()))
+            .times(1)
+            .returning(move |_| Ok(local_chain_clone.clone()));
+
+        // Metadata-only recovery must not mutate the bill chain.
+        bill_chain_store.expect_remove_blocks_from_height().times(0);
+
+        bill_chain_store.expect_add_block().times(0);
+
+        let keys = bcr_keys.clone();
+        bill_store
+            .expect_get_keys()
+            .times(1)
+            .returning(move |_| Ok(keys.clone()));
+
+        bill_store
+            .expect_is_paid()
+            .times(1)
+            .returning(|_| Ok(false));
+
+        bill_store.expect_invalidate_bill_in_cache().times(0);
+
+        transport
+            .expect_resolve_public_chain()
+            .with(eq(bill_id.to_string()), eq(BlockchainType::Bill))
+            .times(1)
+            .returning(move |_, _| Ok(nostr_events.clone()));
+
+        // Genesis metadata exists, prev block metadata is missing
+        chain_event_store
+            .expect_find_chain_events()
+            .with(eq(bill_id.to_string()), eq(BlockchainType::Bill))
+            .times(1)
+            .returning(move |_, _| Ok(vec![existing_genesis_event.clone()]));
+
+        chain_event_store.expect_remove_chain_events().times(0);
+
+        let predecessor_hash = predecessor.hash.clone();
+        let new_local_block_hash = new_local_block.hash.clone();
+
+        // Only #2 should be restored, #3 should not be considered since it's only local
+        chain_event_store
+            .expect_add_chain_event()
+            .withf(move |event| {
+                event.block_hash == predecessor_hash && event.block_hash != new_local_block_hash
+            })
+            .times(1)
+            .returning(|_| Ok(()));
+
+        let handler = BillChainEventProcessor::new(
+            Arc::new(bill_chain_store),
+            Arc::new(bill_store),
+            Arc::new(MockFileReferenceStore::new()),
+            Arc::new(contact),
+            Arc::new(chain_event_store),
+            Arc::new(transport),
+            Arc::new(MockMintClient::new()),
+            bitcoin::Network::Testnet,
+        );
+
+        handler
+            .resync_chain(
+                &bill_id,
+                true,
+                ResyncMode::OnlyMissingMetadata {
+                    up_to_hash: predecessor.hash.clone(),
+                },
+            )
+            .await
+            .expect(
+                "metadata recovery should only compare the local chain \
+             through the requested predecessor",
+            );
     }
 }

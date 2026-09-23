@@ -2,8 +2,7 @@
 
 * Upgrade Dependencies
     * especially Nostr 0.45 which had a lot of breaking changes
-    * uses latest bcr-common with more custom ecash types
-        * uses keys API v2 - WARN: this API needs to be deployed before this is deployed
+    * upgrade bcr-common with more custom ecash types
 * Fix flaky test
 * Remove deprecated nip04 code
 * Migrate from `chrono` to `time`
@@ -11,6 +10,10 @@
 * Add functionality for viewing and requeuing resend queue entries
     * Add endpoint `fetch_resend_queue_entries` to view a list of pending, or failed resend queue messages
     * Add endpoint `requeue_failed_resend_queue_entry` to requeue a failed resend queue message
+* Add dev-mode endpoint `dev_mode_override_identity_chain_from_nostr` that syncs a local identity, overriding it with the state on Nostr
+* Add dev-mode endpoint `dev_mode_override_company_chain_from_nostr` that syncs a local company, overriding it with the state on Nostr
+* Add a re-sync fallback mode, if we're trying to publish a block and missing the previous block as a chain event
+    * For bills, companies and identity, if we detect this, we re-sync with `OnlyMissingMetadata` mode, which attempts to fetch and persist missing chain events from nostr and re-trys the block publish
 
 # 0.5.15-hotfix1
 
