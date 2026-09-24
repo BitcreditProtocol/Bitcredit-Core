@@ -60,7 +60,6 @@ use futures::{
 };
 
 use tokio::task::JoinSet;
-use tokio_with_wasm::alias as tokio;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SortOrder {
     Asc,
@@ -587,8 +586,7 @@ fn to_relay_urls(urls: &[url::Url]) -> Result<Vec<RelayUrl>> {
     urls.iter().map(to_relay_url).collect()
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl TransportClientApi for NostrClient {
     async fn send_private_event(
         &self,

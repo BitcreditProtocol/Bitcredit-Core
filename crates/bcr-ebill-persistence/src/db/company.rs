@@ -87,8 +87,7 @@ impl SurrealCompanyStore {
 
 impl ServiceTraitBounds for SurrealCompanyStore {}
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl CompanyStoreApi for SurrealCompanyStore {
     async fn search(&self, search_term: &str) -> Result<Vec<Company>> {
         let mut bindings = Bindings::default();

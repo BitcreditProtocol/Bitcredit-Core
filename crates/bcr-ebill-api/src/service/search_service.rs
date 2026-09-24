@@ -17,8 +17,7 @@ use bcr_ebill_core::application::{
     GeneralSearchFilterItemType, GeneralSearchResult, ServiceTraitBounds,
 };
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait SearchServiceApi: ServiceTraitBounds {
     /// General Search
     async fn search(
@@ -55,8 +54,7 @@ impl SearchService {
 
 impl ServiceTraitBounds for SearchService {}
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl SearchServiceApi for SearchService {
     async fn search(
         &self,

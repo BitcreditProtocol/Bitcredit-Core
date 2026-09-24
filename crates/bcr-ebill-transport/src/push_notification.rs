@@ -12,8 +12,7 @@ use serde_json::Value;
 impl ServiceTraitBounds for MockPushApi {}
 
 #[cfg_attr(test, automock)]
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait PushApi: ServiceTraitBounds {
     /// Push a json message to the client
     async fn send(&self, value: Value);
@@ -47,8 +46,7 @@ impl Default for PushService {
 
 impl ServiceTraitBounds for PushService {}
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl PushApi for PushService {
     async fn send(&self, value: Value) {
         match self.sender.broadcast(value).await {

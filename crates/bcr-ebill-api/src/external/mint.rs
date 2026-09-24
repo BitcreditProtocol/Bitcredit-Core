@@ -92,8 +92,7 @@ use mockall::automock;
 use crate::get_config;
 
 #[cfg_attr(test, automock)]
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait MintClientApi: ServiceTraitBounds {
     /// Check if the given proofs were already spent
     async fn check_if_proofs_are_spent(
@@ -168,8 +167,7 @@ impl MintClient {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl MintClientApi for MintClient {
     async fn check_if_proofs_are_spent(
         &self,

@@ -36,8 +36,7 @@ pub struct FileDb {
 
 impl ServiceTraitBounds for FileUploadStore {}
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl FileUploadStoreApi for FileUploadStore {
     async fn remove_temp_upload_folder(&self, file_upload_id: &Uuid) -> Result<()> {
         let mut bindings = Bindings::default();

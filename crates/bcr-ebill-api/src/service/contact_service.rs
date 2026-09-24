@@ -47,8 +47,7 @@ use log::{debug, error, info};
 impl ServiceTraitBounds for MockContactServiceApi {}
 
 #[cfg_attr(test, automock)]
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait ContactServiceApi: ServiceTraitBounds {
     /// Searches contacts and logical contacts for the search term. Both are included by default
     /// and can be disabled by setting the include_logical and include_contact parameters to false.
@@ -304,8 +303,7 @@ impl ContactService {
 
 impl ServiceTraitBounds for ContactService {}
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl ContactServiceApi for ContactService {
     async fn search(
         &self,
@@ -1002,7 +1000,7 @@ pub mod tests {
             Arc::new(mock_company_storage),
             Arc::new(mock_nostr_contact_store),
             Arc::new(mock_transport_service),
-            get_config(),
+            get_config().as_ref(),
         )
     }
 

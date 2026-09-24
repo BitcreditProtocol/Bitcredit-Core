@@ -52,8 +52,7 @@ impl SurrealIdentityStore {
 
 impl ServiceTraitBounds for SurrealIdentityStore {}
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl IdentityStoreApi for SurrealIdentityStore {
     async fn exists(&self) -> bool {
         self.get().await.map(|_| true).unwrap_or(false)

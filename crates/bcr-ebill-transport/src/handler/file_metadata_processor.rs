@@ -12,8 +12,7 @@ use std::sync::Arc;
 use mockall::automock;
 
 #[cfg_attr(test, automock)]
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait FileMetadataProcessorApi: ServiceTraitBounds {
     async fn process_file_metadata(&self, event: Box<Event>, node_id: &NodeId) -> Result<()>;
 }
@@ -50,8 +49,7 @@ impl FileMetadataProcessor {
 
 impl ServiceTraitBounds for FileMetadataProcessor {}
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl FileMetadataProcessorApi for FileMetadataProcessor {
     async fn process_file_metadata(&self, event: Box<Event>, node_id: &NodeId) -> Result<()> {
         trace!(

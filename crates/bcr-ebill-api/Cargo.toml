@@ -27,18 +27,12 @@ bcr-ebill-core.workspace = true
 bcr-ebill-persistence.workspace = true
 bcr-common.workspace = true
 tokio.workspace = true
-tokio_with_wasm.workspace = true
 rand = { version = "0.10" }
+reqwest = { workspace = true, features = ["default", "json"] }
 strum.workspace = true
 hex = { version = "0.4" }
 url.workspace = true
 base64.workspace = true
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-reqwest = { workspace = true, features = ["json"] }
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-reqwest = { workspace = true, features = ["default", "json"] }
 
 [dev-dependencies]
 mockall.workspace = true

@@ -51,8 +51,7 @@ impl ServiceTraitBounds for MockNotificationHandlerApi {}
 
 /// Handle an event when we receive it from a channel.
 #[cfg_attr(test, automock)]
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait NotificationHandlerApi: ServiceTraitBounds {
     /// Whether this handler handles the given event type.
     fn handles_event(&self, event_type: &EventType) -> bool;
@@ -73,8 +72,7 @@ pub trait NotificationHandlerApi: ServiceTraitBounds {
 
 /// Generalizes the actual handling and validation of a bill block event.
 #[cfg_attr(test, automock)]
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait BillChainEventProcessorApi: ServiceTraitBounds {
     /// Processes the chain data for given bill id, some blocks and an optional key that will be
     /// present when we are joining a new chain.
@@ -119,8 +117,7 @@ impl ServiceTraitBounds for MockBillChainEventProcessorApi {}
 
 /// Generalizes the handling and validation of a bill block event.
 #[cfg_attr(test, automock)]
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait CompanyChainEventProcessorApi: ServiceTraitBounds {
     /// Processes the chain data for given bill id, some blocks and an optional key that will be
     /// present when we are joining a new chain.
@@ -150,8 +147,7 @@ impl ServiceTraitBounds for MockCompanyChainEventProcessorApi {}
 
 /// Generalizes the handling and validation of a bill block event.
 #[cfg_attr(test, automock)]
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait IdentityChainEventProcessorApi: ServiceTraitBounds {
     /// Processes the chain data for given bill id, some blocks and an optional key that will be
     /// present when we are joining a new chain.
@@ -180,8 +176,7 @@ impl ServiceTraitBounds for MockIdentityChainEventProcessorApi {}
 
 /// Generalizes the handling and validation of direct messages.
 #[cfg_attr(test, automock)]
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait DirectMessageEventProcessorApi: ServiceTraitBounds {
     async fn process_direct_message(&self, event: Box<nostr::event::Event>) -> Result<()>;
 }
@@ -191,8 +186,7 @@ impl ServiceTraitBounds for MockDirectMessageEventProcessorApi {}
 
 /// Generalizes the handling of other Nostr identities.
 #[cfg_attr(test, automock)]
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait NostrContactProcessorApi: ServiceTraitBounds {
     /// Ensures that a given node id is in our Nostr contacts. If not it will be added
     /// with data fetched from Nostr relays.
@@ -210,8 +204,7 @@ pub struct LoggingEventHandler {
 impl ServiceTraitBounds for LoggingEventHandler {}
 
 /// Just a dummy handler that logs the event and returns Ok(())
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl NotificationHandlerApi for LoggingEventHandler {
     fn handles_event(&self, event_type: &EventType) -> bool {
         self.event_types.contains(event_type)

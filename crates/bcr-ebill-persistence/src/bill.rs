@@ -14,8 +14,7 @@ use bcr_ebill_core::{
     },
 };
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait BillStoreApi: ServiceTraitBounds {
     /// Gets the bills from cache
     async fn get_bills_from_cache(
@@ -95,8 +94,7 @@ pub trait BillStoreApi: ServiceTraitBounds {
     ) -> Result<Vec<BillId>>;
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait BillChainStoreApi: ServiceTraitBounds {
     /// Gets the latest block of the chain
     async fn get_latest_block(&self, id: &BillId) -> Result<BillBlock>;

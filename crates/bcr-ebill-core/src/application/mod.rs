@@ -15,13 +15,7 @@ pub mod notification;
 
 pub use event::ContactShareEvent;
 
-/// This is needed, so we can have our services be used both in a single threaded (wasm32) and in a
-/// multi-threaded (e.g. web) environment without issues.
-#[cfg(not(target_arch = "wasm32"))]
 pub trait ServiceTraitBounds: Send + Sync {}
-
-#[cfg(target_arch = "wasm32")]
-pub trait ServiceTraitBounds {}
 
 #[derive(Debug)]
 pub struct GeneralSearchResult {

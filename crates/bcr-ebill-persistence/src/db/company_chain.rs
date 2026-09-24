@@ -72,8 +72,7 @@ impl SurrealCompanyChainStore {
 
 impl ServiceTraitBounds for SurrealCompanyChainStore {}
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl CompanyChainStoreApi for SurrealCompanyChainStore {
     async fn get_latest_block(&self, id: &NodeId) -> Result<CompanyBlock> {
         let mut bindings = Bindings::default();

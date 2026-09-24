@@ -46,8 +46,7 @@ impl SurrealNostrStore {
 
 impl ServiceTraitBounds for SurrealNostrStore {}
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl NostrStoreApi for SurrealNostrStore {
     /// Find a Nostr contact by the node id. This is the primary key for the contact.
     async fn by_node_id(&self, node_id: &NodeId) -> Result<Option<NostrContact>> {
