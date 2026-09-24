@@ -6,6 +6,7 @@ pub mod company;
 pub mod contact;
 pub mod general;
 pub mod identity;
+mod mint_application_admission;
 pub mod notification;
 
 #[wasm_bindgen]

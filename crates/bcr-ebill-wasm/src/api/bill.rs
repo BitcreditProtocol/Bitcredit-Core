@@ -49,7 +49,10 @@ use crate::{
             RequestToPayAsMintBitcreditBillPayload, RequestToPayBitcreditBillPayload,
             ResyncBillPayload, ShareBillWithCourtPayload,
         },
-        mint::MintRequestStateResponse,
+        mint::{
+            MintApplicationAdmissionPayload, MintRequestStateResponse,
+            SignedMintApplicationAdmission,
+        },
         parse_deadline_string,
     },
     error::WasmError,
@@ -821,6 +824,57 @@ impl Bill {
                 .await?;
 
             Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+
+    /// Proves control of the current holder for one short-lived application admission.
+    /// Keys stay inside Core; this neither creates a request nor changes any financial state.
+    #[wasm_bindgen(unchecked_return_type = "TSResult<SignedMintApplicationAdmission>")]
+    pub async fn sign_mint_application_admission(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "MintApplicationAdmissionPayload")] payload: JsValue,
+    ) -> JsValue {
+        let res: Result<SignedMintApplicationAdmission> = async {
+            let payload: MintApplicationAdmissionPayload = serde_wasm_bindgen::from_value(payload)?;
+            bcr_ebill_api::util::validate_bill_id_network(&payload.bill_id)?;
+            bcr_ebill_api::util::validate_node_id_network(&payload.mint_node)?;
+            let (signer, keys) = get_signer_public_data_and_keys().await?;
+            let signer_node_id = signer.node_id();
+            bcr_ebill_api::util::validate_node_id_network(&signer_node_id)?;
+            let identity = get_ctx().identity_service.get_identity().await?;
+            let bill = get_ctx()
+                .bill_service
+                .get_detail(
+                    &payload.bill_id,
+                    &identity,
+                    &signer,
+                    &keys,
+                    Timestamp::now(),
+                )
+                .await?;
+            super::mint_application_admission::validate_bill_state(&bill.state)?;
+            let current_holder = bill
+                .participants
+                .endorsee
+                .as_ref()
+                .unwrap_or(&bill.participants.payee)
+                .node_id();
+            let requests = get_ctx()
+                .bill_service
+                .get_mint_state(&payload.bill_id, &signer_node_id)
+                .await?;
+            super::mint_application_admission::sign_for_pending_request(
+                &payload,
+                &signer_node_id,
+                &keys,
+                &current_holder,
+                &requests,
+                &bcr_ebill_api::get_config().mint_config.default_mint_node_id,
+                Timestamp::now(),
+            )
+            .map_err(Into::into)
         }
         .await;
         TSResult::res_to_js(res)

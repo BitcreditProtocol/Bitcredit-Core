@@ -3,9 +3,48 @@ use bcr_ebill_core::{
     protocol::Timestamp,
     protocol::mint::{MintOffer, MintRequest, MintRequestState, MintRequestStatus},
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tsify::Tsify;
 use uuid::Uuid;
+
+/// Opens an application only; it never accepts an offer or authorizes minting.
+#[derive(Tsify, Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MintApplicationAdmissionPayload {
+    #[tsify(type = "string")]
+    pub bill_id: BillId,
+    #[tsify(type = "string")]
+    pub mint_node: NodeId,
+    #[tsify(type = "string")]
+    pub mint_quote_id: Uuid,
+    #[tsify(type = "string")]
+    pub case_id: Uuid,
+    pub application_token_digest: String,
+}
+
+#[derive(Tsify, Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MintApplicationAdmission {
+    pub schema_version: String,
+    pub action: String,
+    pub bill_id: String,
+    pub mint_node_id: String,
+    pub mint_quote_id: String,
+    pub case_id: String,
+    pub holder_ref: String,
+    pub application_token_digest: String,
+    #[tsify(type = "number")]
+    pub issued_at: u64,
+    #[tsify(type = "number")]
+    pub expires_at: u64,
+}
+
+#[derive(Tsify, Debug, Clone, Serialize)]
+pub struct SignedMintApplicationAdmission {
+    pub admission: MintApplicationAdmission,
+    /// BIP340 signature over SHA256 of the canonical admission lines, lowercase hex.
+    pub signature: String,
+}
 
 #[derive(Tsify, Debug, Serialize, Clone)]
 pub struct MintRequestWeb {

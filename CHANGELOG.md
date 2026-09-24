@@ -1,5 +1,6 @@
 # 0.5.16
 
+* Add `Bill.sign_mint_application_admission` for a five-minute, holder-signed interview admission bound to an existing Pending Mint request; no key export or financial state change.
 * Upgrade Dependencies
     * especially Nostr 0.45 which had a lot of breaking changes
     * uses latest bcr-common with more custom ecash types
