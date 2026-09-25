@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import tomllib
 from urllib.parse import quote
 import zipfile
@@ -300,18 +301,29 @@ def write_once(action, readback, description):
     # A lost response is resolved by reading state, never by blind repeat writes.
     try:
         action()
-    except ReleaseError:
-        pass
+    except ReleaseError as error:
+        # The readback decides, but the tool's own reason must still reach the log.
+        print(f"{description}: {error}", file=sys.stderr)
     if not readback():
         raise ReleaseError(f"{description} was not confirmed; rerun the original run")
     note(description + " confirmed.")
+
+
+def eventually(check, attempts=6, delay=10):
+    # The registry can answer 404 for a moment after accepting a publish.
+    for attempt in range(attempts):
+        if check():
+            return True
+        if attempt + 1 < attempts:
+            time.sleep(delay)
+    return False
 
 
 def matching_asset(ctx, release_id, name, info):
     rows = pages(f"repos/{ctx['repository']}/releases/{release_id}/assets")
     if any(type(row.get("id")) is not int or row["id"] <= 0
            or not isinstance(row.get("name"), str) or not row["name"]
-           or row.get("state") not in ("starter", "uploaded")
+           or row.get("state") not in ("starter", "open", "uploaded")
            or type(row.get("size")) is not int or row["size"] < 0 for row in rows):
         raise ReleaseError("Invalid release asset list")
     found = [a for a in rows if a["name"] == name]
@@ -320,7 +332,10 @@ def matching_asset(ctx, release_id, name, info):
     if len(found) != 1:
         raise ReleaseError("Ambiguous release asset")
     asset = found[0]
-    if type(asset.get("id")) is not int or asset.get("state") != "uploaded" or asset.get("size") != info["size"]:
+    if asset["state"] != "uploaded":
+        raise ReleaseError(f"Release asset {name} was left in state {asset['state']} by an interrupted upload; "
+                           "delete it from the draft release, then use Re-run failed jobs")
+    if asset.get("size") != info["size"]:
         raise ReleaseError(f"Conflicting or incomplete release asset: {name}")
     checksum = asset.get("digest")
     if checksum is None:
@@ -376,7 +391,7 @@ def publish(folder, ctx):
         def upload():
             result = command(["gh", "release", "upload", ctx["tag"], str((folder / name).resolve()), "--repo", ctx["repository"]])
             if result.returncode:
-                raise ReleaseError("Asset upload response failed")
+                raise ReleaseError("Asset upload response failed: " + result.stderr.decode(errors="replace").strip())
         write_once(upload, lambda: matching_asset(ctx, existing["id"], Path(name).name, info), "Asset " + Path(name).name)
     # A version suffix marks a production hotfix (docs/versioning.md), not a prerelease:
     # every version moves npm latest and becomes a normal GitHub release.
@@ -385,8 +400,8 @@ def publish(folder, ctx):
             result = command(["npm", "publish", str((folder / "package.tgz").resolve()), "--registry", REGISTRY,
                               "--access", "public", "--provenance", "--ignore-scripts", "--tag", "latest"])
             if result.returncode:
-                raise ReleaseError("npm publication response failed")
-        write_once(upload_npm, lambda: npm_integrity(ctx["package_name"], plan["registry_version"]) == plan["integrity"],
+                raise ReleaseError("npm publication response failed: " + result.stderr.decode(errors="replace").strip())
+        write_once(upload_npm, lambda: eventually(lambda: npm_integrity(ctx["package_name"], plan["registry_version"]) == plan["integrity"]),
                    "npm package integrity")
     else:
         note("Existing npm package integrity matches; publication preserved.")

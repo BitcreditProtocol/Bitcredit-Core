@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise native npm packaging and simulated GitHub/npm failures without writes."""
 
+from contextlib import redirect_stderr
 import copy
 import io
 import json
@@ -31,6 +32,8 @@ class Remote:
         self.writes = []
         self.stop = None
         self.lost = None
+        self.refuse = None
+        self.visible_after = 0
         self.artifact = {"id": 5, "name": release.ARTIFACT, "expired": False}
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, "w") as archive:
@@ -84,6 +87,8 @@ class Remote:
                 return subprocess.CompletedProcess(args, 1, b"", b"lost")
             return subprocess.CompletedProcess(args, 0, b"", b"")
         if args[:2] == ["npm", "publish"]:
+            if self.refuse == "npm":
+                return subprocess.CompletedProcess(args, 1, b"", b"npm error code E403\nnpm error 403 Forbidden\n")
             self.integrity = self.plan["integrity"]
             self.npm_tag = args[args.index("--tag") + 1]
             try:
@@ -92,6 +97,13 @@ class Remote:
                 return subprocess.CompletedProcess(args, 1, b"", b"lost")
             return subprocess.CompletedProcess(args, 0, b"", b"")
         raise AssertionError("Unexpected process (real network disabled): " + str(args))
+
+    def read_integrity(self, *args):
+        # The registry can answer 404 for a moment after accepting a publish.
+        if self.integrity and self.visible_after:
+            self.visible_after -= 1
+            return None
+        return self.integrity
 
 
 class ReleaseTests(unittest.TestCase):
@@ -118,7 +130,8 @@ class ReleaseTests(unittest.TestCase):
     def run_publish(self, remote):
         with patch.object(release, "gh", side_effect=remote.gh), \
                 patch.object(release, "command", side_effect=remote.command), \
-                patch.object(release, "npm_integrity", side_effect=lambda *args: remote.integrity), \
+                patch.object(release, "npm_integrity", side_effect=remote.read_integrity), \
+                patch("time.sleep"), \
                 patch.object(release, "canonical_version", return_value=remote.plan["registry_version"]), \
                 patch.object(release, "note"):
             release.publish(remote.folder, remote.ctx)
@@ -349,6 +362,43 @@ class ReleaseTests(unittest.TestCase):
             plan = release.validate(folder, ctx)
             self.assertEqual(plan["version"], "1.2.3+build.7")
             self.assertEqual(plan["registry_version"], "1.2.3")
+
+    def test_refused_write_prints_the_tool_error_before_stopping(self):
+        # "Not confirmed" alone hides npm's reason, such as an auth or provenance refusal.
+        remote = Remote(self.folder, self.ctx)
+        remote.refuse = "npm"
+        stderr = io.StringIO()
+        with redirect_stderr(stderr), self.assertRaisesRegex(release.ReleaseError, "npm package integrity was not confirmed"):
+            self.run_publish(remote)
+        self.assertIn("npm error 403 Forbidden", stderr.getvalue())
+        self.assertTrue(remote.release["draft"])
+
+    def test_registry_lag_after_publish_is_read_again_before_stopping(self):
+        remote = Remote(self.folder, self.ctx)
+        remote.visible_after = 2
+        self.run_publish(remote)
+        self.assertFalse(remote.release["draft"])
+        self.assertEqual(remote.writes.count("npm"), 1)
+
+    def test_interrupted_asset_upload_stops_naming_the_asset_and_the_manual_fix(self):
+        # A failed upload can leave the asset behind as `starter`; GitHub also documents `open`.
+        for state in ("starter", "open"):
+            with self.subTest(state=state):
+                remote = Remote(self.folder, self.ctx)
+                remote.tag = self.ctx["sha"]
+                remote.release = {"id": 7, "tag_name": self.ctx["tag"], "draft": True}
+                remote.assets["LICENSE"] = {"id": 10, "name": "LICENSE", "state": state, "size": 3}
+                with self.assertRaisesRegex(release.ReleaseError, f"LICENSE.*{state}.*Re-run failed jobs"):
+                    self.run_publish(remote)
+                self.assertEqual(remote.writes, [])
+
+    def test_another_asset_still_uploading_does_not_invalidate_the_list(self):
+        remote = Remote(self.folder, self.ctx)
+        remote.tag = self.ctx["sha"]
+        remote.release = {"id": 7, "tag_name": self.ctx["tag"], "draft": True}
+        remote.assets["notes.txt"] = {"id": 9, "name": "notes.txt", "state": "open", "size": 1}
+        self.run_publish(remote)
+        self.assertFalse(remote.release["draft"])
 
     def test_hotfix_version_publishes_to_npm_latest_as_a_normal_release(self):
         # Production hotfixes carry a version suffix (docs/versioning.md); they must still move npm latest.
