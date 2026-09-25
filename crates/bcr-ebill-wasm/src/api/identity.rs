@@ -19,7 +19,7 @@ use bcr_common::core::NodeId;
 use bcr_ebill_api::service::{
     Error,
     file_upload_service::{UploadFileHandler, detect_content_type_for_bytes},
-    transport_service::restore::RestoreAccountApi,
+    transport_service::{ResyncMode, restore::RestoreAccountApi},
 };
 use bcr_ebill_core::{
     application::ValidationError,
@@ -509,7 +509,22 @@ impl Identity {
             get_ctx()
                 .transport_service
                 .block_transport()
-                .resync_identity_chain()
+                .resync_identity_chain(ResyncMode::Normal)
+                .await?;
+            Ok(())
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+
+    /// Override the identity chain with the state from nostr
+    #[wasm_bindgen(unchecked_return_type = "TSResult<void>")]
+    pub async fn dev_mode_override_identity_chain_from_nostr(&self) -> JsValue {
+        let res: Result<()> = async {
+            get_ctx()
+                .transport_service
+                .block_transport()
+                .resync_identity_chain(ResyncMode::NostrAuthoritative)
                 .await?;
             Ok(())
         }

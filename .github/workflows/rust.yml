@@ -74,19 +74,19 @@ jobs:
 
       - name: Check formatting
         run: cargo fmt -- --check
-        continue-on-error: true
 
+      # `shell: bash` turns on pipefail. Without it the step exits with sarif-fmt's status,
+      # so a clippy compile error could never fail the step.
       - name: Clippy
+        shell: bash
         run:
           cargo clippy
           --verbose
           --all-features
           --message-format=json | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
-        continue-on-error: true
 
       - name: Cargo deny
         run: cargo deny check
-        continue-on-error: true
 
       - name: Build
         run: cargo build --verbose

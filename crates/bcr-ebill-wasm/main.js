@@ -35,6 +35,7 @@ document.getElementById("search_contacts").addEventListener("click", searchConta
 document.getElementById("switch_identity").addEventListener("click", switchIdentity);
 document.getElementById("dev_mode_get_identity_chain").addEventListener("click", devModeGetIdentityChain);
 document.getElementById("sync_identity_chain").addEventListener("click", syncIdentityChain);
+document.getElementById("override_identity_chain_from_nostr").addEventListener("click", overrideIdentityChainFromNostr);
 document.getElementById("confirm_email").addEventListener("click", confirmEmail);
 document.getElementById("verify_email").addEventListener("click", verifyEmail);
 document.getElementById("change_email").addEventListener("click", changeEmail);
@@ -106,6 +107,7 @@ document.getElementById("company_list").addEventListener("click", listCompanies)
 document.getElementById("dev_mode_get_company_chain").addEventListener("click", devModeGetCompanyChain);
 document.getElementById("list_signatories").addEventListener("click", listSignatories);
 document.getElementById("sync_company_chain").addEventListener("click", syncCompanyChain);
+document.getElementById("override_company_chain_from_nostr").addEventListener("click", overrideCompanyChainFromNostr);
 document.getElementById("company_detail").addEventListener("click", companyDetail);
 document.getElementById("company_create_id").addEventListener("click", companyCreateId);
 document.getElementById("confirm_company_email").addEventListener("click", confirmCompanyEmail);
@@ -930,6 +932,15 @@ async function syncCompanyChain() {
   await measured();
 }
 
+async function overrideCompanyChainFromNostr() {
+  let node_id = document.getElementById("company_id").value;
+  console.log("overrideCompanyChain from Nostr", node_id);
+  let measured = measure(async () => {
+    return success_or_fail(await window.companyApi.dev_mode_override_company_chain_from_nostr({ node_id }));
+  });
+  await measured();
+}
+
 async function fetchCompanyFile() {
   let node_id = document.getElementById("company_id").value;
   let detail = success_or_fail(await window.companyApi.detail(node_id));
@@ -1038,6 +1049,16 @@ async function syncIdentityChain() {
   });
   await measured();
 }
+
+
+async function overrideIdentityChainFromNostr() {
+  console.log("overrideIdentityChain from Nostr");
+  let measured = measure(async () => {
+    return success_or_fail(await window.identityApi.dev_mode_override_identity_chain_from_nostr());
+  });
+  await measured();
+}
+
 
 async function confirmEmail() {
   console.log("confirmEmail");

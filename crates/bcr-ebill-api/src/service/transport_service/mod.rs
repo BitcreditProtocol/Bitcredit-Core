@@ -1,7 +1,7 @@
 use crate::external;
 use bcr_ebill_core::{
     application::ValidationError,
-    protocol::{Name, ProtocolValidationError, crypto},
+    protocol::{Name, ProtocolValidationError, Sha256Hash, crypto},
 };
 
 mod block_transport;
@@ -167,6 +167,8 @@ impl NostrContactData {
 pub enum ResyncMode {
     Normal,
     NostrAuthoritative,
+    // Only fetches locally missing metadata (chain events), doesn't update the chains themselves
+    OnlyMissingMetadata { up_to_hash: Sha256Hash },
 }
 
 /// Our custom data on nostr Metadata messages

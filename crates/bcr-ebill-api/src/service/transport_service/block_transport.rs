@@ -34,9 +34,9 @@ pub trait BlockTransportServiceApi: ServiceTraitBounds {
         mode: ResyncMode,
     ) -> Result<()>;
     /// Resync company chain
-    async fn resync_company_chain(&self, company_id: &NodeId) -> Result<()>;
+    async fn resync_company_chain(&self, company_id: &NodeId, mode: ResyncMode) -> Result<()>;
     /// Resync identity chain
-    async fn resync_identity_chain(&self) -> Result<()>;
+    async fn resync_identity_chain(&self, mode: ResyncMode) -> Result<()>;
     /// Validates that the given list of blocks exist in the resolved chain from Nostr
     async fn validate_bill_blocks_exist_on_nostr_chain(
         &self,

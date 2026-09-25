@@ -2,12 +2,18 @@ use crate::{
     Error, PushApi, Result,
     handler::{
         NotificationHandlerApi,
-        public_chain_helpers::{BlockData, is_fork_block, resolve_event_chains, resolve_fork},
+        public_chain_helpers::{
+            BlockData, chain_matches_local, find_first_difference, is_fork_block,
+            resolve_event_chains, resolve_fork,
+        },
     },
 };
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
-use bcr_ebill_api::{get_config, service::transport_service::transport_client::TransportClientApi};
+use bcr_ebill_api::{
+    get_config,
+    service::transport_service::{ResyncMode, transport_client::TransportClientApi},
+};
 use bcr_ebill_core::{
     application::{
         company::CompanyStatus,
@@ -23,7 +29,7 @@ use bcr_ebill_core::{
     },
 };
 use log::{debug, error, info, trace, warn};
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 use bcr_ebill_core::{
     application::ServiceTraitBounds,
@@ -122,7 +128,7 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
         }
     }
 
-    async fn resync_chain(&self, company_id: &NodeId) -> Result<()> {
+    async fn resync_chain(&self, company_id: &NodeId, mode: ResyncMode) -> Result<()> {
         match (
             self.blockchain_store.get_chain(company_id).await,
             self.company_store.get_key_pair(company_id).await,
@@ -159,11 +165,125 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
                             continue;
                         }
 
-                        let (is_preferred, fork_point) =
-                            resolve_fork(existing_chain.blocks(), &blocks);
+                        let fork_point = match mode {
+                            ResyncMode::Normal => {
+                                let (is_preferred, fork_point) =
+                                    resolve_fork(existing_chain.blocks(), &blocks);
 
-                        if !is_preferred {
-                            continue;
+                                if !is_preferred {
+                                    continue;
+                                }
+
+                                fork_point
+                            }
+                            // In this mode, we want to find the point where the local chain diverges from the Nostr chain
+                            ResyncMode::NostrAuthoritative => {
+                                find_first_difference(existing_chain.blocks(), &blocks)
+                            }
+
+                            // In this mode, we don't care about local, or remote chain divergences, we're just adding missing metadata for local, unpublished blocks
+                            ResyncMode::OnlyMissingMetadata { ref up_to_hash } => {
+                                let Some(local_chain_end) = existing_chain
+                                    .blocks()
+                                    .iter()
+                                    .position(|block| block.hash() == up_to_hash)
+                                else {
+                                    return Err(Error::Blockchain(format!(
+                                        "Could not restore Nostr metadata for company {company_id}: block with hash {up_to_hash} does not exist in the local chain"
+                                    )));
+                                };
+                                let local_blocks = &existing_chain.blocks()[..=local_chain_end];
+
+                                // we're only interested in remote chains with the same blocks we have locally
+                                if !chain_matches_local(local_blocks, &blocks) {
+                                    continue;
+                                }
+
+                                let existing_events = match self
+                                    .chain_event_store
+                                    .find_chain_events(
+                                        &company_id.to_string(),
+                                        BlockchainType::Company,
+                                    )
+                                    .await
+                                {
+                                    Ok(ev) => ev,
+                                    Err(e) => {
+                                        error!(
+                                            "Failed to fetch chain events for company {company_id}: {e}"
+                                        );
+                                        return Err(Error::Persistence(format!(
+                                            "Failed to fetch chain events for company {company_id}: {e}"
+                                        )));
+                                    }
+                                };
+
+                                let existing_block_hashes: HashSet<_> = existing_events
+                                    .iter()
+                                    .map(|event| event.block_hash.clone())
+                                    .collect();
+
+                                let mut events_added = 0;
+                                // match local blocks and event containers - these are guaranteed to match because of
+                                // the chain_matches_local check above
+                                for (local_block, event_container) in
+                                    local_blocks
+                                        .iter()
+                                        .zip(data.iter().filter(|event_container| {
+                                            matches!(event_container.block, BlockData::Company(_))
+                                        }))
+                                {
+                                    let BlockData::Company(remote_block) = &event_container.block
+                                    else {
+                                        continue;
+                                    };
+
+                                    // if we have the block as a chain event - continue
+                                    if existing_block_hashes.contains(&local_block.hash) {
+                                        continue;
+                                    }
+
+                                    // otherwise, add it
+                                    let event = event_container.as_chain_store_event(
+                                        &company_id.to_string(),
+                                        BlockchainType::Company,
+                                        remote_block.id.inner() as usize,
+                                    );
+
+                                    self.chain_event_store
+                                            .add_chain_event(event)
+                                            .await
+                                            .map_err(|e| {
+                                                error!(
+                                                    "Failed to restore missing chain event for company {company_id}, block {}: {e}",
+                                                    local_block.id
+                                                );
+
+                                                Error::Persistence(format!(
+                                                        "Failed to restore missing chain event for company {company_id}, block {}: {e}",
+                                                        local_block.id
+                                                ))
+                                            })?;
+
+                                    events_added += 1;
+                                }
+
+                                if events_added > 0 {
+                                    info!(
+                                        "Restored {events_added} missing Nostr chain event(s) for company {company_id} up to block hash {up_to_hash}"
+                                    );
+                                }
+
+                                return Ok(());
+                            }
+                        };
+
+                        if matches!(mode, ResyncMode::NostrAuthoritative)
+                            && fork_point == Some(BlockId::first())
+                        {
+                            return Err(Error::Blockchain(
+                                    "Nostr-authoritative resync cannot replace a differing genesis block".to_string(),
+                            ));
                         }
 
                         let mut test_chain = existing_chain.clone();
@@ -254,6 +374,15 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
                                 continue;
                             }
                         }
+                    }
+
+                    // if we get here, that means we didn't find a matching chain on nostr to update metadata
+                    if matches!(mode, ResyncMode::OnlyMissingMetadata { .. }) {
+                        let message = format!(
+                            "Could not restore Nostr metadata for company {company_id}: no Nostr chain matches the local company chain"
+                        );
+                        error!("{message}");
+                        return Err(Error::Blockchain(message));
                     }
 
                     debug!("finished company chain resync for {company_id}");
@@ -446,7 +575,7 @@ impl CompanyChainEventProcessor {
                             "Split chain detected for company {company_id} at height {} - resyncing",
                             block.id
                         );
-                        self.resync_chain(company_id).await?;
+                        self.resync_chain(company_id, ResyncMode::Normal).await?;
                         return Ok(());
                     }
                 }
@@ -475,7 +604,7 @@ impl CompanyChainEventProcessor {
                             "Received invalid block {} for company {company_id} - missing blocks - try to resync",
                             block.id
                         );
-                        self.resync_chain(company_id).await?;
+                        self.resync_chain(company_id, ResyncMode::Normal).await?;
                         break;
                     } else {
                         error!("Error adding block for company {company_id}: {e}");
@@ -1112,6 +1241,7 @@ pub mod tests {
     use std::sync::Arc;
 
     use bcr_common::core::NodeId;
+    use bcr_ebill_api::service::transport_service::ResyncMode;
     use bcr_ebill_core::application::company::CompanySignatoryStatus;
     use bcr_ebill_core::protocol::blockchain::Block;
     use bcr_ebill_core::protocol::blockchain::company::CompanyBlockPayload;
@@ -2778,5 +2908,257 @@ pub mod tests {
             MockPushApi::new(),
             MockContactStore::new(),
         )
+    }
+
+    #[tokio::test]
+    async fn test_resync_chain_only_missing_metadata_fails_if_nostr_chain_does_not_match() {
+        let (
+            mut chain_store,
+            mut store,
+            notification_store,
+            contact,
+            bill,
+            mut identity_store,
+            mut chain_event_store,
+            mut transport,
+            push_service,
+            contact_store,
+        ) = create_mocks();
+
+        let (company_id, (company, keys)) = get_company_data();
+
+        let create_block = get_company_create_block(company_id.clone(), company, &keys);
+
+        // Local #2
+        let base_chain = CompanyBlockchain::new_from_blocks(vec![create_block.clone()])
+            .expect("could not create company chain");
+
+        let local_chain = add_creator_identity_proof_block(base_chain);
+        let local_block = local_chain.get_latest_block().clone();
+
+        // Different remote #2
+        let remote_update_data = update_company_block_with_name(Some(Name::new("remote").unwrap()));
+
+        let remote_block = get_company_update_block(
+            company_id.clone(),
+            &create_block,
+            &BcrKeys::from_private_key(&private_key_test()),
+            &keys,
+            &remote_update_data,
+        );
+
+        assert_ne!(local_block.hash, remote_block.hash);
+
+        let event0 = generate_test_event(
+            &keys,
+            None,
+            None,
+            as_event_payload(&company_id, &create_block),
+            &company_id,
+        );
+
+        let remote_event = generate_test_event(
+            &keys,
+            Some(event0.clone()),
+            Some(event0.clone()),
+            as_event_payload(&company_id, &remote_block),
+            &company_id,
+        );
+
+        let local_chain_clone = local_chain.clone();
+        chain_store
+            .expect_get_chain()
+            .times(1)
+            .returning(move |_| Ok(local_chain_clone.clone()));
+
+        chain_store.expect_add_block().times(0);
+        chain_store.expect_remove_blocks_from_height().times(0);
+
+        let keys_clone = keys.clone();
+        store
+            .expect_get_key_pair()
+            .times(1)
+            .returning(move |_| Ok(keys_clone.clone()));
+
+        identity_store
+            .expect_get()
+            .times(1)
+            .returning(|| Ok(get_baseline_identity().identity));
+
+        transport
+            .expect_resolve_public_chain()
+            .times(1)
+            .returning(move |_, _| Ok(vec![event0.clone(), remote_event.clone()]));
+
+        chain_event_store.expect_find_chain_events().times(0);
+        chain_event_store.expect_add_chain_event().times(0);
+        chain_event_store.expect_remove_chain_events().times(0);
+
+        let handler = CompanyChainEventProcessor::new(
+            Arc::new(chain_store),
+            Arc::new(store),
+            Arc::new(MockFileReferenceStore::new()),
+            Arc::new(identity_store),
+            Arc::new(notification_store),
+            Arc::new(contact),
+            Arc::new(bill),
+            Arc::new(push_service),
+            Arc::new(chain_event_store),
+            Arc::new(transport),
+            Arc::new(contact_store),
+            bitcoin::Network::Testnet,
+        );
+
+        let result = handler
+            .resync_chain(
+                &company_id,
+                ResyncMode::OnlyMissingMetadata {
+                    up_to_hash: local_block.hash.clone(),
+                },
+            )
+            .await;
+
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("no Nostr chain matches")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_resync_chain_only_missing_metadata_matches_up_to_hash() {
+        let (
+            mut chain_store,
+            mut store,
+            notification_store,
+            contact,
+            bill,
+            mut identity_store,
+            mut chain_event_store,
+            mut transport,
+            push_service,
+            contact_store,
+        ) = create_mocks();
+
+        let (company_id, (company, keys)) = get_company_data();
+
+        let create_block = get_company_create_block(company_id.clone(), company.clone(), &keys);
+
+        let base_chain = CompanyBlockchain::new_from_blocks(vec![create_block.clone()])
+            .expect("could not create company chain");
+
+        // #2: missing which is already on Nostr
+        let prefix_chain = add_creator_identity_proof_block(base_chain);
+        let predecessor = prefix_chain.get_latest_block().clone();
+
+        // #3: already persisted locally but not yet published
+        let update_data = update_company_block_with_name(Some(Name::new("local only").unwrap()));
+
+        let local_only_block = get_company_update_block(
+            company_id.clone(),
+            &predecessor,
+            &BcrKeys::from_private_key(&private_key_test()),
+            &keys,
+            &update_data,
+        );
+
+        let mut local_chain = prefix_chain.clone();
+        assert!(local_chain.try_add_block(local_only_block.clone()));
+
+        let event0 = generate_test_event(
+            &keys,
+            None,
+            None,
+            as_event_payload(&company_id, &create_block),
+            &company_id,
+        );
+
+        let event1 = generate_test_event(
+            &keys,
+            Some(event0.clone()),
+            Some(event0.clone()),
+            as_event_payload(&company_id, &predecessor),
+            &company_id,
+        );
+
+        let nostr_chain = vec![event0, event1];
+
+        let local_chain_clone = local_chain.clone();
+        chain_store
+            .expect_get_chain()
+            .with(eq(company_id.clone()))
+            .times(1)
+            .returning(move |_| Ok(local_chain_clone.clone()));
+
+        // Metadata recovery must not touch canonical company blocks
+        chain_store.expect_add_block().times(0);
+        chain_store.expect_remove_blocks_from_height().times(0);
+
+        let keys_clone = keys.clone();
+        store
+            .expect_get_key_pair()
+            .with(eq(company_id.clone()))
+            .times(1)
+            .returning(move |_| Ok(keys_clone.clone()));
+
+        // resync_chain() fetches our personal identity before processing candidates.
+        identity_store
+            .expect_get()
+            .times(1)
+            .returning(|| Ok(get_baseline_identity().identity));
+
+        transport
+            .expect_resolve_public_chain()
+            .with(eq(company_id.to_string()), eq(BlockchainType::Company))
+            .times(1)
+            .returning(move |_, _| Ok(nostr_chain.clone()));
+
+        chain_event_store
+            .expect_find_chain_events()
+            .with(eq(company_id.to_string()), eq(BlockchainType::Company))
+            .times(1)
+            .returning(|_, _| Ok(vec![]));
+
+        chain_event_store.expect_remove_chain_events().times(0);
+
+        let create_hash = create_block.hash.clone();
+        let predecessor_hash = predecessor.hash.clone();
+        let local_only_hash = local_only_block.hash.clone();
+
+        chain_event_store
+            .expect_add_chain_event()
+            .withf(move |event| {
+                (event.block_hash == create_hash || event.block_hash == predecessor_hash)
+                    && event.block_hash != local_only_hash
+            })
+            .times(2)
+            .returning(|_| Ok(()));
+
+        let handler = CompanyChainEventProcessor::new(
+            Arc::new(chain_store),
+            Arc::new(store),
+            Arc::new(MockFileReferenceStore::new()),
+            Arc::new(identity_store),
+            Arc::new(notification_store),
+            Arc::new(contact),
+            Arc::new(bill),
+            Arc::new(push_service),
+            Arc::new(chain_event_store),
+            Arc::new(transport),
+            Arc::new(contact_store),
+            bitcoin::Network::Testnet,
+        );
+
+        handler
+            .resync_chain(
+                &company_id,
+                ResyncMode::OnlyMissingMetadata {
+                    up_to_hash: predecessor.hash.clone(),
+                },
+            )
+            .await
+            .expect("company metadata recovery should ignore the unpublished local tip");
     }
 }
