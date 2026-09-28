@@ -40,8 +40,7 @@ impl ContactTransportService {
 
 impl ServiceTraitBounds for ContactTransportService {}
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl ContactTransportServiceApi for ContactTransportService {
     /// Attempts to resolve the nostr contact for the given Node Id
     async fn resolve_contact(&self, node_id: &NodeId) -> Result<Option<NostrContactData>> {

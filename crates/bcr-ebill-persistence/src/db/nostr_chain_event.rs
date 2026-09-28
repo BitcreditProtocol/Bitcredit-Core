@@ -57,8 +57,7 @@ impl SurrealNostrChainEventStore {
 
 impl ServiceTraitBounds for SurrealNostrChainEventStore {}
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl NostrChainEventStoreApi for SurrealNostrChainEventStore {
     async fn find_chain_events(
         &self,

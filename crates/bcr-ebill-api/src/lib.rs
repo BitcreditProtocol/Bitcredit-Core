@@ -2,7 +2,6 @@
 use anyhow::{Result, anyhow};
 use bcr_common::core::NodeId;
 use bcr_ebill_persistence::db::surreal::SurrealWrapper;
-#[cfg(not(target_arch = "wasm32"))]
 use bcr_ebill_persistence::get_surreal_db;
 use bcr_ebill_persistence::{
     ContactStoreApi, FileReferenceStoreApi, NostrChainEventStoreApi, NostrContactStoreApi,
@@ -25,7 +24,7 @@ use bcr_ebill_persistence::{
 };
 use bitcoin::Network;
 use log::error;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, RwLock};
 
 pub mod constants;
 pub mod external;
@@ -50,7 +49,7 @@ pub struct Config {
     pub court_config: CourtConfig,
 }
 
-static CONFIG: OnceLock<Config> = OnceLock::new();
+static CONFIG: RwLock<Option<Arc<Config>>> = RwLock::new(None);
 
 impl Config {
     pub fn bitcoin_network(&self) -> Network {
@@ -148,14 +147,14 @@ pub fn init(conf: Config) -> Result<()> {
         return Err(anyhow!("esplora_base_urls must contain at least one URL"));
     }
 
-    CONFIG
-        .set(conf)
-        .map_err(|e| anyhow!("Could not initialize E-Bill API: {e:?}"))?;
+    let mut cfg_lock = CONFIG.write().expect("can get write lock on config");
+    *cfg_lock = Some(Arc::new(conf));
     Ok(())
 }
 
-pub fn get_config() -> &'static Config {
-    CONFIG.get().expect("E-Bill API is not initialized")
+pub fn get_config() -> Arc<Config> {
+    let config = CONFIG.read().expect("Can get E-Bill config lock");
+    config.clone().expect("E-Bill API is not initialized")
 }
 
 /// A container for all persistence related dependencies.
@@ -183,27 +182,17 @@ pub struct DbContext {
 pub async fn get_db_context(
     #[allow(unused)] conf: &Config,
 ) -> bcr_ebill_persistence::Result<DbContext> {
-    #[cfg(not(target_arch = "wasm32"))]
     let db = get_surreal_db(&conf.db_config).await?;
-    #[cfg(not(target_arch = "wasm32"))]
     let files_db = get_surreal_db(&conf.files_db_config).await?;
-    #[cfg(not(target_arch = "wasm32"))]
     let surreal_wrapper = SurrealWrapper {
         db: db.clone(),
         files: false,
     };
 
-    #[cfg(not(target_arch = "wasm32"))]
     let files_surreal_wrapper = SurrealWrapper {
         db: files_db.clone(),
         files: true,
     };
-
-    #[cfg(target_arch = "wasm32")]
-    let surreal_wrapper = SurrealWrapper { files: false };
-
-    #[cfg(target_arch = "wasm32")]
-    let files_surreal_wrapper = SurrealWrapper { files: true };
 
     let company_store = Arc::new(SurrealCompanyStore::new(surreal_wrapper.clone()));
     let file_upload_store = Arc::new(

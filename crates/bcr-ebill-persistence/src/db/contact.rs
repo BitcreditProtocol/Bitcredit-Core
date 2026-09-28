@@ -32,8 +32,7 @@ impl SurrealContactStore {
 
 impl ServiceTraitBounds for SurrealContactStore {}
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl ContactStoreApi for SurrealContactStore {
     async fn search(&self, search_term: &str) -> Result<Vec<Contact>> {
         let mut bindings = Bindings::default();

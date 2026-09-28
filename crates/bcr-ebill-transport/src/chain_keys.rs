@@ -14,8 +14,7 @@ use log::{debug, warn};
 
 /// Resolver for generic chain keys that are needed to decrypt
 /// public chain events.
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait ChainKeyServiceApi: ServiceTraitBounds {
     /// Get keys for given id and blockchain type
     async fn get_chain_keys(
@@ -48,8 +47,7 @@ impl ChainKeyService {
 
 impl ServiceTraitBounds for ChainKeyService {}
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl ChainKeyServiceApi for ChainKeyService {
     /// Get keys for given id and blockchain type
     async fn get_chain_keys(

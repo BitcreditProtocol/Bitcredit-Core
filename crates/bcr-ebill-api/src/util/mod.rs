@@ -21,30 +21,6 @@ pub fn get_uuid_v4() -> Uuid {
     uuid!("00000000-0000-0000-0000-000000000000")
 }
 
-pub fn update_optional_field<T: Clone + PartialEq>(
-    field_to_update: &mut Option<T>,
-    field: &Option<T>,
-    changed: &mut bool,
-) {
-    match field_to_update {
-        Some(_) => {
-            if let Some(field_to_set) = field {
-                *field_to_update = Some(field_to_set.clone());
-                *changed = true;
-            } else {
-                *field_to_update = None;
-                *changed = true;
-            }
-        }
-        None => {
-            if let Some(field_to_set) = field {
-                *field_to_update = Some(field_to_set.clone());
-                *changed = true;
-            }
-        }
-    };
-}
-
 pub fn handle_optional_field<T: Clone + PartialEq>(
     field_to_update: &mut Option<T>,
     field: &EditOptionalFieldMode<T>,
@@ -91,40 +67,7 @@ pub fn validate_bill_id_network(bill_id: &BillId) -> Result<(), ValidationError>
 
 #[cfg(test)]
 mod tests {
-    use bcr_ebill_core::protocol::Country;
-
     use super::*;
-
-    #[test]
-    fn update_optional_field_baseline() {
-        let mut field_to_update = Some(String::from("hi"));
-        let mut changed = false;
-        update_optional_field(
-            &mut field_to_update,
-            &Some(String::from("hello")),
-            &mut changed,
-        );
-        assert!(changed);
-        assert_eq!(Some(String::from("hello")), field_to_update);
-    }
-
-    #[test]
-    fn update_optional_field_none() {
-        let mut field_to_update: Option<Country> = None;
-        let mut changed = false;
-        update_optional_field(&mut field_to_update, &None, &mut changed);
-        assert!(!changed);
-        assert_eq!(None, field_to_update);
-    }
-
-    #[test]
-    fn update_optional_field_some_none() {
-        let mut field_to_update = Some(String::from("hi"));
-        let mut changed = false;
-        update_optional_field(&mut field_to_update, &None, &mut changed);
-        assert!(changed);
-        assert_eq!(None, field_to_update);
-    }
 
     #[test]
     fn handle_optional_field_set() {

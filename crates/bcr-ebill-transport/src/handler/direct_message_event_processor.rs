@@ -43,8 +43,7 @@ impl DirectMessageEventProcessor {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl DirectMessageEventProcessorApi for DirectMessageEventProcessor {
     async fn process_direct_message(&self, event: Box<nostr::event::Event>) -> Result<()> {
         // Get all local node IDs for multi-identity handling

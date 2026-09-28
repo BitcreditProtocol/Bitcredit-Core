@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 pub struct Sum {
     /// Amount in minor-unit scale, e.g. 1225 for 12.25 EUR, 1000 for 1000 SAT, the scale is gotten from the currency's decimal value
     /// We use u64, since u64::MAX is ~8700x larger than the maximum possible amount of satoshis
-    /// Serialized as a string to avoid precision loss when passing large integers across WASM boundary to JavaScript
+    /// Serialized as a string to avoid precision loss when passing large integers across FFI boundary to JavaScript
     #[serde(
         serialize_with = "serialize_amount_as_string",
         deserialize_with = "deserialize_amount_from_string_or_number"
@@ -538,7 +538,7 @@ mod tests {
 
     #[test]
     fn test_large_amount_above_js_safe_integer() {
-        // value would lose precision when crossing WASM boundary
+        // value would lose precision when crossing FFI boundary
         let large_amount = 9007199254740992u64; // Above MAX_SAFE_INTEGER
         let sum = Sum::new_sat(large_amount).unwrap();
         let test = TestSum { sum: sum.clone() };

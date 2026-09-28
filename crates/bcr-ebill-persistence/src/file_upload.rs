@@ -3,8 +3,7 @@ use async_trait::async_trait;
 use bcr_ebill_core::{application::ServiceTraitBounds, protocol::Name};
 use uuid::Uuid;
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait FileUploadStoreApi: ServiceTraitBounds {
     /// Deletes temporary upload folder with the given name
     async fn remove_temp_upload_folder(&self, file_upload_id: &Uuid) -> Result<()>;

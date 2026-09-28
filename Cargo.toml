@@ -1,5 +1,5 @@
 [workspace.package]
-version = "0.5.16"
+version = "0.6.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/BitcreditProtocol/Bitcredit-Core"
@@ -11,16 +11,14 @@ members = [
   "crates/bcr-ebill-persistence",
   "crates/bcr-ebill-transport",
   "crates/bcr-ebill-api",
-  "crates/bcr-ebill-wasm",
+  "crates/bcr-ebill-flutter-ffi",
 ]
 
 [profile.release]
-opt-level = "s"   # Optimize for size ("z" can be used for even more aggressive size reduction)
-lto = true        # Enable Link-Time Optimization
-codegen-units = 1 # Reduces binary size at the cost of compile time
-
-[profile.dev]
-opt-level = 1 # Avoid surrealdb index out of bounds issue in dev build
+opt-level = "s"     # Optimize for size ("z" can be used for even more aggressive size reduction)
+lto = true          # Enable Link-Time Optimization
+codegen-units = 1   # Reduces binary size at the cost of compile time
+strip = "symbols"
 
 [workspace.dependencies]
 borsh = "1.5"
@@ -28,12 +26,6 @@ borsh-derive = "1.5"
 log = { version = "0.4", features = ["serde"] }
 time = {version = "0.3", features = ["serde", "formatting", "parsing", "macros"]}
 tokio = { version = "1.46", default-features = false, features = [
-  "rt",
-  "sync",
-  "macros",
-  "time",
-] }
-tokio_with_wasm = { version = "0.10", features = [
   "rt",
   "sync",
   "macros",
@@ -68,4 +60,5 @@ surrealdb = { version = "2.3", default-features = false }
 strum = { version = "0.28", features = ["derive"] }
 url = { version = "2.5" }
 mockito = "1.7"
+once_cell = {version = "1.21"}
 

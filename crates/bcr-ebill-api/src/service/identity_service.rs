@@ -49,8 +49,7 @@ use log::{debug, error};
 use std::sync::Arc;
 use uuid::Uuid;
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait IdentityServiceApi: ServiceTraitBounds {
     /// Updates the identity
     async fn update_identity(
@@ -385,8 +384,7 @@ fn get_bcr_data(
 
 impl ServiceTraitBounds for IdentityService {}
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl IdentityServiceApi for IdentityService {
     async fn get_full_identity(&self) -> Result<IdentityWithAll> {
         let identity = self.store.get_full().await?;

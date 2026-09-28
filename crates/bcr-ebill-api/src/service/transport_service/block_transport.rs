@@ -16,8 +16,7 @@ use mockall::automock;
 /// Methods required for all block propagations and chain re-syncs
 #[allow(dead_code)]
 #[cfg_attr(test, automock)]
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait BlockTransportServiceApi: ServiceTraitBounds {
     /// Sent when an identity chain is created or updated
     async fn send_identity_chain_events(&self, events: IdentityChainEvent) -> Result<()>;

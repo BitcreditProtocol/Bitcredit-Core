@@ -1,0 +1,10 @@
+analyzer:
+  exclude:
+    - cargokit/**
+    - build/**
+    - android/**
+    - ios/**
+    - windows/**
+    - macos/**
+    - linux/**
+

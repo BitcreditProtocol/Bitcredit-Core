@@ -25,8 +25,7 @@ impl SurrealNostrEventOffsetStore {
 
 impl ServiceTraitBounds for SurrealNostrEventOffsetStore {}
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl NostrEventOffsetStoreApi for SurrealNostrEventOffsetStore {
     async fn current_offset(&self, node_id: &NodeId) -> Result<Timestamp> {
         let mut bindings = Bindings::default();

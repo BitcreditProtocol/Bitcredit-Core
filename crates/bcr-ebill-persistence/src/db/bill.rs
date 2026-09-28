@@ -59,8 +59,7 @@ impl SurrealBillStore {
 
 impl ServiceTraitBounds for SurrealBillStore {}
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl BillStoreApi for SurrealBillStore {
     async fn get_bills_from_cache(
         &self,

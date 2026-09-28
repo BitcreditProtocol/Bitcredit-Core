@@ -61,8 +61,7 @@ pub struct IdentityChainEventProcessor {
     bitcoin_network: bitcoin::Network,
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
     async fn process_chain_data(
         &self,

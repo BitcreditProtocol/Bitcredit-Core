@@ -28,8 +28,7 @@ use miniscript::ToPublicKey;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tokio::alias::try_join;
-use tokio_with_wasm as tokio;
+use tokio::try_join;
 
 pub const DUST_THRESHOLD: u64 = 546;
 pub const FEE_ESTIMATE_DEFAULT: f64 = 1.0;
@@ -69,8 +68,7 @@ pub enum Error {
 use mockall::automock;
 
 #[cfg_attr(test, automock)]
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait BitcoinClientApi: ServiceTraitBounds {
     /// Checks payment by iterating over the transactions on the address in chronological order, until
     /// the target amount is filled, returning the respective payment status
@@ -115,12 +113,12 @@ impl ServiceTraitBounds for MockBitcoinClientApi {}
 
 impl BitcoinClient {
     pub fn new() -> Self {
-        Self::from_config(get_config())
+        Self::from_config(get_config().as_ref())
     }
 
     pub fn from_config(config: &crate::Config) -> Self {
         Self {
-            cl: reqwest::Client::new(),
+            cl: bcr_common::client::reqwest_client(),
             esplora_base_urls: config.esplora_base_urls.clone(),
             network: config.bitcoin_network(),
         }
@@ -129,7 +127,7 @@ impl BitcoinClient {
     #[cfg(test)]
     pub fn with_urls(esplora_base_urls: Vec<url::Url>, network: Network) -> Self {
         Self {
-            cl: reqwest::Client::new(),
+            cl: bcr_common::client::reqwest_client(),
             esplora_base_urls,
             network,
         }
@@ -356,8 +354,7 @@ impl Default for BitcoinClient {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl BitcoinClientApi for BitcoinClient {
     async fn check_payment_for_address(
         &self,

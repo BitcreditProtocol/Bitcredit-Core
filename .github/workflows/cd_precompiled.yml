@@ -1,0 +1,115 @@
+name: Release precompiled binaries
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: precompiled-binaries-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+
+jobs:
+  precompile:
+    name: Precompile ${{ matrix.platform }}
+    timeout-minutes: 30
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - platform: ios
+            os: macos-latest
+          - platform: android
+            os: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1.8.1
+
+      - name: Create GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.PRIVATE_REPO_ACCESS_APP_ID }}
+          private-key: ${{ secrets.PRIVATE_REPO_ACCESS_APP_PRIVATE_KEY }}
+          permission-contents: read
+          owner: BitcreditProtocol
+
+      - name: Git auth with app token
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+
+      - name: Activate cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          prefix-key: ebill-flutter-ffi-precompiled-${{ matrix.platform }}
+
+      - name: Precompile iOS
+        if: matrix.platform == 'ios'
+        working-directory: cargokit/build_tool
+        run: |
+          echo "Deployment target: $IPHONEOS_DEPLOYMENT_TARGET"
+
+          rustc --target aarch64-apple-ios \
+          --print deployment-target
+
+          rustc --target aarch64-apple-ios-sim \
+          --print deployment-target
+
+          rustc --target x86_64-apple-ios \
+          --print deployment-target
+
+          dart run build_tool precompile-binaries -v \
+            --manifest-dir=../../crates/bcr-ebill-flutter-ffi \
+            --repository="$GITHUB_REPOSITORY" \
+            --target-commitish="$GITHUB_SHA" \
+            --prerelease \
+            --target=aarch64-apple-ios \
+            --target=aarch64-apple-ios-sim \
+            --target=x86_64-apple-ios
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PRIVATE_KEY: ${{ secrets.PRECOMPILED_BINARIES_SIG_PRIVATE_KEY }}
+          IPHONEOS_DEPLOYMENT_TARGET: "13.0"
+
+      - name: Precompile Android
+        if: matrix.platform == 'android'
+        working-directory: cargokit/build_tool
+        run: |
+          android_sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          ndk_path="${ANDROID_NDK_HOME:-}"
+          if [ -z "$ndk_path" ]; then
+            ndk_path="$(find "$android_sdk/ndk" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          fi
+          ndk_version="$(basename "$ndk_path")"
+          echo "NDK Version: $ndk_version"
+
+          dart run build_tool precompile-binaries -v \
+            --manifest-dir=../../crates/bcr-ebill-flutter-ffi \
+            --repository="$GITHUB_REPOSITORY" \
+            --target-commitish="$GITHUB_SHA" \
+            --prerelease \
+            --android-sdk-location="$android_sdk" \
+            --android-ndk-version="$ndk_version" \
+            --android-min-sdk-version=27 \
+            --target=armv7-linux-androideabi \
+            --target=aarch64-linux-android \
+            --target=i686-linux-android \
+            --target=x86_64-linux-android
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PRIVATE_KEY: ${{ secrets.PRECOMPILED_BINARIES_SIG_PRIVATE_KEY }}

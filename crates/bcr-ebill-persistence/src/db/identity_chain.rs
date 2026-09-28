@@ -66,8 +66,7 @@ impl SurrealIdentityChainStore {
 
 impl ServiceTraitBounds for SurrealIdentityChainStore {}
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl IdentityChainStoreApi for SurrealIdentityChainStore {
     async fn get_latest_block(&self) -> Result<IdentityBlock> {
         let mut bindings = Bindings::default();

@@ -33,7 +33,6 @@ use bcr_ebill_persistence::nostr::{
 use bitcoin::base58;
 use log::info;
 use log::{debug, error, warn};
-use tokio_with_wasm::alias as tokio;
 
 use bcr_ebill_api::service::transport_service::{Error, Result};
 use bcr_ebill_core::protocol::PostalAddress;

@@ -21,8 +21,7 @@ impl SurrealEmailNotificationStore {
 
 impl ServiceTraitBounds for SurrealEmailNotificationStore {}
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl EmailNotificationStoreApi for SurrealEmailNotificationStore {
     async fn add_email_preferences_link_for_node_id(
         &self,

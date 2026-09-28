@@ -45,17 +45,3 @@ pub const DB_RECEIVER_NODE_ID: &str = "receiver_node_id";
 pub const DB_CONTACT_SHARE_DIRECTION: &str = "direction";
 
 pub const NOSTR_QUEUE_PROCESSING_TIMEOUT_SECS: u64 = 60;
-
-#[cfg(target_arch = "wasm32")]
-pub const SURREAL_DB_CON_INDXDB_DATA: &str = "indxdb://data";
-#[cfg(target_arch = "wasm32")]
-pub const SURREAL_DB_INDXDB_DB_DATA: &str = "data";
-#[cfg(target_arch = "wasm32")]
-pub const SURREAL_DB_INDXDB_NS_DATA: &str = "";
-
-#[cfg(target_arch = "wasm32")]
-pub const SURREAL_DB_CON_INDXDB_FILES: &str = "indxdb://files";
-#[cfg(target_arch = "wasm32")]
-pub const SURREAL_DB_INDXDB_DB_FILES: &str = "files";
-#[cfg(target_arch = "wasm32")]
-pub const SURREAL_DB_INDXDB_NS_FILES: &str = "";

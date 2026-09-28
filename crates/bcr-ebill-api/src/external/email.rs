@@ -45,8 +45,7 @@ use mockall::automock;
 use crate::external::file_storage::to_url;
 
 #[cfg_attr(test, automock)]
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait EmailClientApi: ServiceTraitBounds {
     /// Register for email notifications, returning an email preferences link
     async fn register(
@@ -96,7 +95,7 @@ pub struct EmailClient {
 impl EmailClient {
     pub fn new() -> Self {
         Self {
-            cl: reqwest::Client::new(),
+            cl: bcr_common::client::reqwest_client(),
         }
     }
 
@@ -156,8 +155,7 @@ impl ServiceTraitBounds for EmailClient {}
 #[cfg(test)]
 impl ServiceTraitBounds for MockEmailClientApi {}
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl EmailClientApi for EmailClient {
     async fn register(
         &self,

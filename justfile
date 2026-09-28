@@ -1,3 +1,16 @@
+check: flutter
+  cargo fmt -- --check
+  cargo check
+  cargo test --all
+  cargo clippy --all-targets --all-features -- -D warnings
+  cargo deny check
+
+
+flutter:
+    dart run build_runner build --delete-conflicting-outputs
+    flutter_rust_bridge_codegen generate
+
+# Local Regtest Payment
 # Usage:
 # just pay <address> <amount>
 # Example:
@@ -17,19 +30,6 @@ pay address amount:
     docker exec -it esplora-esplora-1 /srv/explorer/bitcoin/bin/bitcoin-cli -regtest -rpcwallet=default -rpccookiefile=/data/bitcoin/regtest/.cookie -generate 101 || true
 
     @echo "Done."
-
-check: wasm
-  cargo fmt -- --check
-  cargo check
-  cargo test --all
-  cargo clippy --all-targets --all-features -- -D warnings
-  cargo deny check
-
-wasm:
-  wasm-pack build --dev --target web --out-name index ./crates/bcr-ebill-wasm
-
-serve:
-  http-server -g -c-1 -p 8081 ./crates/bcr-ebill-wasm/
 
 # bdk-cli
 # to install:

@@ -1,0 +1,23 @@
+name: ebill_ffi_harness
+description: Desktop test harness for ebill_flutter_ffi
+publish_to: none
+
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.10.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+  ebill_flutter_ffi:
+    path: ../
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true

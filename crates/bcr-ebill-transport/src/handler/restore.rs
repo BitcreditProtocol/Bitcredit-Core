@@ -130,8 +130,7 @@ impl RestoreAccountService {
 
 impl ServiceTraitBounds for RestoreAccountService {}
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl RestoreAccountApi for RestoreAccountService {
     async fn restore_account(&self) -> Result<()> {
         info!("restoring primary account");

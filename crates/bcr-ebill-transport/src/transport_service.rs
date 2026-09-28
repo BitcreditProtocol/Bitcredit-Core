@@ -49,8 +49,7 @@ impl TransportService {
 
 impl ServiceTraitBounds for TransportService {}
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl TransportServiceApi for TransportService {
     fn block_transport(&self) -> &Arc<dyn BlockTransportServiceApi> {
         &self.block_transport_service

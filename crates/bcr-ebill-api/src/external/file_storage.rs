@@ -42,8 +42,7 @@ pub enum Error {
 use mockall::automock;
 
 #[cfg_attr(test, automock)]
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait FileStorageClientApi: ServiceTraitBounds {
     /// Upload the given bytes, checking and returning the nostr_hash
     async fn upload(&self, relay_url: &url::Url, bytes: Vec<u8>) -> Result<Sha256HexHash>;
@@ -71,7 +70,7 @@ impl ServiceTraitBounds for MockFileStorageClientApi {}
 impl FileStorageClient {
     pub fn new() -> Self {
         Self {
-            cl: reqwest::Client::new(),
+            cl: bcr_common::client::reqwest_client(),
         }
     }
 }
@@ -128,8 +127,7 @@ struct MirrorRequest<'a> {
     url: &'a str,
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl FileStorageClientApi for FileStorageClient {
     async fn upload(&self, relay_url: &url::Url, bytes: Vec<u8>) -> Result<Sha256HexHash> {
         let hash = sha256_hash(&bytes)?;

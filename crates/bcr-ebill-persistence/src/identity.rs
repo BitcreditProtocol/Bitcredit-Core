@@ -13,8 +13,7 @@ use bcr_ebill_core::{
     },
 };
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait IdentityStoreApi: ServiceTraitBounds {
     /// Checks if the identity has been created
     async fn exists(&self) -> bool;
@@ -51,8 +50,7 @@ pub trait IdentityStoreApi: ServiceTraitBounds {
     ) -> Result<()>;
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait IdentityChainStoreApi: ServiceTraitBounds {
     /// Gets the latest block of the chain
     async fn get_latest_block(&self) -> Result<IdentityBlock>;

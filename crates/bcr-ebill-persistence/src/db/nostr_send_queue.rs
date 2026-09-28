@@ -48,8 +48,7 @@ impl SurrealNostrEventQueueStore {
 
 impl ServiceTraitBounds for SurrealNostrEventQueueStore {}
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl NostrQueuedMessageStoreApi for SurrealNostrEventQueueStore {
     /// Adds a new retry message
     async fn add_message(&self, message: NostrQueuedMessage, max_retries: i32) -> Result<()> {

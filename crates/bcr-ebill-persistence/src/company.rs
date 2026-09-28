@@ -12,8 +12,7 @@ use std::collections::HashMap;
 use super::Result;
 use async_trait::async_trait;
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait CompanyStoreApi: ServiceTraitBounds {
     /// Searches the company for the search term
     async fn search(&self, search_term: &str) -> Result<Vec<Company>>;
@@ -77,8 +76,7 @@ pub trait CompanyStoreApi: ServiceTraitBounds {
     async fn get_active_company_invites(&self) -> Result<HashMap<NodeId, (Company, BcrKeys)>>;
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait CompanyChainStoreApi: ServiceTraitBounds {
     /// Gets the latest block of the chain
     async fn get_latest_block(&self, id: &NodeId) -> Result<CompanyBlock>;

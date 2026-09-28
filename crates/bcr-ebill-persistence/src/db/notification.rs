@@ -37,8 +37,7 @@ impl SurrealNotificationStore {
 
 impl ServiceTraitBounds for SurrealNotificationStore {}
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl NotificationStoreApi for SurrealNotificationStore {
     /// Returns node ids with an active notification for the given node ids
     async fn get_active_status_for_node_ids(

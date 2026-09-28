@@ -16,8 +16,7 @@ use serde::{Deserialize, Serialize};
 /// Allows storing and retrieving time based offsets for subscriptions
 /// to Nostr relays. It will also store the event ids that have been
 /// received and processed already.
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait NostrEventOffsetStoreApi: ServiceTraitBounds {
     /// Returns the current timestamp offset of our nostr subscription
     /// Will return 0 if there are no events in the store yet, otherwise
@@ -52,8 +51,7 @@ pub struct NostrEventOffset {
 }
 
 /// A dumb retry queue for Nostr messages that failed to be sent.
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait NostrQueuedMessageStoreApi: ServiceTraitBounds {
     /// Adds a new retry message
     async fn add_message(&self, message: NostrQueuedMessage, max_retries: i32) -> Result<()>;
@@ -89,8 +87,7 @@ pub struct NostrQueuedMessage {
 }
 
 /// Manages all Nostr-related persistence including contacts, events, sync status, and retries
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait NostrStoreApi: ServiceTraitBounds {
     /// Find a Nostr contact by the node id. This node ids npub  is the primary key for the contact.
     async fn by_node_id(&self, node_id: &NodeId) -> Result<Option<NostrContact>>;
@@ -225,8 +222,7 @@ pub struct PendingContactShare {
 
 /// Allows us to keep track of Nostr chain events and have an archive of signed events that
 /// allows us to proof certain Events where published.
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait NostrChainEventStoreApi: ServiceTraitBounds {
     /// Finds all chain events for the given chain id and type. This will return all valid
     /// events we ever received for a chain id.

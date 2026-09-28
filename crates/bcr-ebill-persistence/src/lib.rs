@@ -65,7 +65,6 @@ impl From<surrealdb::Error> for Error {
 pub use contact::ContactStoreApi;
 pub use db::file_reference::SurrealFileReferenceStore;
 pub use db::file_upload::FileUploadStore;
-#[cfg(not(target_arch = "wasm32"))]
 pub use db::get_surreal_db;
 pub use db::{
     SurrealDbConfig, bill::SurrealBillStore, bill_chain::SurrealBillChainStore,

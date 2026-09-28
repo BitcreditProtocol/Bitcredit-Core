@@ -10,7 +10,6 @@ use log::{debug, error, info, warn};
 use nostr::{event::Kind, filter::Filter, key::PublicKey};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio_with_wasm::alias as tokio;
 
 /// Helper to convert persistence errors to transport errors
 fn to_transport_error(e: bcr_ebill_persistence::Error) -> Error {
@@ -256,7 +255,7 @@ async fn sync_event_type_to_multiple(
             }
         }
 
-        // Rate limiting - tokio_with_wasm::time::sleep works in both WASM and native
+        // Rate limiting
         if delay.as_millis() > 0 {
             tokio::time::sleep(delay).await;
         }

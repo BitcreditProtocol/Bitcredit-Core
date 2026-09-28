@@ -22,8 +22,7 @@ use mockall::automock;
 /// Allows to sync and manage contacts with the remote transport network
 #[allow(dead_code)]
 #[cfg_attr(test, automock)]
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait TransportServiceApi: ServiceTraitBounds {
     /// Returns the block propagation service
     fn block_transport(&self) -> &Arc<dyn BlockTransportServiceApi>;

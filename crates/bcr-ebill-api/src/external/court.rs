@@ -47,8 +47,7 @@ pub struct SignedReceiveBillRequest {
 }
 
 #[cfg_attr(test, automock)]
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait CourtClientApi: ServiceTraitBounds {
     /// Create request, sign it and send it to the given court URL endpoint
     async fn share_with_court(
@@ -67,7 +66,7 @@ pub struct CourtClient {
 impl CourtClient {
     pub fn new() -> Self {
         Self {
-            cl: reqwest::Client::new(),
+            cl: bcr_common::client::reqwest_client(),
         }
     }
 }
@@ -77,8 +76,7 @@ impl ServiceTraitBounds for CourtClient {}
 #[cfg(test)]
 impl ServiceTraitBounds for MockCourtClientApi {}
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl CourtClientApi for CourtClient {
     async fn share_with_court(
         &self,

@@ -37,6 +37,11 @@ name = "surrealdb-core"
 expression = "BUSL-1.1"
 license-files = []
 
+[[licenses.clarify]]
+name = "allo-isolate"
+expression = "Apache-2.0"
+license-files = []
+
 
 [licenses.private]
 ignore = false
