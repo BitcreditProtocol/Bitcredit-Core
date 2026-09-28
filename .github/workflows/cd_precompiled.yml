@@ -21,8 +21,8 @@ env:
 
 jobs:
   precompile:
-    name: Precompile ${{ matrix.platform }}
-    timeout-minutes: 30
+    name: Precompile ${{ matrix.target }}
+    timeout-minutes: 60
     runs-on: ${{ matrix.os }}
 
     permissions:
@@ -30,19 +30,32 @@ jobs:
 
     environment: release-precompiled
 
+    # One job per target, all in parallel. Cargokit tolerates the jobs racing
+    # to create the shared precompiled_<hash> release.
     strategy:
       fail-fast: false
-      max-parallel: 1
       matrix:
         include:
-          - platform: ios
-            os: macos-latest
-          - platform: android
-            os: ubuntu-latest
+          - { platform: ios, os: macos-latest, target: aarch64-apple-ios }
+          - { platform: ios, os: macos-latest, target: aarch64-apple-ios-sim }
+          - { platform: ios, os: macos-latest, target: x86_64-apple-ios }
+          - { platform: android, os: ubuntu-latest, target: armv7-linux-androideabi }
+          - { platform: android, os: ubuntu-latest, target: aarch64-linux-android }
+          - { platform: android, os: ubuntu-latest, target: i686-linux-android }
+          - { platform: android, os: ubuntu-latest, target: x86_64-linux-android }
 
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Keep /usr/local/lib/android: the Android build needs the SDK and NDK.
+      - name: Free up disk space
+        if: matrix.platform == 'android'
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/share/swift /usr/local/share/boost
+          docker system prune -a -f
+          df -h /
 
       - name: Set up Dart
         uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1.8.1
@@ -50,32 +63,23 @@ jobs:
       - name: Activate cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          prefix-key: ebill-flutter-ffi-precompiled-${{ matrix.platform }}
+          prefix-key: ebill-flutter-ffi-precompiled-${{ matrix.target }}
 
       - name: Precompile iOS
         if: matrix.platform == 'ios'
         working-directory: cargokit/build_tool
         run: |
           echo "Deployment target: $IPHONEOS_DEPLOYMENT_TARGET"
-
-          rustc --target aarch64-apple-ios \
-          --print deployment-target
-
-          rustc --target aarch64-apple-ios-sim \
-          --print deployment-target
-
-          rustc --target x86_64-apple-ios \
-          --print deployment-target
+          rustc --target "$TARGET" --print deployment-target
 
           dart run build_tool precompile-binaries -v \
             --manifest-dir=../../crates/bcr-ebill-flutter-ffi \
             --repository="$GITHUB_REPOSITORY" \
             --target-commitish="$GITHUB_SHA" \
             --prerelease \
-            --target=aarch64-apple-ios \
-            --target=aarch64-apple-ios-sim \
-            --target=x86_64-apple-ios
+            --target="$TARGET"
         env:
+          TARGET: ${{ matrix.target }}
           GITHUB_TOKEN: ${{ github.token }}
           PRIVATE_KEY: ${{ secrets.PRECOMPILED_BINARIES_SIG_PRIVATE_KEY }}
           IPHONEOS_DEPLOYMENT_TARGET: "13.0"
@@ -95,10 +99,8 @@ jobs:
             --android-sdk-location="$android_sdk" \
             --android-ndk-version="$ANDROID_NDK_VERSION" \
             --android-min-sdk-version=27 \
-            --target=armv7-linux-androideabi \
-            --target=aarch64-linux-android \
-            --target=i686-linux-android \
-            --target=x86_64-linux-android
+            --target="$TARGET"
         env:
+          TARGET: ${{ matrix.target }}
           GITHUB_TOKEN: ${{ github.token }}
           PRIVATE_KEY: ${{ secrets.PRECOMPILED_BINARIES_SIG_PRIVATE_KEY }}
