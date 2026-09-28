@@ -1,1 +1,1 @@
-export '../src/rust/ffi/error.dart';
+export 'src/rust/ffi/error.dart';
