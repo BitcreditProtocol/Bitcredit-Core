@@ -32,7 +32,8 @@ The `ref` can either be a commit hash, a branch or a tag.
 
 ### Precompiled binaries
 
-This package publishes signed precompiled iOS and Android Rust binaries from
+This package publishes signed precompiled Rust binaries for iOS, Android, macOS,
+Windows and Linux (x64 and arm64; Linux needs glibc 2.39 or newer) from
 `.github/workflows/cd_precompiled.yml`. App CI can opt in by adding
 `cargokit_options.yaml` at the Flutter app root:
 

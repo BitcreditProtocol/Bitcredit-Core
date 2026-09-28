@@ -43,6 +43,15 @@ jobs:
           - { platform: android, os: ubuntu-latest, target: aarch64-linux-android }
           - { platform: android, os: ubuntu-latest, target: i686-linux-android }
           - { platform: android, os: ubuntu-latest, target: x86_64-linux-android }
+          - { platform: macos, os: macos-latest, target: aarch64-apple-darwin }
+          - { platform: macos, os: macos-latest, target: x86_64-apple-darwin }
+          - { platform: windows, os: windows-latest, target: x86_64-pc-windows-msvc }
+          - { platform: windows, os: windows-11-arm, target: aarch64-pc-windows-msvc }
+          # Same Ubuntu as eBill's Linux build, so the binaries need glibc >= 2.39.
+          # Never build on a newer Ubuntu than the app, and don't use
+          # ubuntu-latest: it would silently raise the glibc requirement.
+          - { platform: linux, os: ubuntu-24.04, target: x86_64-unknown-linux-gnu }
+          - { platform: linux, os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
 
     steps:
       - name: Check out repository
@@ -104,3 +113,21 @@ jobs:
           TARGET: ${{ matrix.target }}
           GITHUB_TOKEN: ${{ github.token }}
           PRIVATE_KEY: ${{ secrets.PRECOMPILED_BINARIES_SIG_PRIVATE_KEY }}
+
+      - name: Precompile desktop
+        if: contains(fromJSON('["macos", "windows", "linux"]'), matrix.platform)
+        working-directory: cargokit/build_tool
+        shell: bash
+        run: |
+          dart run build_tool precompile-binaries -v \
+            --manifest-dir=../../crates/bcr-ebill-flutter-ffi \
+            --repository="$GITHUB_REPOSITORY" \
+            --target-commitish="$GITHUB_SHA" \
+            --prerelease \
+            --target="$TARGET"
+        env:
+          TARGET: ${{ matrix.target }}
+          GITHUB_TOKEN: ${{ github.token }}
+          PRIVATE_KEY: ${{ secrets.PRECOMPILED_BINARIES_SIG_PRIVATE_KEY }}
+          # Flutter's minimum macOS version; matches macos/ebill_flutter_ffi.podspec.
+          MACOSX_DEPLOYMENT_TARGET: "10.15"
