@@ -9,7 +9,7 @@ set(PROJECT_NAME "ebill_flutter_ffi")
 project(${PROJECT_NAME} LANGUAGES CXX)
 
 include("../cargokit/cmake/cargokit.cmake")
-apply_cargokit(${PROJECT_NAME} ../crates/bcr-ebill-flutter-ffi ebill_flutter_ffi "")
+apply_cargokit(${PROJECT_NAME} ../crates/bcr-ebill-flutter-ffi bcr_ebill_flutter_ffi "")
 
 # List of absolute paths to libraries that should be bundled with the plugin.
 # This list could contain prebuilt libraries, or libraries created by an

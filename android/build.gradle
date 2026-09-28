@@ -52,5 +52,5 @@ android {
 apply from: "../cargokit/gradle/plugin.gradle"
 cargokit {
     manifestDir = "../crates/bcr-ebill-flutter-ffi"
-    libname = "ebill_flutter_ffi"
+    libname = "bcr_ebill_flutter_ffi"
 }
