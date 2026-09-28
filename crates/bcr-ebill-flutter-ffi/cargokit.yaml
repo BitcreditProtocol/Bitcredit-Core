@@ -3,4 +3,4 @@ precompiled_binaries:
   url_prefix: https://github.com/BitcreditProtocol/Bitcredit-Core/releases/download/precompiled_
 
   # Public key for verifying downloaded precompiled binaries.
-  public_key: 65d7c5859d185e114b41b1da4fc71e7d2b7cb8f6e299c465dd641ab2f795716f
+  public_key: fb552915810da81e4bafb55439bcea9de44d9204f72116357d875c554ab6bb8e
