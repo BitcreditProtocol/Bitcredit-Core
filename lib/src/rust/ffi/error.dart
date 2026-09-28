@@ -7,6 +7,7 @@ import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `bill_service_error_data`, `err_400`, `err_404`, `err_500`, `notification_service_error_data`, `protocol_validation_error_data`, `validation_error_data`
+// These functions are ignored because they have generic arguments: `err_init`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
 
 class EbillFfiError implements FrbException {

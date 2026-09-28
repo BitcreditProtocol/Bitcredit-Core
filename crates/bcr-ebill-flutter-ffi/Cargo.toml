@@ -11,6 +11,7 @@ crate-type = ["cdylib", "staticlib"]
 android_logger = {version = "0.15"}
 anyhow = {workspace = true}
 async-trait.workspace = true
+async-broadcast.workspace = true
 base64.workspace = true
 bcr-common = { workspace = true, features = ["webpki-roots"] }
 bcr-ebill-core.workspace = true

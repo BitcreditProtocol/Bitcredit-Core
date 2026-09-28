@@ -520,3 +520,11 @@ fn err_500<E: ToString>(e: E, code: EbillFfiErrorCode) -> EbillFfiError {
         msg: e.to_string(),
     }
 }
+
+pub fn err_init<E: ToString>(e: E) -> EbillFfiError {
+    EbillFfiError {
+        kind: EbillFfiErrorKind::Initialization,
+        code: EbillFfiErrorCode::Init,
+        msg: e.to_string(),
+    }
+}

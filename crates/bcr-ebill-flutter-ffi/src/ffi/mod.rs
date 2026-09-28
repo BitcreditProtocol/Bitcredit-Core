@@ -20,7 +20,11 @@ use std::{
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
-use crate::ffi::{api::general, context::Context, error::EbillFfiError};
+use crate::ffi::{
+    api::general,
+    context::Context,
+    error::{EbillFfiError, err_init},
+};
 
 pub mod api;
 /// flutter_rust_bridge:ignore
@@ -111,6 +115,8 @@ async fn reset_runtime(rt: &mut EbillRuntime) {
         handle.abort();
     }
 
+    rt.ctx.take(); // drop context
+
     rt.set_transport_connected(false);
     rt.set_last_contact_publish_check(0);
 
@@ -144,11 +150,6 @@ pub struct EbillConfig {
 pub async fn init_ebill_ffi(conf: EbillConfig) -> Result<(), EbillFfiError> {
     init_crypto_provider();
     info!("Initializing Rust Ebill FFI");
-    let _parsed_path = PathBuf::from_str(&conf.db_folder_path.clone())
-        .expect("Not a valid file path for the database");
-    let _parsed_path_files = PathBuf::from_str(&conf.db_folder_path_files.clone())
-        .expect("Not a valid file path for the database");
-
     let log_level = match conf.log_level {
         Some(ref log_level) => match log_level.as_str() {
             "info" => log::LevelFilter::Info,
@@ -160,6 +161,7 @@ pub async fn init_ebill_ffi(conf: EbillConfig) -> Result<(), EbillFfiError> {
         None => log::LevelFilter::Info,
     };
 
+    let api_config = build_api_config(&conf)?;
     let mut rt = EBILL_RUNTIME.lock().await;
 
     // reset on initialization
@@ -177,60 +179,6 @@ pub async fn init_ebill_ffi(conf: EbillConfig) -> Result<(), EbillFfiError> {
         rt.panic_hook_initialized = true;
     }
 
-    let nostr_relays: Vec<url::Url> = conf
-        .nostr_relays
-        .iter()
-        .map(|nr| url::Url::parse(nr).expect("nostr relay is not a valid URL"))
-        .collect();
-    let blossom_servers: Vec<url::Url> = conf
-        .blossom_servers
-        .unwrap_or_default()
-        .iter()
-        .map(|server| url::Url::parse(server).expect("blossom server is not a valid URL"))
-        .collect();
-    let db_path = format!("surrealkv://{}", conf.db_folder_path);
-    let db_path_files = format!("surrealkv://{}", conf.db_folder_path_files);
-    let db_config = SurrealDbConfig {
-        connection_string: db_path,
-        namespace: "test".to_owned(),
-        database: "ebill".to_owned(),
-    };
-    let db_config_files = SurrealDbConfig {
-        connection_string: db_path_files,
-        namespace: "test".to_owned(),
-        database: "ebill".to_owned(),
-    };
-    let mint_node_id = NodeId::from_str(&conf.default_mint_node_id).expect("is a valid mint id");
-    let api_config = ApiConfig {
-        bitcoin_network: conf.bitcoin_network,
-        esplora_base_urls: conf
-            .esplora_base_urls
-            .iter()
-            .map(|u| url::Url::parse(u).expect("esplora base url is not a valid URL"))
-            .collect(),
-        db_config: db_config,
-        files_db_config: db_config_files,
-        nostr_config: NostrConfig {
-            relays: nostr_relays,
-            blossom_servers,
-            only_known_contacts: conf.nostr_only_known_contacts.unwrap_or(false),
-            max_relays: conf.nostr_max_relays.or(Some(50)),
-            relay_ack_threshold: conf.nostr_relay_ack_threshold.unwrap_or(1),
-        },
-        mint_config: MintConfig::new(conf.default_mint_url, mint_node_id)?,
-        payment_config: PaymentConfig {
-            num_confirmations_for_payment: conf.num_confirmations_for_payment,
-        },
-        dev_mode_config: DevModeConfig {
-            on: conf.dev_mode,
-            mandatory_email_confirmations: conf.mandatory_email_confirmations,
-        },
-        court_config: CourtConfig {
-            default_url: url::Url::parse(&conf.default_court_url)
-                .expect("court url is not a valid URL"),
-        },
-    };
-    debug!("Config: {api_config:?}");
     bcr_ebill_api::init(api_config.clone())?;
     // make sure the configured default mint node id is valid for the configured network
     validate_node_id_network(&api_config.mint_config.default_mint_node_id)?;
@@ -249,10 +197,7 @@ pub async fn init_ebill_ffi(conf: EbillConfig) -> Result<(), EbillFfiError> {
     info!("Local node id: {node_id}");
     info!(
         "Local npub: {}",
-        node_id
-            .npub()
-            .to_bech32()
-            .expect("invalid npub from node id")
+        node_id.npub().to_bech32().unwrap_or_default()
     );
     info!("Local npub as hex: {}", node_id.npub().to_hex());
 
@@ -285,6 +230,68 @@ pub async fn init_ebill_ffi(conf: EbillConfig) -> Result<(), EbillFfiError> {
 
     info!("Initialized Rust Ebill FFI");
     Ok(())
+}
+
+fn build_api_config(conf: &EbillConfig) -> Result<ApiConfig, EbillFfiError> {
+    let _parsed_path = PathBuf::from_str(&conf.db_folder_path.clone()).map_err(err_init)?;
+    let _parsed_path_files =
+        PathBuf::from_str(&conf.db_folder_path_files.clone()).map_err(err_init)?;
+    let nostr_relays: Vec<url::Url> = conf
+        .nostr_relays
+        .iter()
+        .map(|nr| url::Url::parse(nr).map_err(err_init))
+        .collect::<Result<_, EbillFfiError>>()?;
+    let blossom_servers: Vec<url::Url> = conf
+        .blossom_servers
+        .clone()
+        .unwrap_or_default()
+        .iter()
+        .map(|server| url::Url::parse(server).map_err(err_init))
+        .collect::<Result<_, EbillFfiError>>()?;
+    let db_path = format!("surrealkv://{}", conf.db_folder_path);
+    let db_path_files = format!("surrealkv://{}", conf.db_folder_path_files);
+    let db_config = SurrealDbConfig {
+        connection_string: db_path,
+        namespace: "test".to_owned(),
+        database: "ebill".to_owned(),
+    };
+    let db_config_files = SurrealDbConfig {
+        connection_string: db_path_files,
+        namespace: "test".to_owned(),
+        database: "ebill".to_owned(),
+    };
+    let mint_node_id = NodeId::from_str(&conf.default_mint_node_id)
+        .map_err(|e| err_init(format!("is a valid mint id: {e}")))?;
+    let api_config = ApiConfig {
+        bitcoin_network: conf.bitcoin_network.to_owned(),
+        esplora_base_urls: conf
+            .esplora_base_urls
+            .iter()
+            .map(|u| url::Url::parse(u).map_err(err_init))
+            .collect::<Result<_, EbillFfiError>>()?,
+        db_config,
+        files_db_config: db_config_files,
+        nostr_config: NostrConfig {
+            relays: nostr_relays,
+            blossom_servers,
+            only_known_contacts: conf.nostr_only_known_contacts.unwrap_or(false),
+            max_relays: conf.nostr_max_relays.or(Some(50)),
+            relay_ack_threshold: conf.nostr_relay_ack_threshold.unwrap_or(1),
+        },
+        mint_config: MintConfig::new(conf.default_mint_url.to_owned(), mint_node_id)?,
+        payment_config: PaymentConfig {
+            num_confirmations_for_payment: conf.num_confirmations_for_payment,
+        },
+        dev_mode_config: DevModeConfig {
+            on: conf.dev_mode,
+            mandatory_email_confirmations: conf.mandatory_email_confirmations,
+        },
+        court_config: CourtConfig {
+            default_url: url::Url::parse(&conf.default_court_url).map_err(err_init)?,
+        },
+    };
+    debug!("Config: {api_config:?}");
+    Ok(api_config)
 }
 
 pub fn init_crypto_provider() {

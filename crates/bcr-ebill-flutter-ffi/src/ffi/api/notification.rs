@@ -9,11 +9,12 @@ use crate::ffi::{
     },
     error::EbillFfiError,
 };
+use async_broadcast::RecvError;
 use bcr_common::core::NodeId;
 use bcr_ebill_core::protocol::ProtocolValidationError;
 use bcr_ebill_persistence::notification::NotificationFilter;
 use flutter_rust_bridge::{DartFnFuture, frb};
-use log::info;
+use log::{info, warn};
 
 #[frb]
 pub async fn active_notifications_for_node_ids(
@@ -52,21 +53,29 @@ pub async fn subscribe(
     callback: impl Fn(NotificationSubscriptionResponse) -> DartFnFuture<()> + Send + Sync + 'static,
 ) {
     let dart_callback = Arc::new(callback);
-    let callback: NotificationSubscriptionCb = Arc::new(move |v| {
-        let dart_callback = dart_callback.clone();
-        flutter_rust_bridge::spawn(async move {
-            let _ = dart_callback(NotificationSubscriptionResponse {
-                value: v.to_string(),
-            })
-            .await;
-        });
-    });
 
     flutter_rust_bridge::spawn(async move {
         info!("Subscribed to notifications");
         let mut receiver = get_ctx().await.push_service.subscribe().await;
-        while let Ok(msg) = receiver.recv().await {
-            callback(msg.to_string());
+        loop {
+            match receiver.recv().await {
+                Ok(msg) => {
+                    let _ = dart_callback(NotificationSubscriptionResponse {
+                        value: msg.to_string(),
+                    })
+                    .await;
+                }
+
+                Err(RecvError::Overflowed(count)) => {
+                    warn!("Notification receiver overflowed; lost {count} messages");
+                    continue;
+                }
+
+                Err(RecvError::Closed) => {
+                    info!("Notification channel closed");
+                    break;
+                }
+            }
         }
     });
 }

@@ -23,11 +23,20 @@ pub fn start_subscription(
         info!("Waiting {initial_delay} seconds to start nostr consumer.");
         tokio::time::sleep(Duration::from_secs(initial_delay)).await;
 
-        let reconnect_interval_seconds = job_interval_secs;
+        let reconnect_interval_seconds = job_interval_secs.max(1);
         EBILL_RUNTIME.lock().await.set_transport_connected(false);
 
         loop {
+            if cancel.is_cancelled() {
+                break;
+            }
+
             let ctx = get_ctx().await;
+            info!("Connecting to Nostr transport..");
+            // before subscription we ensure if we have a connection to the transports
+            ctx.transport_service.connect().await;
+            ensure_transport_contact_data_published(ctx.clone(), &default_mint_node_id).await;
+
             let mut handle = tokio::select! {
                 _ = cancel.cancelled() => {
                     info!("Nostr consumer cancelled");
@@ -45,18 +54,13 @@ pub fn start_subscription(
 
                         tokio::select! {
                             _ = cancel.cancelled() => break,
-                            _ = tokio::time::sleep(Duration::from_secs(5)) => {}
+                            _ = tokio::time::sleep(Duration::from_secs(reconnect_interval_seconds)) => {}
                         }
 
                         continue;
                     }
                 },
             };
-
-            info!("Connecting to Nostr transport..");
-            // before subscription we ensure if we have a connection to the transports
-            ctx.transport_service.connect().await;
-            ensure_transport_contact_data_published(ctx.clone(), &default_mint_node_id).await;
 
             // wait for nostr consumer to fail and restart, or cancel the whole process
             tokio::select! {
@@ -111,12 +115,12 @@ async fn ensure_transport_contact_data_published(ctx: Arc<Context>, default_mint
         debug!("Skipping contact data publish check - last check was recent");
         true
     } else {
+        EBILL_RUNTIME
+            .lock()
+            .await
+            .set_last_contact_publish_check(now);
         false
     };
-    EBILL_RUNTIME
-        .lock()
-        .await
-        .set_last_contact_publish_check(now);
 
     if should_skip {
         return;

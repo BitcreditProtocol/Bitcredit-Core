@@ -27,7 +27,7 @@ pub struct PushService {
 
 impl PushService {
     pub fn new() -> Self {
-        let (mut tx, rx) = async_broadcast::broadcast::<Value>(5);
+        let (mut tx, rx) = async_broadcast::broadcast::<Value>(100);
         tx.set_overflow(true);
         tx.set_await_active(false);
         let inactive = rx.deactivate();
