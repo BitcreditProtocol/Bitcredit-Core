@@ -45,6 +45,11 @@ Alternatively set `CARGOKIT_USE_PRECOMPILED_BINARIES=true` in the app build
 environment. Cargokit falls back to a local Rust build if a signed binary for
 the current crate hash and target is not available.
 
+The binaries are built when a `v*` tag is pushed and published as a
+`precompiled_<crate hash>` prerelease of this repository. Pin the dependency
+`ref` to a release tag to use them; most branch commits have no matching
+binaries and build locally.
+
 Then, in `main.dart`:
 
 ```dart
