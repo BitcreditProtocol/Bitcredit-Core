@@ -260,7 +260,6 @@ This runs:
 
 GitHub Actions workflow (`.github/workflows/`) runs on all branches:
 - Format, build, test, lint checks
-- Uses GitHub App token for private repo access (bcr-common, bcr-wallet-lib)
 - Disk space optimization for limited runners
 
 ## Important Patterns
@@ -332,6 +331,6 @@ try {
 3. **TypeScript Bindings**: When modifying WASM API, ensure proper TypeScript type generation using `tsify` or `wasm_bindgen` annotations
 4. **Testing**: Add tests at the appropriate layer (unit tests in core/persistence/transport, integration in API)
 5. **Documentation**: Bill lifecycle is complex - refer to `docs/concepts.md` for state machine details
-6. **Dependencies**: Some deps are from BitcreditProtocol private repos requiring GitHub App authentication
+6. **Dependencies**: The only Git dependency, `bcr-common`, is public; no App authentication is needed
 7. **Serialization**: Use `borsh` for internal serialization, `serde_json` for WASM boundaries
 8. **Edition**: Project uses Rust 2024 edition
