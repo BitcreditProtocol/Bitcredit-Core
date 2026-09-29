@@ -55,7 +55,7 @@ bcr-ebill-core = { path = "./crates/bcr-ebill-core" }
 bcr-ebill-api = { path = "./crates/bcr-ebill-api" }
 bcr-ebill-persistence = { path = "./crates/bcr-ebill-persistence" }
 bcr-ebill-transport = { path = "./crates/bcr-ebill-transport" }
-bcr-common = { git = "https://github.com/BitcreditProtocol/bcr-common", rev = "85c424025fcf010a85edfcd01d693ac61978ec40" }
+bcr-common = { git = "https://github.com/BitcreditProtocol/bcr-common", rev = "e274059b22b10efd2f58223ae24b54c3e6c2820d" }
 surrealdb = { version = "2.3", default-features = false }
 strum = { version = "0.28", features = ["derive"] }
 url = { version = "2.5" }
