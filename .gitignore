@@ -15,6 +15,7 @@ target/
 /company/*
 /pkg/*
 /docs/plans
+/local_db/*
 
 .worktrees/
 

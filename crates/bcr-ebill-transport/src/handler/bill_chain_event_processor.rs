@@ -25,7 +25,8 @@ use bcr_ebill_core::protocol::blockchain::{Block, Blockchain, BlockchainType};
 use bcr_ebill_core::protocol::crypto::{BcrKeys, btc};
 use bcr_ebill_core::protocol::{BitcoinAddress, BlockId, Sha256Hash};
 use bcr_ebill_persistence::{
-    FileReferenceStoreApi, NostrChainEventStoreApi, bill::BillChainStoreApi, bill::BillStoreApi,
+    FileReferenceStoreApi, NostrChainEventStoreApi, traits::bill::BillChainStoreApi,
+    traits::bill::BillStoreApi,
 };
 use bitcoin::secp256k1::PublicKey;
 use log::{debug, error, info, warn};

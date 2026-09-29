@@ -15,7 +15,7 @@ use bcr_ebill_api::{
 };
 use bcr_ebill_core::protocol::crypto::BcrKeys;
 use bcr_ebill_core::protocol::event::EventType;
-use bcr_ebill_persistence::{company::CompanyStoreApi, identity::IdentityStoreApi};
+use bcr_ebill_persistence::{traits::company::CompanyStoreApi, traits::identity::IdentityStoreApi};
 use chain_keys::ChainKeyServiceApi;
 use handler::{
     BillActionEventHandler, BillChainEventHandler, BillChainEventProcessor, BillInviteEventHandler,
@@ -59,7 +59,7 @@ pub async fn create_nostr_clients(
     config: &Config,
     identity_store: Arc<dyn IdentityStoreApi>,
     company_store: Arc<dyn CompanyStoreApi>,
-    nostr_contact_store: Arc<dyn bcr_ebill_persistence::nostr::NostrContactStoreApi>,
+    nostr_contact_store: Arc<dyn bcr_ebill_persistence::traits::nostr::NostrContactStoreApi>,
 ) -> Result<Arc<NostrClient>> {
     // primary identity is required to launch
     let keys = identity_store.get_or_create_key_pair().await.map_err(|e| {

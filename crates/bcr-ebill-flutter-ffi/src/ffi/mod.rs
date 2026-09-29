@@ -4,7 +4,7 @@ use bcr_ebill_api::{
     Config as ApiConfig, CourtConfig, DevModeConfig, MintConfig, NostrConfig, PaymentConfig,
     get_db_context, util::validate_node_id_network,
 };
-use bcr_ebill_persistence::SurrealDbConfig;
+use bcr_ebill_persistence::{DbConfig, SurrealDbConfig};
 use flutter_rust_bridge::{JoinHandle, frb};
 use log::{debug, error, info};
 use once_cell::sync::Lazy;
@@ -126,7 +126,8 @@ async fn reset_runtime(rt: &mut EbillRuntime) {
 #[derive(Debug, Clone)]
 pub struct EbillConfig {
     pub db_folder_path: String,
-    pub db_folder_path_files: String,
+    pub sqlite_db_path: String,
+    pub temp_files_path: String,
     pub log_level: Option<String>,
     pub bitcoin_network: String,
     pub esplora_base_urls: Vec<String>,
@@ -234,8 +235,8 @@ pub async fn init_ebill_ffi(conf: EbillConfig) -> Result<(), EbillFfiError> {
 
 fn build_api_config(conf: &EbillConfig) -> Result<ApiConfig, EbillFfiError> {
     let _parsed_path = PathBuf::from_str(&conf.db_folder_path.clone()).map_err(err_init)?;
-    let _parsed_path_files =
-        PathBuf::from_str(&conf.db_folder_path_files.clone()).map_err(err_init)?;
+    let _parsed_sqlite_path = PathBuf::from_str(&conf.sqlite_db_path.clone()).map_err(err_init)?;
+    let temp_files_path = PathBuf::from_str(&conf.temp_files_path.clone()).map_err(err_init)?;
     let nostr_relays: Vec<url::Url> = conf
         .nostr_relays
         .iter()
@@ -249,16 +250,14 @@ fn build_api_config(conf: &EbillConfig) -> Result<ApiConfig, EbillFfiError> {
         .map(|server| url::Url::parse(server).map_err(err_init))
         .collect::<Result<_, EbillFfiError>>()?;
     let db_path = format!("surrealkv://{}", conf.db_folder_path);
-    let db_path_files = format!("surrealkv://{}", conf.db_folder_path_files);
     let db_config = SurrealDbConfig {
         connection_string: db_path,
         namespace: "test".to_owned(),
         database: "ebill".to_owned(),
     };
-    let db_config_files = SurrealDbConfig {
-        connection_string: db_path_files,
-        namespace: "test".to_owned(),
-        database: "ebill".to_owned(),
+    let db_conf = DbConfig {
+        connection_string: conf.sqlite_db_path.to_owned(),
+        temp_files_path,
     };
     let mint_node_id = NodeId::from_str(&conf.default_mint_node_id)
         .map_err(|e| err_init(format!("is a valid mint id: {e}")))?;
@@ -270,7 +269,7 @@ fn build_api_config(conf: &EbillConfig) -> Result<ApiConfig, EbillFfiError> {
             .map(|u| url::Url::parse(u).map_err(err_init))
             .collect::<Result<_, EbillFfiError>>()?,
         db_config,
-        files_db_config: db_config_files,
+        db_conf,
         nostr_config: NostrConfig {
             relays: nostr_relays,
             blossom_servers,

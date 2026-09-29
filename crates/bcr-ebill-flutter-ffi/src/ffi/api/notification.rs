@@ -12,7 +12,7 @@ use crate::ffi::{
 use async_broadcast::RecvError;
 use bcr_common::core::NodeId;
 use bcr_ebill_core::protocol::ProtocolValidationError;
-use bcr_ebill_persistence::notification::NotificationFilter;
+use bcr_ebill_persistence::traits::notification::NotificationFilter;
 use flutter_rust_bridge::{DartFnFuture, frb};
 use log::{info, warn};
 

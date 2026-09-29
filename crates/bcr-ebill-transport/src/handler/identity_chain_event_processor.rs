@@ -40,7 +40,7 @@ use bcr_ebill_core::{
 use bcr_ebill_persistence::{ContactStoreApi, NostrChainEventStoreApi};
 use bcr_ebill_persistence::{
     FileReferenceStoreApi,
-    identity::{IdentityChainStoreApi, IdentityStoreApi},
+    traits::identity::{IdentityChainStoreApi, IdentityStoreApi},
 };
 
 use super::inbound_file_anchor::{anchor_important_file, identity_file_context};

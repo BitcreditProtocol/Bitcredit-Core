@@ -39,9 +39,9 @@ use bcr_ebill_core::protocol::{Country, EmailIdentityProofData, SignedIdentityPr
 use bcr_ebill_core::protocol::{Date, Field};
 use bcr_ebill_core::protocol::{Email, blockchain};
 use bcr_ebill_core::protocol::{File, OptionalPostalAddress, Validate, event::IdentityChainEvent};
-use bcr_ebill_persistence::file_upload::FileUploadStoreApi;
-use bcr_ebill_persistence::identity::{IdentityChainStoreApi, IdentityStoreApi};
-use bcr_ebill_persistence::notification::EmailNotificationStoreApi;
+use bcr_ebill_persistence::traits::file_upload::FileUploadStoreApi;
+use bcr_ebill_persistence::traits::identity::{IdentityChainStoreApi, IdentityStoreApi};
+use bcr_ebill_persistence::traits::notification::EmailNotificationStoreApi;
 use bcr_ebill_persistence::{ContactStoreApi, FileReferenceStoreApi};
 use bitcoin::base58;
 use bitcoin::secp256k1::{PublicKey, SecretKey};

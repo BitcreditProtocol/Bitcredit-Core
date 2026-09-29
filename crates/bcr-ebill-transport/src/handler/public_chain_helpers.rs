@@ -9,7 +9,7 @@ use bcr_ebill_core::protocol::{
     crypto::BcrKeys,
     event::{BillBlockEvent, CompanyBlockEvent, IdentityBlockEvent},
 };
-use bcr_ebill_persistence::nostr::NostrChainEvent;
+use bcr_ebill_persistence::traits::nostr::NostrChainEvent;
 use nostr::{
     event::EventId,
     nips::nip10::{Marker, Nip10Tag},

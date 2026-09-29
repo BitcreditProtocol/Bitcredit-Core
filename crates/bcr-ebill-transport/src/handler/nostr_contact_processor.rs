@@ -8,7 +8,7 @@ use bcr_ebill_core::{
     application::nostr_contact::{HandshakeStatus, NostrContact, TrustLevel},
     protocol::Name,
 };
-use bcr_ebill_persistence::nostr::NostrContactStoreApi;
+use bcr_ebill_persistence::traits::nostr::NostrContactStoreApi;
 use log::{error, info, warn};
 
 use super::NostrContactProcessorApi;

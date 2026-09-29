@@ -1,3 +1,5 @@
+pub mod contact;
+pub mod email_notification;
 #[cfg(test)]
 #[allow(clippy::module_inception)]
 pub mod tests {

@@ -2,7 +2,7 @@ use bcr_common::core::NodeId;
 use bcr_ebill_core::{application::ServiceTraitBounds, application::contact::Contact};
 use std::collections::HashMap;
 
-use super::Result;
+use crate::Result;
 use async_trait::async_trait;
 
 #[async_trait]

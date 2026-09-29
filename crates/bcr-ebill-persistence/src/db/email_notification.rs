@@ -4,7 +4,7 @@ use bcr_common::core::NodeId;
 use bcr_ebill_core::application::ServiceTraitBounds;
 use serde::{Deserialize, Serialize};
 
-use crate::{db::surreal::SurrealWrapper, notification::EmailNotificationStoreApi};
+use crate::{db::surreal::SurrealWrapper, traits::notification::EmailNotificationStoreApi};
 
 #[derive(Clone)]
 pub struct SurrealEmailNotificationStore {

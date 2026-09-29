@@ -1,4 +1,4 @@
-use super::Result;
+use crate::Result;
 use async_trait::async_trait;
 
 use bcr_ebill_core::{

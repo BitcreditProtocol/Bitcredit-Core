@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use super::surreal::{Bindings, SurrealWrapper};
 use super::{BillIdDb, FileDb, PostalAddressDb, Result};
 use crate::constants::{DB_BILL_ID, DB_IDS, DB_OP_CODE, DB_TABLE, DB_TIMESTAMP};
-use crate::{Error, bill::BillStoreApi};
+use crate::{Error, traits::bill::BillStoreApi};
 use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::application::ServiceTraitBounds;
@@ -1721,7 +1721,6 @@ pub mod tests {
 
     use super::SurrealBillStore;
     use crate::{
-        bill::{BillChainStoreApi, BillStoreApi},
         db::{bill_chain::SurrealBillChainStore, get_memory_db, surreal::SurrealWrapper},
         protocol::crypto::BcrKeys,
         tests::tests::{
@@ -1730,6 +1729,7 @@ pub mod tests {
             node_id_test_other, private_key_test, signed_identity_proof_test, test_ts,
             valid_payment_address_testnet,
         },
+        traits::bill::{BillChainStoreApi, BillStoreApi},
     };
     use bcr_common::core::{BillId, NodeId};
     use bcr_ebill_core::{

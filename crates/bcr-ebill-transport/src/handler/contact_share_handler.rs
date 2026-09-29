@@ -17,7 +17,7 @@ use bcr_ebill_core::{
 };
 use bcr_ebill_persistence::{
     ContactStoreApi, FileReferenceStoreApi, NotificationStoreApi, PendingContactShare,
-    ShareDirection, nostr::NostrContactStoreApi,
+    ShareDirection, traits::nostr::NostrContactStoreApi,
 };
 use bitcoin::base58;
 use log::{debug, warn};

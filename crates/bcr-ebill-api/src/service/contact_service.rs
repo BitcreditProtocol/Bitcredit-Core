@@ -18,8 +18,9 @@ use bcr_ebill_core::{
     protocol::ProtocolValidationError,
 };
 use bcr_ebill_persistence::{
-    ContactStoreApi, FileReferenceStoreApi, company::CompanyStoreApi,
-    file_upload::FileUploadStoreApi, identity::IdentityStoreApi, nostr::NostrContactStoreApi,
+    ContactStoreApi, FileReferenceStoreApi, traits::company::CompanyStoreApi,
+    traits::file_upload::FileUploadStoreApi, traits::identity::IdentityStoreApi,
+    traits::nostr::NostrContactStoreApi,
 };
 #[cfg(test)]
 use mockall::automock;

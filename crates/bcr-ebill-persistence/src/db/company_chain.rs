@@ -3,12 +3,12 @@ use super::{
     surreal::{Bindings, SurrealWrapper},
 };
 use crate::{
-    company::CompanyChainStoreApi,
     constants::{
         DB_BLOCK_ID, DB_COMPANY_ID, DB_DATA, DB_HASH, DB_OP_CODE, DB_PLAINTEXT_HASH,
         DB_PREVIOUS_HASH, DB_PUBLIC_KEY, DB_SIGNATORY_NODE_ID, DB_SIGNATURE, DB_TABLE,
         DB_TIMESTAMP,
     },
+    traits::company::CompanyChainStoreApi,
 };
 use async_trait::async_trait;
 use bcr_common::core::NodeId;

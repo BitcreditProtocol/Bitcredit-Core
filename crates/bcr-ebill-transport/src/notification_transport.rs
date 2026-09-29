@@ -19,7 +19,7 @@ use bcr_ebill_core::{
     protocol::event::{ActionType, BillChainEventPayload, BillEventType, Event},
 };
 use bcr_ebill_persistence::NotificationStoreApi;
-use bcr_ebill_persistence::notification::{EmailNotificationStoreApi, NotificationFilter};
+use bcr_ebill_persistence::traits::notification::{EmailNotificationStoreApi, NotificationFilter};
 use log::{debug, error};
 
 use crate::PushApi;
@@ -346,7 +346,7 @@ mod tests {
         protocol::crypto::BcrKeys,
         protocol::event::ActionType,
     };
-    use bcr_ebill_persistence::notification::NotificationFilter;
+    use bcr_ebill_persistence::traits::notification::NotificationFilter;
     use mockall::predicate::eq;
 
     use crate::{

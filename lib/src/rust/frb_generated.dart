@@ -6043,30 +6043,31 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   EbillConfig dco_decode_ebill_config(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 19)
-      throw Exception('unexpected arr length: expect 19 but see ${arr.length}');
+    if (arr.length != 20)
+      throw Exception('unexpected arr length: expect 20 but see ${arr.length}');
     return EbillConfig(
       dbFolderPath: dco_decode_String(arr[0]),
-      dbFolderPathFiles: dco_decode_String(arr[1]),
-      logLevel: dco_decode_opt_String(arr[2]),
-      bitcoinNetwork: dco_decode_String(arr[3]),
-      esploraBaseUrls: dco_decode_list_String(arr[4]),
-      nostrRelays: dco_decode_list_String(arr[5]),
-      blossomServers: dco_decode_opt_list_String(arr[6]),
-      nostrOnlyKnownContacts: dco_decode_opt_box_autoadd_bool(arr[7]),
-      nostrMaxRelays: dco_decode_opt_box_autoadd_usize(arr[8]),
-      nostrRelayAckThreshold: dco_decode_opt_box_autoadd_usize(arr[9]),
-      jobRunnerInitialDelaySeconds: dco_decode_u_64(arr[10]),
-      jobRunnerCheckIntervalSeconds: dco_decode_u_64(arr[11]),
+      sqliteDbPath: dco_decode_String(arr[1]),
+      tempFilesPath: dco_decode_String(arr[2]),
+      logLevel: dco_decode_opt_String(arr[3]),
+      bitcoinNetwork: dco_decode_String(arr[4]),
+      esploraBaseUrls: dco_decode_list_String(arr[5]),
+      nostrRelays: dco_decode_list_String(arr[6]),
+      blossomServers: dco_decode_opt_list_String(arr[7]),
+      nostrOnlyKnownContacts: dco_decode_opt_box_autoadd_bool(arr[8]),
+      nostrMaxRelays: dco_decode_opt_box_autoadd_usize(arr[9]),
+      nostrRelayAckThreshold: dco_decode_opt_box_autoadd_usize(arr[10]),
+      jobRunnerInitialDelaySeconds: dco_decode_u_64(arr[11]),
+      jobRunnerCheckIntervalSeconds: dco_decode_u_64(arr[12]),
       transportInitialSubscriptionDelaySeconds: dco_decode_opt_box_autoadd_u_32(
-        arr[12],
+        arr[13],
       ),
-      defaultMintUrl: dco_decode_String(arr[13]),
-      defaultMintNodeId: dco_decode_String(arr[14]),
-      numConfirmationsForPayment: dco_decode_usize(arr[15]),
-      devMode: dco_decode_bool(arr[16]),
-      mandatoryEmailConfirmations: dco_decode_bool(arr[17]),
-      defaultCourtUrl: dco_decode_String(arr[18]),
+      defaultMintUrl: dco_decode_String(arr[14]),
+      defaultMintNodeId: dco_decode_String(arr[15]),
+      numConfirmationsForPayment: dco_decode_usize(arr[16]),
+      devMode: dco_decode_bool(arr[17]),
+      mandatoryEmailConfirmations: dco_decode_bool(arr[18]),
+      defaultCourtUrl: dco_decode_String(arr[19]),
     );
   }
 
@@ -9599,7 +9600,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   EbillConfig sse_decode_ebill_config(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_dbFolderPath = sse_decode_String(deserializer);
-    var var_dbFolderPathFiles = sse_decode_String(deserializer);
+    var var_sqliteDbPath = sse_decode_String(deserializer);
+    var var_tempFilesPath = sse_decode_String(deserializer);
     var var_logLevel = sse_decode_opt_String(deserializer);
     var var_bitcoinNetwork = sse_decode_String(deserializer);
     var var_esploraBaseUrls = sse_decode_list_String(deserializer);
@@ -9624,7 +9626,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_defaultCourtUrl = sse_decode_String(deserializer);
     return EbillConfig(
       dbFolderPath: var_dbFolderPath,
-      dbFolderPathFiles: var_dbFolderPathFiles,
+      sqliteDbPath: var_sqliteDbPath,
+      tempFilesPath: var_tempFilesPath,
       logLevel: var_logLevel,
       bitcoinNetwork: var_bitcoinNetwork,
       esploraBaseUrls: var_esploraBaseUrls,
@@ -13385,7 +13388,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void sse_encode_ebill_config(EbillConfig self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_String(self.dbFolderPath, serializer);
-    sse_encode_String(self.dbFolderPathFiles, serializer);
+    sse_encode_String(self.sqliteDbPath, serializer);
+    sse_encode_String(self.tempFilesPath, serializer);
     sse_encode_opt_String(self.logLevel, serializer);
     sse_encode_String(self.bitcoinNetwork, serializer);
     sse_encode_list_String(self.esploraBaseUrls, serializer);

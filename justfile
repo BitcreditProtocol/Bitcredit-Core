@@ -10,6 +10,13 @@ flutter:
     dart run build_runner build --delete-conflicting-outputs
     flutter_rust_bridge_codegen generate
 
+# DB sqlite
+export DATABASE_URL := env_var_or_default("DATABASE_URL", "sqlite://local_db/ebill.db")
+
+db-reset:
+    sqlx database create
+    sqlx migrate run --source crates/bcr-ebill-persistence/migrations/sqlite
+
 # Local Regtest Payment
 # Usage:
 # just pay <address> <amount>

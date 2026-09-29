@@ -11,7 +11,7 @@ use bcr_ebill_api::service::transport_service::ContactTransportServiceApi;
 use bcr_ebill_core::application::{ContactShareEvent, ServiceTraitBounds};
 use bcr_ebill_core::protocol::crypto::{BcrKeys, decrypt_ecies};
 use bcr_ebill_core::protocol::event::Event;
-use bcr_ebill_persistence::nostr::NostrContactStoreApi;
+use bcr_ebill_persistence::traits::nostr::NostrContactStoreApi;
 use bcr_ebill_persistence::{PendingContactShare, ShareDirection};
 use log::error;
 

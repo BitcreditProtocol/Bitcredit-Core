@@ -9,6 +9,8 @@ doctest = false
 
 [features]
 default = []
+sqlite = ["sqlx/sqlite-bundled"]
+postgres = ["sqlx/postgres"]
 protocol-ws = ["surrealdb/protocol-ws"]
 surrealkv = ["surrealdb/kv-surrealkv"]
 
@@ -31,8 +33,9 @@ tokio.workspace = true
 bitcoin.workspace = true
 url.workspace = true
 arc-swap = "1.7"
+sqlx.workspace = true
 
 [dev-dependencies]
 nostr_043 = { package = "nostr", version = "=0.43.1" } # for backwards-compat testing
 surrealdb = { workspace = true, default-features = false, features = ["kv-mem"] }
-
+tempfile = "3"

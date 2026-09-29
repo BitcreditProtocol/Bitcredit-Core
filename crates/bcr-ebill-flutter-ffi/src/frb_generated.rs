@@ -5930,7 +5930,8 @@ impl SseDecode for crate::ffi::EbillConfig {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_dbFolderPath = <String>::sse_decode(deserializer);
-        let mut var_dbFolderPathFiles = <String>::sse_decode(deserializer);
+        let mut var_sqliteDbPath = <String>::sse_decode(deserializer);
+        let mut var_tempFilesPath = <String>::sse_decode(deserializer);
         let mut var_logLevel = <Option<String>>::sse_decode(deserializer);
         let mut var_bitcoinNetwork = <String>::sse_decode(deserializer);
         let mut var_esploraBaseUrls = <Vec<String>>::sse_decode(deserializer);
@@ -5951,7 +5952,8 @@ impl SseDecode for crate::ffi::EbillConfig {
         let mut var_defaultCourtUrl = <String>::sse_decode(deserializer);
         return crate::ffi::EbillConfig {
             db_folder_path: var_dbFolderPath,
-            db_folder_path_files: var_dbFolderPathFiles,
+            sqlite_db_path: var_sqliteDbPath,
+            temp_files_path: var_tempFilesPath,
             log_level: var_logLevel,
             bitcoin_network: var_bitcoinNetwork,
             esplora_base_urls: var_esploraBaseUrls,
@@ -10208,7 +10210,8 @@ impl flutter_rust_bridge::IntoDart for crate::ffi::EbillConfig {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
             self.db_folder_path.into_into_dart().into_dart(),
-            self.db_folder_path_files.into_into_dart().into_dart(),
+            self.sqlite_db_path.into_into_dart().into_dart(),
+            self.temp_files_path.into_into_dart().into_dart(),
             self.log_level.into_into_dart().into_dart(),
             self.bitcoin_network.into_into_dart().into_dart(),
             self.esplora_base_urls.into_into_dart().into_dart(),
@@ -13280,7 +13283,8 @@ impl SseEncode for crate::ffi::EbillConfig {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <String>::sse_encode(self.db_folder_path, serializer);
-        <String>::sse_encode(self.db_folder_path_files, serializer);
+        <String>::sse_encode(self.sqlite_db_path, serializer);
+        <String>::sse_encode(self.temp_files_path, serializer);
         <Option<String>>::sse_encode(self.log_level, serializer);
         <String>::sse_encode(self.bitcoin_network, serializer);
         <Vec<String>>::sse_encode(self.esplora_base_urls, serializer);

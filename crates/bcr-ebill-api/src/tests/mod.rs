@@ -43,21 +43,23 @@ pub mod tests {
         protocol::mint::{MintOffer, MintRequest, MintRequestStatus},
         protocol::{OptionalPostalAddress, PostalAddress, PublicKey, SecretKey},
     };
-    use bcr_ebill_persistence::notification::EmailNotificationStoreApi;
+    use bcr_ebill_persistence::DbConfig;
+    use bcr_ebill_persistence::traits::notification::EmailNotificationStoreApi;
     use bcr_ebill_persistence::{
         ContactStoreApi, FileReferenceStoreApi, NostrEventOffset, NostrEventOffsetStoreApi,
         NotificationStoreApi, PendingContactShare, Result, ShareDirection, SurrealDbConfig,
-        bill::{BillChainStoreApi, BillStoreApi},
-        company::{CompanyChainStoreApi, CompanyStoreApi},
-        file_upload::FileUploadStoreApi,
-        identity::{IdentityChainStoreApi, IdentityStoreApi},
-        mint::MintStoreApi,
-        nostr::{
+        traits::bill::{BillChainStoreApi, BillStoreApi},
+        traits::company::{CompanyChainStoreApi, CompanyStoreApi},
+        traits::file_upload::FileUploadStoreApi,
+        traits::identity::{IdentityChainStoreApi, IdentityStoreApi},
+        traits::mint::MintStoreApi,
+        traits::nostr::{
             NostrChainEvent, NostrChainEventStoreApi, NostrQueuedMessage, NostrQueuedMessageStatus,
             NostrQueuedMessageStoreApi, RelaySyncStatus, SyncStatus,
         },
-        notification::NotificationFilter,
+        traits::notification::NotificationFilter,
     };
+    use std::path::PathBuf;
     use std::sync::Arc;
     use std::{
         collections::{HashMap, HashSet},
@@ -541,9 +543,9 @@ pub mod tests {
                 connection_string: "ws://localhost:8800".to_string(),
                 ..SurrealDbConfig::default()
             },
-            files_db_config: SurrealDbConfig {
-                connection_string: "ws://localhost:8800".to_string(),
-                ..SurrealDbConfig::default()
+            db_conf: DbConfig {
+                connection_string: "sqlite://local_db/ebill.db".to_string(),
+                temp_files_path: PathBuf::from_str("/tmp").unwrap(),
             },
             nostr_config: NostrConfig {
                 only_known_contacts: false,
