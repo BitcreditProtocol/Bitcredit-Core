@@ -32,7 +32,8 @@ The `ref` can either be a commit hash, a branch or a tag.
 
 ### Precompiled binaries
 
-This package publishes signed precompiled iOS and Android Rust binaries from
+This package publishes signed precompiled Rust binaries for iOS, Android, macOS,
+Windows and Linux (x64 and arm64; Linux needs glibc 2.39 or newer) from
 `.github/workflows/cd_precompiled.yml`. App CI can opt in by adding
 `cargokit_options.yaml` at the Flutter app root:
 
@@ -43,6 +44,11 @@ use_precompiled_binaries: true
 Alternatively set `CARGOKIT_USE_PRECOMPILED_BINARIES=true` in the app build
 environment. Cargokit falls back to a local Rust build if a signed binary for
 the current crate hash and target is not available.
+
+The binaries are built when a `v*` tag is pushed and published as a
+`precompiled_<crate hash>` prerelease of this repository. Pin the dependency
+`ref` to a release tag to use them; most branch commits have no matching
+binaries and build locally.
 
 Then, in `main.dart`:
 

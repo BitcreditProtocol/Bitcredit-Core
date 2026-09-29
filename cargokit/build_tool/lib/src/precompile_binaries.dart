@@ -254,23 +254,47 @@ class PrecompileBinaries {
     } on ReleaseNotFound {
       _log.info('Release not found - creating release $tagName');
       // CUSTOM OVERRIDE - DON'T REMOVE
-      release = await github.postJSON<Map<String, dynamic>, Release>(
-        '/repos/${repositorySlug.fullName}/releases',
-        statusCode: 201,
-        convert: Release.fromJson,
-        body: jsonEncode({
-          'tag_name': tagName,
-          'name': 'Precompiled binaries ${hash.substring(0, 8)}',
-          if (targetCommitish != null) 'target_commitish': targetCommitish,
-          'draft': false,
-          'prerelease': prerelease,
-          'make_latest': 'false',
-          'body': 'Precompiled binaries for crate $packageName, '
-              'crate hash $hash.',
-        }),
-      );
+      try {
+        release = await github.postJSON<Map<String, dynamic>, Release>(
+          '/repos/${repositorySlug.fullName}/releases',
+          statusCode: 201,
+          convert: Release.fromJson,
+          body: jsonEncode({
+            'tag_name': tagName,
+            'name': 'Precompiled binaries ${hash.substring(0, 8)}',
+            if (targetCommitish != null) 'target_commitish': targetCommitish,
+            'draft': false,
+            'prerelease': prerelease,
+            'make_latest': 'false',
+            'body': 'Precompiled binaries for crate $packageName, '
+                'crate hash $hash.',
+          }),
+        );
+      } on ValidationFailed catch (e) {
+        // Targets are built in parallel jobs, so another job may have
+        // created the release first (422). Use that one instead of failing.
+        _log.info('Creating release $tagName failed ($e) - fetching it');
+        release = await _fetchReleaseWithRetry(repo, tagName);
+      }
     }
     return _updateReleaseMetadata(github, release);
+  }
+
+  // CUSTOM OVERRIDE - DON'T REMOVE
+  Future<Release> _fetchReleaseWithRetry(
+    RepositoriesService repo,
+    String tagName,
+  ) async {
+    for (var attempt = 1;; ++attempt) {
+      try {
+        return await repo.getReleaseByTagName(repositorySlug, tagName);
+      } on ReleaseNotFound {
+        if (attempt == 5) {
+          rethrow;
+        }
+        await Future.delayed(Duration(seconds: 2));
+      }
+    }
   }
 
   // CUSTOM OVERRIDE - DON'T REMOVE
