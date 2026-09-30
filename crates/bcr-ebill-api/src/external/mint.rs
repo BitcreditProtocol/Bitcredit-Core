@@ -963,7 +963,7 @@ fn map_shared_bill(
 mod quote_reissue_tests {
     use std::str::FromStr;
 
-    use bitcoin::hashes::{Hash as _, sha256};
+    use bitcoin::hashes::sha256;
 
     use super::*;
 
