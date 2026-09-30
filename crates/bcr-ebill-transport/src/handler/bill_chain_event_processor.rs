@@ -1,6 +1,6 @@
 use crate::handler::public_chain_helpers::{
     BlockData, EventContainer, chain_matches_local, compare_block_chains, find_first_difference,
-    is_fork_block, resolve_event_chains, resolve_fork,
+    is_fork_block, preserves_observed_mint_transfers, resolve_bill_fork, resolve_event_chains,
 };
 use crate::{Error, Result};
 use async_trait::async_trait;
@@ -306,10 +306,22 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
                         }
                     };
 
+                    // Relays do not provide finality. A resync must not erase a Mint
+                    // transfer which may already back issued value on this node.
+                    if !preserves_observed_mint_transfers(
+                        existing_chain.blocks(),
+                        prepared_chain.blocks(),
+                    ) {
+                        warn!(
+                            "Refusing bill {bill_id} resync which replaces an observed Mint transfer"
+                        );
+                        continue;
+                    }
+
                     let replace_from = match mode {
                         ResyncMode::Normal => {
                             let (is_preferred, fork_point) =
-                                resolve_fork(existing_chain.blocks(), prepared_chain.blocks());
+                                resolve_bill_fork(existing_chain.blocks(), prepared_chain.blocks());
 
                             if !is_preferred {
                                 continue;
