@@ -97,6 +97,25 @@ pub fn resolve_fork<B: Block>(local: &[B], remote: &[B]) -> (bool, Option<BlockI
     (true, None)
 }
 
+/// Bill-only fork resolution; identity and company chains keep their existing ordering.
+pub fn resolve_bill_fork(local: &[BillBlock], remote: &[BillBlock]) -> (bool, Option<BlockId>) {
+    if !preserves_observed_mint_transfers(local, remote) {
+        return (false, None);
+    }
+    resolve_fork(local, remote)
+}
+
+/// An observed Mint transfer is an issuance checkpoint, not proof of global consensus.
+/// Never remove or replace it on this node, including during authoritative resync.
+pub fn preserves_observed_mint_transfers(local: &[BillBlock], remote: &[BillBlock]) -> bool {
+    local.iter().enumerate().all(|(index, block)| {
+        block.op_code != bcr_ebill_core::protocol::blockchain::bill::BillOpCode::Mint
+            || remote
+                .get(index)
+                .is_some_and(|candidate| candidate.id == block.id && candidate.hash == block.hash)
+    })
+}
+
 /// Finds the first difference between two chains and returns the block height of the differing block
 pub fn find_first_difference(local: &[BillBlock], remote: &[BillBlock]) -> Option<BlockId> {
     for (local_block, remote_block) in local.iter().zip(remote.iter()) {
@@ -581,6 +600,41 @@ mod tests {
             blocks.push(block);
         }
         blocks
+    }
+
+    #[test]
+    fn bill_fork_cannot_erase_an_observed_mint_transfer() {
+        let mut local = make_test_chain_with_timestamps(&[1000, 1500]);
+        local[1].op_code = bcr_ebill_core::protocol::blockchain::bill::BillOpCode::Mint;
+        let mut remote = vec![local[0].clone()];
+        remote.push(make_test_block(
+            local[1].id,
+            local[0].hash.clone(),
+            Timestamp::new(1400).unwrap(),
+        ));
+        remote.push(make_test_block(
+            BlockId::next_from_previous_block_id(&local[1].id),
+            remote[1].hash.clone(),
+            Timestamp::new(1600).unwrap(),
+        ));
+        assert!(
+            resolve_fork(&local, &remote).0,
+            "generic ordering reproduces the unsafe preference"
+        );
+        assert!(!resolve_bill_fork(&local, &remote).0);
+        assert!(!preserves_observed_mint_transfers(&local, &remote));
+        assert!(!preserves_observed_mint_transfers(&local, &local[..1]));
+        remote[1] = local[1].clone();
+        remote.truncate(2);
+        remote.push(make_test_block(
+            BlockId::next_from_previous_block_id(&local[1].id()),
+            local[1].hash.clone(),
+            Timestamp::new(1600).unwrap(),
+        ));
+        assert!(
+            resolve_bill_fork(&local, &remote).0,
+            "extensions preserving Mint transfers remain valid"
+        );
     }
 
     #[test]
