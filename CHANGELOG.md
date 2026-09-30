@@ -1,6 +1,7 @@
 # 0.5.16
 
 * Add `Bill.sign_mint_application_admission` for a five-minute, holder-signed interview admission bound to an existing Pending Mint request; no key export or financial state change.
+* Add `Identity.sign_facility_application_admission` (`facility-application-admission-v1`): a five-minute proof that the selected person or company identity controls its key, bound to one facility application, the configured non-mainnet Mint and a capability digest. New public types `FacilityApplicationAdmissionPayload`, `FacilityApplicationAdmissionAction`, `FacilityApplicationAdmission`, `SignedFacilityApplicationAdmission`; no key export, consent or financial state change.
 * Upgrade Dependencies
     * especially Nostr 0.45 which had a lot of breaking changes
     * uses latest bcr-common with more custom ecash types

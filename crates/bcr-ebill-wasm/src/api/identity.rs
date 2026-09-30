@@ -11,6 +11,7 @@ use crate::{
             IdentityEmailConfirmationWeb, IdentityTypeWeb, IdentityWeb, NewIdentityPayload,
             SeedPhrase, ShareContactTo, SwitchIdentity, VerifyEmailPayload,
         },
+        mint::{FacilityApplicationAdmissionPayload, SignedFacilityApplicationAdmission},
     },
     error::WasmError,
 };
@@ -25,7 +26,7 @@ use bcr_ebill_core::{
     application::ValidationError,
     protocol::{
         City, Country, Date, Email, Identification, Name, OptionalPostalAddress, Timestamp,
-        blockchain::identity::IdentityType,
+        blockchain::identity::IdentityType, crypto::BcrKeys,
     },
 };
 use bcr_ebill_core::{
@@ -552,6 +553,33 @@ impl Identity {
         TSResult::res_to_js(res)
     }
 
+    /// Proves control of the selected person or company identity for one short-lived facility
+    /// capability. Keys stay inside Core; this neither consents, accepts terms nor authorizes value.
+    #[wasm_bindgen(unchecked_return_type = "TSResult<SignedFacilityApplicationAdmission>")]
+    pub async fn sign_facility_application_admission(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "FacilityApplicationAdmissionPayload")]
+        payload: JsValue,
+    ) -> JsValue {
+        let res: Result<SignedFacilityApplicationAdmission> = async {
+            let payload: FacilityApplicationAdmissionPayload =
+                serde_wasm_bindgen::from_value(payload)?;
+            bcr_ebill_api::util::validate_node_id_network(&payload.mint_node)?;
+            let (signer, keys) = get_current_signer_node_id_and_keys().await?;
+            bcr_ebill_api::util::validate_node_id_network(&signer)?;
+            super::facility_application_admission::sign_for_current_identity(
+                &payload,
+                &signer,
+                &keys,
+                &bcr_ebill_api::get_config().mint_config.default_mint_node_id,
+                Timestamp::now(),
+            )
+            .map_err(Into::into)
+        }
+        .await;
+        TSResult::res_to_js(res)
+    }
+
     #[wasm_bindgen(unchecked_return_type = "TSResult<IdentityEmailConfirmationWeb[]>")]
     pub async fn get_email_confirmations(&self) -> JsValue {
         let res: Result<Vec<IdentityEmailConfirmationWeb>> = async {
@@ -575,6 +603,41 @@ impl Default for Identity {
 pub async fn get_current_identity() -> Result<ActiveIdentityState> {
     let active_identity = get_ctx().identity_service.get_current_identity().await?;
     Ok(active_identity)
+}
+
+/// The selected identity's own key: the personal key, or a company key only for a signatory.
+async fn get_current_signer_node_id_and_keys() -> Result<(NodeId, BcrKeys)> {
+    let current_identity = get_current_identity().await?;
+    match current_identity.company {
+        None => {
+            let identity = get_ctx().identity_service.get_full_identity().await?;
+            if identity.identity.node_id != current_identity.personal {
+                return Err(Error::Validation(
+                    ProtocolValidationError::CallerMustBeSignatory.into(),
+                )
+                .into());
+            }
+            Ok((identity.identity.node_id, identity.key_pair))
+        }
+        Some(company_node_id) => {
+            let (company, keys) = get_ctx()
+                .company_service
+                .get_company_and_keys_by_id(&company_node_id)
+                .await?;
+            if !company
+                .signatories
+                .iter()
+                .any(|s| s.node_id == current_identity.personal)
+            {
+                return Err(Error::Validation(
+                    ProtocolValidationError::NotASignatory(current_identity.personal.to_string())
+                        .into(),
+                )
+                .into());
+            }
+            Ok((company.id, keys))
+        }
+    }
 }
 
 pub async fn get_current_identity_node_id() -> Result<NodeId> {

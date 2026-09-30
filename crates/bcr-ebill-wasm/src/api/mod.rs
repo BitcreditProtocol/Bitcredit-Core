@@ -4,6 +4,7 @@ use wasm_bindgen::prelude::*;
 pub mod bill;
 pub mod company;
 pub mod contact;
+mod facility_application_admission;
 pub mod general;
 pub mod identity;
 mod mint_application_admission;

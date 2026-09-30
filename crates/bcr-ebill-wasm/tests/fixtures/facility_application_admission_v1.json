@@ -1,0 +1,45 @@
+{
+  "admission": {
+    "schemaVersion": "facility-application-admission-v1",
+    "action": "open_facility_application",
+    "applicationId": "33333333-3333-4333-8333-333333333333",
+    "mintNodeId": "bitcrr02e493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13",
+    "applicantRef": "bitcrr02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+    "applicationTokenDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "issuedAt": 1790000000,
+    "expiresAt": 1790000300
+  },
+  "canonicalText": "facility-application-admission-v1\nopen_facility_application\n33333333-3333-4333-8333-333333333333\nbitcrr02e493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13\nbitcrr02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9\nsha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n1790000000\n1790000300\n",
+  "messageSha256": "24a7aa28e3471843a98df27a748ab3149eb35f27548b15fe3b6b6bc5f27e09be",
+  "signature": "bca2288d503da118aea0fbed7e2b716dd4070d78865e164a4476171a624b52412e25738c344dd1df9cc17107e5e597b339e23c82f8a0460a6e0f81a9e352a197",
+  "compressedPublicKey": "02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+  "negative": [
+    { "name": "bill admission action", "admission": { "action": "open_initial_credit_interview" } },
+    { "name": "legacy upgrade action", "admission": { "action": "upgrade_facility_identity" } },
+    { "name": "bill admission schema", "admission": { "schemaVersion": "mint-application-admission-v1" } },
+    { "name": "other application", "admission": { "applicationId": "44444444-4444-4444-8444-444444444444" } },
+    {
+      "name": "other Mint",
+      "admission": { "mintNodeId": "bitcrr022f8bde4d1a07209355b4a7250a5c5128e88b84bddc619ab7cba8d569b240efe4" }
+    },
+    {
+      "name": "substituted applicant key",
+      "admission": { "applicantRef": "bitcrr022f8bde4d1a07209355b4a7250a5c5128e88b84bddc619ab7cba8d569b240efe4" }
+    },
+    {
+      "name": "same key on another network",
+      "admission": { "applicantRef": "bitcrt02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9" }
+    },
+    {
+      "name": "other capability",
+      "admission": { "applicationTokenDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" }
+    },
+    { "name": "shifted issuance", "admission": { "issuedAt": 1790000001, "expiresAt": 1790000301 } },
+    { "name": "changed expiry", "admission": { "expiresAt": 1790000299 } },
+    {
+      "name": "forged signature",
+      "admission": {},
+      "signature": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ]
+}

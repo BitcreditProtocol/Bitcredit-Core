@@ -46,6 +46,48 @@ pub struct SignedMintApplicationAdmission {
     pub signature: String,
 }
 
+/// Which facility capability the proof admits. Neither accepts terms nor authorizes minting.
+#[derive(Tsify, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FacilityApplicationAdmissionAction {
+    OpenFacilityApplication,
+    UpgradeFacilityIdentity,
+}
+
+/// The signer, network and timestamps are never caller-selected; Core adds them.
+#[derive(Tsify, Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FacilityApplicationAdmissionPayload {
+    pub action: FacilityApplicationAdmissionAction,
+    #[tsify(type = "string")]
+    pub application_id: Uuid,
+    #[tsify(type = "string")]
+    pub mint_node: NodeId,
+    pub application_token_digest: String,
+}
+
+#[derive(Tsify, Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FacilityApplicationAdmission {
+    pub schema_version: String,
+    pub action: String,
+    pub application_id: String,
+    pub mint_node_id: String,
+    pub applicant_ref: String,
+    pub application_token_digest: String,
+    #[tsify(type = "number")]
+    pub issued_at: u64,
+    #[tsify(type = "number")]
+    pub expires_at: u64,
+}
+
+#[derive(Tsify, Debug, Clone, Serialize)]
+pub struct SignedFacilityApplicationAdmission {
+    pub admission: FacilityApplicationAdmission,
+    /// BIP340 signature over SHA256 of the canonical admission lines, lowercase hex.
+    pub signature: String,
+}
+
 #[derive(Tsify, Debug, Serialize, Clone)]
 pub struct MintRequestWeb {
     #[tsify(type = "string")]
