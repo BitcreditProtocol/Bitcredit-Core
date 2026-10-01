@@ -100,7 +100,7 @@ pub(crate) const SEARCH: &str = r#"
         nostr_relays,
         mint_url
     FROM contacts
-    WHERE LOWER(name) = LOWER($1)
+    WHERE LOWER(name) LIKE LOWER($1)
 "#;
 
 pub(crate) const INSERT: &str = r#"

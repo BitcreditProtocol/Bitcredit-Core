@@ -1,6 +1,9 @@
 use crate::{
     Error, Result,
-    sqlite::{contact::SqliteContactStore, email_notification::SqliteEmailNotificationStore},
+    sqlite::{
+        contact::SqliteContactStore, email_notification::SqliteEmailNotificationStore,
+        mint::SqliteMintStore,
+    },
 };
 use sqlx::{
     SqlitePool,
@@ -10,6 +13,7 @@ use std::{path::PathBuf, time::Duration};
 
 pub mod contact;
 pub mod email_notification;
+pub mod mint;
 
 #[derive(Debug, Clone)]
 pub struct SqliteConfig {
@@ -35,7 +39,6 @@ pub struct SqlitePersistence {
 
 impl SqlitePersistence {
     pub async fn open(config: SqliteConfig) -> Result<Self> {
-        log::info!("path: {config:?}");
         if let Some(parent) = config.path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -74,6 +77,10 @@ impl SqlitePersistence {
 
     pub fn email_notification_store(&self) -> SqliteEmailNotificationStore {
         SqliteEmailNotificationStore::new(self.pool.clone())
+    }
+
+    pub fn mint_store(&self) -> SqliteMintStore {
+        SqliteMintStore::new(self.pool.clone())
     }
 }
 

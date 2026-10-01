@@ -134,7 +134,7 @@ where
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].node_id, contact.node_id);
     let found = store.search("Some").await.unwrap();
-    assert!(found.is_empty());
+    assert_eq!(found.len(), 1);
 }
 
 pub async fn test_nostr_relays_roundtrip<S>(store: &S)

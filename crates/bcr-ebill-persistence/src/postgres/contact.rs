@@ -29,6 +29,7 @@ impl ServiceTraitBounds for PostgresContactStore {}
 #[async_trait]
 impl ContactStoreApi for PostgresContactStore {
     async fn search(&self, search_term: &str) -> Result<Vec<Contact>> {
+        let search_term = format!("%{}%", search_term);
         let rows: Vec<ContactRow> = sqlx::query_as(SEARCH)
             .bind(search_term)
             .fetch_all(&self.pool)

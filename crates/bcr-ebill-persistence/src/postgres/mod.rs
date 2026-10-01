@@ -1,12 +1,16 @@
 use crate::{
     Error, Result,
-    postgres::{contact::PostgresContactStore, email_notification::PostgresEmailNotificationStore},
+    postgres::{
+        contact::PostgresContactStore, email_notification::PostgresEmailNotificationStore,
+        mint::PostgresMintStore,
+    },
 };
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use std::time::Duration;
 
 pub mod contact;
 pub mod email_notification;
+pub mod mint;
 
 #[derive(Clone)]
 pub struct PostgresPersistence {
@@ -59,6 +63,10 @@ impl PostgresPersistence {
 
     pub fn email_notification_store(&self) -> PostgresEmailNotificationStore {
         PostgresEmailNotificationStore::new(self.pool.clone())
+    }
+
+    pub fn mint_store(&self) -> PostgresMintStore {
+        PostgresMintStore::new(self.pool.clone())
     }
 }
 
