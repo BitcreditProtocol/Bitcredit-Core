@@ -14,10 +14,7 @@ use crate::{
     sql::{SumColumns, sum_from_db, timestamp_from_db, timestamp_to_db},
 };
 
-//
 // SQL
-//
-
 pub(crate) const EXISTS_FOR_BILL: &str = r#"
     SELECT EXISTS (
         SELECT 1

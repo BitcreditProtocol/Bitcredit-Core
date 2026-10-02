@@ -161,3 +161,26 @@ CREATE TABLE mint_offers (
         ON DELETE CASCADE
 );
 
+-- Bill Chain
+
+-- lock-table to uphold consistency guarantees for bill chains
+CREATE TABLE bill_chain_locks (
+    bill_id TEXT PRIMARY KEY NOT NULL
+);
+
+CREATE TABLE bill_chain (
+    bill_id TEXT NOT NULL,
+    block_id INTEGER NOT NULL
+    CHECK (block_id >= 1),
+    plaintext_hash TEXT NOT NULL,
+    hash TEXT NOT NULL,
+    previous_hash TEXT NOT NULL,
+    signature TEXT NOT NULL,
+    timestamp INTEGER NOT NULL
+    CHECK (timestamp >= 0),
+    public_key TEXT NOT NULL,
+    data BLOB NOT NULL,
+    op_code TEXT NOT NULL,
+    PRIMARY KEY (bill_id, block_id) -- only one block per chain height
+);
+

@@ -4,10 +4,10 @@ use bcr_common::core::NodeId;
 use bcr_ebill_persistence::db::surreal::SurrealWrapper;
 use bcr_ebill_persistence::{
     ContactStoreApi, FileReferenceStoreApi, NostrChainEventStoreApi, NostrContactStoreApi,
-    NostrEventOffsetStoreApi, NotificationStoreApi, SurrealBillChainStore, SurrealBillStore,
-    SurrealCompanyChainStore, SurrealCompanyStore, SurrealDbConfig, SurrealFileReferenceStore,
-    SurrealIdentityChainStore, SurrealIdentityStore, SurrealNostrChainEventStore,
-    SurrealNostrContactStore, SurrealNostrEventOffsetStore, SurrealNotificationStore,
+    NostrEventOffsetStoreApi, NotificationStoreApi, SurrealBillStore, SurrealCompanyChainStore,
+    SurrealCompanyStore, SurrealDbConfig, SurrealFileReferenceStore, SurrealIdentityChainStore,
+    SurrealIdentityStore, SurrealNostrChainEventStore, SurrealNostrContactStore,
+    SurrealNostrEventOffsetStore, SurrealNotificationStore,
     db::nostr_send_queue::SurrealNostrEventQueueStore,
     traits::bill::{BillChainStoreApi, BillStoreApi},
     traits::company::{CompanyChainStoreApi, CompanyStoreApi},
@@ -208,7 +208,14 @@ pub async fn get_db_context(conf: &Config) -> bcr_ebill_persistence::Result<DbCo
     );
 
     let bill_store = Arc::new(SurrealBillStore::new(surreal_wrapper.clone()));
-    let bill_blockchain_store = Arc::new(SurrealBillChainStore::new(surreal_wrapper.clone()));
+
+    #[cfg(any(feature = "sqlite", feature = "postgres"))]
+    let bill_blockchain_store: Arc<dyn BillChainStoreApi> = Arc::new(database.bill_chain_store());
+
+    #[cfg(not(any(feature = "sqlite", feature = "postgres")))]
+    let bill_blockchain_store = Arc::new(
+        bcr_ebill_persistence::db::bill_chain::SurrealBillChainStore::new(surreal_wrapper.clone()),
+    );
 
     let identity_store = Arc::new(SurrealIdentityStore::new(surreal_wrapper.clone()));
     let identity_chain_store = Arc::new(SurrealIdentityChainStore::new(surreal_wrapper.clone()));

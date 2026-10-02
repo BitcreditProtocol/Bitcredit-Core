@@ -1,11 +1,12 @@
 use crate::{Error, Result};
 use bcr_ebill_core::protocol::{
-    Address, City, Country, Currency, ExchangeRate, File, Name, PostalAddress, Sha256Hash, Sum,
-    Timestamp, Zip, blockchain::bill::ContactType,
+    Address, BlockId, City, Country, Currency, ExchangeRate, File, Name, PostalAddress, Sha256Hash,
+    Sum, Timestamp, Zip, blockchain::bill::ContactType,
 };
 use bitcoin::hashes::sha256::Hash as Sha256HexHash;
 use sqlx::types::Text;
 
+pub mod bill_chain;
 pub mod contact;
 pub mod email_notification;
 pub mod mint;
@@ -123,4 +124,13 @@ pub(crate) fn sum_from_db(
         .map_err(|e| Error::InvalidData(format!("invalid persisted currency: {e}")))?;
     Sum::new(amount, currency, reference_exchange_rate)
         .map_err(|e| Error::InvalidData(format!("invalid persisted sum: {e}")))
+}
+
+pub(crate) fn block_id_to_db(value: BlockId) -> Result<i64> {
+    u64_to_db(value.inner(), "block id")
+}
+
+pub(crate) fn block_id_from_db(value: i64) -> Result<BlockId> {
+    let value = u64_from_db(value, "block id")?;
+    Ok(BlockId::from(value))
 }

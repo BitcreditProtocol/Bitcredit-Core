@@ -1,3 +1,4 @@
+// SQL
 pub(crate) const UPSERT: &str = r#"
     INSERT INTO email_notifications (
         node_id,
