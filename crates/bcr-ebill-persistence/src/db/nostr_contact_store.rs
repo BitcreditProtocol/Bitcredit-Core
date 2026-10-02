@@ -8,7 +8,9 @@ use crate::{
         DB_SEARCH_TERM, DB_TABLE, DB_TRUST_LEVEL,
     },
     db::nostr_chain_event::NostrEventDb,
-    nostr::{NostrStoreApi, PendingContactShare, RelaySyncStatus, ShareDirection, SyncStatus},
+    traits::nostr::{
+        NostrStoreApi, PendingContactShare, RelaySyncStatus, ShareDirection, SyncStatus,
+    },
 };
 use async_trait::async_trait;
 use bcr_common::core::NodeId;

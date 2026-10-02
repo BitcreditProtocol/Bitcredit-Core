@@ -2,26 +2,22 @@
 use anyhow::{Result, anyhow};
 use bcr_common::core::NodeId;
 use bcr_ebill_persistence::db::surreal::SurrealWrapper;
-use bcr_ebill_persistence::get_surreal_db;
 use bcr_ebill_persistence::{
     ContactStoreApi, FileReferenceStoreApi, NostrChainEventStoreApi, NostrContactStoreApi,
-    NostrEventOffsetStoreApi, NotificationStoreApi, SurrealBillChainStore, SurrealBillStore,
-    SurrealCompanyChainStore, SurrealCompanyStore, SurrealContactStore, SurrealDbConfig,
-    SurrealFileReferenceStore, SurrealIdentityChainStore, SurrealIdentityStore,
+    NostrEventOffsetStoreApi, NotificationStoreApi, SurrealCompanyChainStore, SurrealCompanyStore,
+    SurrealDbConfig, SurrealFileReferenceStore, SurrealIdentityChainStore, SurrealIdentityStore,
     SurrealNostrChainEventStore, SurrealNostrContactStore, SurrealNostrEventOffsetStore,
     SurrealNotificationStore,
-    bill::{BillChainStoreApi, BillStoreApi},
-    company::{CompanyChainStoreApi, CompanyStoreApi},
-    db::{
-        email_notification::SurrealEmailNotificationStore, mint::SurrealMintStore,
-        nostr_send_queue::SurrealNostrEventQueueStore,
-    },
-    file_upload::FileUploadStoreApi,
-    identity::{IdentityChainStoreApi, IdentityStoreApi},
-    mint::MintStoreApi,
-    nostr::NostrQueuedMessageStoreApi,
-    notification::EmailNotificationStoreApi,
+    db::nostr_send_queue::SurrealNostrEventQueueStore,
+    traits::bill::{BillChainStoreApi, BillStoreApi},
+    traits::company::{CompanyChainStoreApi, CompanyStoreApi},
+    traits::file_upload::FileUploadStoreApi,
+    traits::identity::{IdentityChainStoreApi, IdentityStoreApi},
+    traits::mint::MintStoreApi,
+    traits::nostr::NostrQueuedMessageStoreApi,
+    traits::notification::EmailNotificationStoreApi,
 };
+use bcr_ebill_persistence::{DbConfig, get_surreal_db};
 use bitcoin::Network;
 use log::error;
 use std::sync::{Arc, RwLock};
@@ -40,8 +36,10 @@ pub struct Config {
     /// The first URL is used for API requests with fallback to subsequent URLs on failure.
     /// The first URL is also used for user-facing links (e.g., mempool explorer links).
     pub esplora_base_urls: Vec<url::Url>,
+    /// The old surreal db config
     pub db_config: SurrealDbConfig,
-    pub files_db_config: SurrealDbConfig,
+    /// The new database config
+    pub db_conf: DbConfig,
     pub nostr_config: NostrConfig,
     pub mint_config: MintConfig,
     pub payment_config: PaymentConfig,
@@ -179,34 +177,51 @@ pub struct DbContext {
 }
 
 /// Creates a new instance of the DbContext with the given SurrealDB configuration.
-pub async fn get_db_context(
-    #[allow(unused)] conf: &Config,
-) -> bcr_ebill_persistence::Result<DbContext> {
+pub async fn get_db_context(conf: &Config) -> bcr_ebill_persistence::Result<DbContext> {
     let db = get_surreal_db(&conf.db_config).await?;
-    let files_db = get_surreal_db(&conf.files_db_config).await?;
     let surreal_wrapper = SurrealWrapper {
         db: db.clone(),
         files: false,
     };
 
-    let files_surreal_wrapper = SurrealWrapper {
-        db: files_db.clone(),
-        files: true,
-    };
-
     let company_store = Arc::new(SurrealCompanyStore::new(surreal_wrapper.clone()));
-    let file_upload_store = Arc::new(
-        bcr_ebill_persistence::db::file_upload::FileUploadStore::new(files_surreal_wrapper),
-    );
+    let file_upload_store = Arc::new(bcr_ebill_persistence::file_upload::FileUploadStore::new(
+        conf.db_conf.temp_files_path.clone(),
+    ));
 
     if let Err(e) = file_upload_store.cleanup_temp_uploads().await {
         error!("Error cleaning up temp uploads: {e}");
     }
 
-    let contact_store = Arc::new(SurrealContactStore::new(surreal_wrapper.clone()));
+    #[cfg(feature = "sqlite")]
+    let database = bcr_ebill_persistence::get_sqlite_db(&conf.db_conf).await?;
 
-    let bill_store = Arc::new(SurrealBillStore::new(surreal_wrapper.clone()));
-    let bill_blockchain_store = Arc::new(SurrealBillChainStore::new(surreal_wrapper.clone()));
+    #[cfg(all(not(feature = "sqlite"), feature = "postgres"))]
+    let database = bcr_ebill_persistence::get_postgres_db(&conf.db_conf).await?;
+
+    #[cfg(any(feature = "sqlite", feature = "postgres"))]
+    let contact_store: Arc<dyn ContactStoreApi> = { Arc::new(database.contact_store()) };
+
+    #[cfg(all(not(feature = "sqlite"), not(feature = "postgres")))]
+    let contact_store: Arc<dyn ContactStoreApi> = Arc::new(
+        bcr_ebill_persistence::SurrealContactStore::new(surreal_wrapper.clone()),
+    );
+
+    #[cfg(any(feature = "sqlite", feature = "postgres"))]
+    let bill_store: Arc<dyn BillStoreApi> = Arc::new(database.bill_store());
+
+    #[cfg(not(any(feature = "sqlite", feature = "postgres")))]
+    let bill_store = Arc::new(bcr_ebill_persistence::db::bill::SurrealBillStore::new(
+        surreal_wrapper.clone(),
+    ));
+
+    #[cfg(any(feature = "sqlite", feature = "postgres"))]
+    let bill_blockchain_store: Arc<dyn BillChainStoreApi> = Arc::new(database.bill_chain_store());
+
+    #[cfg(not(any(feature = "sqlite", feature = "postgres")))]
+    let bill_blockchain_store = Arc::new(
+        bcr_ebill_persistence::db::bill_chain::SurrealBillChainStore::new(surreal_wrapper.clone()),
+    );
 
     let identity_store = Arc::new(SurrealIdentityStore::new(surreal_wrapper.clone()));
     let identity_chain_store = Arc::new(SurrealIdentityChainStore::new(surreal_wrapper.clone()));
@@ -215,12 +230,28 @@ pub async fn get_db_context(
     let nostr_event_offset_store =
         Arc::new(SurrealNostrEventOffsetStore::new(surreal_wrapper.clone()));
     let notification_store = Arc::new(SurrealNotificationStore::new(surreal_wrapper.clone()));
-    let email_notification_store =
-        Arc::new(SurrealEmailNotificationStore::new(surreal_wrapper.clone()));
+
+    #[cfg(any(feature = "sqlite", feature = "postgres"))]
+    let email_notification_store: Arc<dyn EmailNotificationStoreApi> =
+        { Arc::new(database.email_notification_store()) };
+
+    #[cfg(all(not(feature = "sqlite"), not(feature = "postgres")))]
+    let email_notification_store = Arc::new(
+        bcr_ebill_persistence::db::email_notification::SurrealEmailNotificationStore::new(
+            surreal_wrapper.clone(),
+        ),
+    );
+
+    #[cfg(any(feature = "sqlite", feature = "postgres"))]
+    let mint_store: Arc<dyn MintStoreApi> = Arc::new(database.mint_store());
+
+    #[cfg(not(any(feature = "sqlite", feature = "postgres")))]
+    let mint_store: Arc<dyn MintStoreApi> = Arc::new(
+        bcr_ebill_persistence::db::mint::SurrealMintStore::new(surreal_wrapper.clone()),
+    );
 
     let queued_message_store = Arc::new(SurrealNostrEventQueueStore::new(surreal_wrapper.clone()));
     let nostr_contact_store = Arc::new(SurrealNostrContactStore::new(surreal_wrapper.clone()));
-    let mint_store = Arc::new(SurrealMintStore::new(surreal_wrapper.clone()));
     let nostr_chain_event_store =
         Arc::new(SurrealNostrChainEventStore::new(surreal_wrapper.clone()));
     let file_reference_store = Arc::new(SurrealFileReferenceStore::new(surreal_wrapper.clone()));

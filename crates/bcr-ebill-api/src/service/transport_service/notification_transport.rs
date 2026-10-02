@@ -9,7 +9,7 @@ use bcr_ebill_core::{
     protocol::event::ActionType,
     protocol::event::{BillChainEventPayload, BillEventType, Event},
 };
-use bcr_ebill_persistence::notification::NotificationFilter;
+use bcr_ebill_persistence::traits::notification::NotificationFilter;
 use std::collections::HashMap;
 
 #[cfg(test)]

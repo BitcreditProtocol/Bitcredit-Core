@@ -6,8 +6,8 @@ use bcr_ebill_core::protocol::Sha256Hash;
 use bcr_ebill_core::protocol::Timestamp;
 use bcr_ebill_core::protocol::event::{Event, EventEnvelope, IdentityBlockEvent};
 use bcr_ebill_core::{application::ServiceTraitBounds, protocol::blockchain::BlockchainType};
-use bcr_ebill_persistence::identity::IdentityStoreApi;
-use bcr_ebill_persistence::{NostrChainEventStoreApi, nostr::NostrChainEvent};
+use bcr_ebill_persistence::traits::identity::IdentityStoreApi;
+use bcr_ebill_persistence::{NostrChainEventStoreApi, traits::nostr::NostrChainEvent};
 use log::{debug, error, trace, warn};
 
 use crate::{EventType, transport::root_and_reply_id};

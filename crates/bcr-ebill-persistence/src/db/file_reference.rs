@@ -1,7 +1,7 @@
 use crate::{
     Error, Result,
     db::surreal::{Bindings, SurrealWrapper},
-    file_reference::FileReferenceStoreApi,
+    traits::file_reference::FileReferenceStoreApi,
 };
 use async_trait::async_trait;
 use bcr_ebill_core::{

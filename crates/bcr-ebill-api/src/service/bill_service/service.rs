@@ -47,12 +47,12 @@ use bcr_ebill_core::{
 };
 use bcr_ebill_persistence::ContactStoreApi;
 use bcr_ebill_persistence::FileReferenceStoreApi;
-use bcr_ebill_persistence::bill::{BillChainStoreApi, BillStoreApi};
-use bcr_ebill_persistence::company::{CompanyChainStoreApi, CompanyStoreApi};
-use bcr_ebill_persistence::file_upload::FileUploadStoreApi;
-use bcr_ebill_persistence::identity::{IdentityChainStoreApi, IdentityStoreApi};
-use bcr_ebill_persistence::mint::MintStoreApi;
-use bcr_ebill_persistence::nostr::NostrContactStoreApi;
+use bcr_ebill_persistence::traits::bill::{BillChainStoreApi, BillStoreApi};
+use bcr_ebill_persistence::traits::company::{CompanyChainStoreApi, CompanyStoreApi};
+use bcr_ebill_persistence::traits::file_upload::FileUploadStoreApi;
+use bcr_ebill_persistence::traits::identity::{IdentityChainStoreApi, IdentityStoreApi};
+use bcr_ebill_persistence::traits::mint::MintStoreApi;
+use bcr_ebill_persistence::traits::nostr::NostrContactStoreApi;
 use bitcoin::secp256k1::SecretKey;
 use log::{debug, error, info};
 use std::collections::{HashMap, HashSet};

@@ -450,7 +450,7 @@ mod tests {
     use bcr_ebill_core::{
         protocol::Email, protocol::Result, protocol::Sum, protocol::crypto::BcrKeys,
     };
-    use bcr_ebill_persistence::nostr::NostrQueuedMessage;
+    use bcr_ebill_persistence::traits::nostr::NostrQueuedMessage;
     use bitcoin::base58;
     use mockall::predicate::eq;
     use nostr::event::FinalizeEvent;

@@ -12,7 +12,7 @@ use surrealdb::sql::Thing;
 
 use crate::{
     constants::{DB_ACTIVE, DB_IDS, DB_NOTIFICATION_TYPE, DB_TABLE},
-    notification::{NotificationFilter, NotificationStoreApi},
+    traits::notification::{NotificationFilter, NotificationStoreApi},
 };
 use bcr_ebill_core::{application::ServiceTraitBounds, protocol::event::bill_events::ActionType};
 use bcr_ebill_core::{

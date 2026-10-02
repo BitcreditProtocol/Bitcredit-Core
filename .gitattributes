@@ -1,2 +1,4 @@
 lib/src/rust/** linguist-generated=true
 crates/bcr-ebill-flutter-ffi/src/frb_generated.rs linguist-generated=true
+*.sql text eol=lf
+

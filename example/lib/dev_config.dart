@@ -12,12 +12,14 @@ class DevEnvironment {
   DevEnvironment({
     required this.baseDir,
     required this.dbDir,
-    required this.filesDir,
+    required this.tempFilesDir,
+    required this.sqliteDbFile,
   });
 
   final Directory baseDir;
   final Directory dbDir;
-  final Directory filesDir;
+  final Directory tempFilesDir;
+  final File sqliteDbFile;
 
   static Future<DevEnvironment> prepare({String? suffix}) async {
     final override = Platform.environment['EBILL_HARNESS_DIR'];
@@ -39,11 +41,16 @@ class DevEnvironment {
 
     final db = Directory('${base.path}/db');
     final files = Directory('${base.path}/files');
+    final tempFiles = Directory('${base.path}/temp_files');
+    final sqliteDir = Directory('${base.path}/sqlite');
+    final sqliteDbFile = File('${sqliteDir.path}/ebill.db');
 
     await db.create(recursive: true);
     await files.create(recursive: true);
+    await tempFiles.create(recursive: true);
+    await sqliteDir.create(recursive: true);
 
-    return DevEnvironment(baseDir: base, dbDir: db, filesDir: files);
+    return DevEnvironment(baseDir: base, dbDir: db, tempFilesDir: tempFiles, sqliteDbFile: sqliteDbFile);
   }
 
   static Future<void> requestReset(String basePath) async {
@@ -58,7 +65,8 @@ class DevEnvironment {
 
   EbillConfig toConfig() => EbillConfig(
         dbFolderPath: dbDir.path,
-        dbFolderPathFiles: filesDir.path,
+        sqliteDbPath: sqliteDbFile.path,
+        tempFilesPath: tempFilesDir.path,
         logLevel: 'debug',
         bitcoinNetwork: 'testnet',
         esploraBaseUrls: const ['https://esplora.minibill.tech'],

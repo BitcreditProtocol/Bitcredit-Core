@@ -7,6 +7,11 @@ license.workspace = true
 [lib]
 doctest = false
 
+[features]
+default = []
+sqlite = ["bcr-ebill-persistence/sqlite"]
+postgres = ["bcr-ebill-persistence/postgres"]
+
 [dependencies]
 borsh.workspace = true
 borsh-derive.workspace = true

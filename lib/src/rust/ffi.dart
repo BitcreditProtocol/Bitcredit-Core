@@ -20,7 +20,8 @@ Future<void> initCryptoProvider() =>
 
 class EbillConfig {
   final String dbFolderPath;
-  final String dbFolderPathFiles;
+  final String sqliteDbPath;
+  final String tempFilesPath;
   final String? logLevel;
   final String bitcoinNetwork;
   final List<String> esploraBaseUrls;
@@ -41,7 +42,8 @@ class EbillConfig {
 
   const EbillConfig({
     required this.dbFolderPath,
-    required this.dbFolderPathFiles,
+    required this.sqliteDbPath,
+    required this.tempFilesPath,
     this.logLevel,
     required this.bitcoinNetwork,
     required this.esploraBaseUrls,
@@ -64,7 +66,8 @@ class EbillConfig {
   @override
   int get hashCode =>
       dbFolderPath.hashCode ^
-      dbFolderPathFiles.hashCode ^
+      sqliteDbPath.hashCode ^
+      tempFilesPath.hashCode ^
       logLevel.hashCode ^
       bitcoinNetwork.hashCode ^
       esploraBaseUrls.hashCode ^
@@ -89,7 +92,8 @@ class EbillConfig {
       other is EbillConfig &&
           runtimeType == other.runtimeType &&
           dbFolderPath == other.dbFolderPath &&
-          dbFolderPathFiles == other.dbFolderPathFiles &&
+          sqliteDbPath == other.sqliteDbPath &&
+          tempFilesPath == other.tempFilesPath &&
           logLevel == other.logLevel &&
           bitcoinNetwork == other.bitcoinNetwork &&
           esploraBaseUrls == other.esploraBaseUrls &&

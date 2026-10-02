@@ -31,6 +31,7 @@ pub use base::identity_proof::{EmailIdentityProofData, SignedIdentityProof};
 pub use base::name::Name;
 pub use base::signature::SchnorrSignature;
 pub use base::sum::Currency;
+pub use base::sum::ExchangeRate;
 pub use base::sum::Sum;
 pub use base::timestamp::Timestamp;
 pub use base::zip::Zip;

@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{
     constants::DB_TABLE,
-    nostr::{NostrChainEvent, NostrChainEventStoreApi},
+    traits::nostr::{NostrChainEvent, NostrChainEventStoreApi},
 };
 use async_trait::async_trait;
 use bcr_ebill_core::{

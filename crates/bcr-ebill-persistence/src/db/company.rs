@@ -21,7 +21,7 @@ use bcr_ebill_core::{
     },
 };
 
-use crate::{Error, company::CompanyStoreApi};
+use crate::{Error, traits::company::CompanyStoreApi};
 use bcr_common::core::NodeId;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, str::FromStr};

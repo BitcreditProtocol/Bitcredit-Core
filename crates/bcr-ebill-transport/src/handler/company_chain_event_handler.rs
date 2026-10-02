@@ -7,7 +7,7 @@ use bcr_ebill_core::protocol::Timestamp;
 use bcr_ebill_core::protocol::event::{CompanyBlockEvent, Event, EventEnvelope};
 use bcr_ebill_core::{application::ServiceTraitBounds, protocol::blockchain::BlockchainType};
 use bcr_ebill_persistence::{
-    NostrChainEventStoreApi, company::CompanyStoreApi, nostr::NostrChainEvent,
+    NostrChainEventStoreApi, traits::company::CompanyStoreApi, traits::nostr::NostrChainEvent,
 };
 use log::{debug, error, trace, warn};
 

@@ -1,3 +1,8 @@
+pub mod bill;
+pub mod bill_chain;
+pub mod contact;
+pub mod email_notification;
+pub mod mint;
 #[cfg(test)]
 #[allow(clippy::module_inception)]
 pub mod tests {

@@ -8,7 +8,8 @@ use bcr_ebill_core::{
     protocol::{ProtocolValidationError, blockchain::BlockchainType, crypto::BcrKeys},
 };
 use bcr_ebill_persistence::{
-    bill::BillStoreApi, company::CompanyStoreApi, identity::IdentityStoreApi,
+    traits::bill::BillStoreApi, traits::company::CompanyStoreApi,
+    traits::identity::IdentityStoreApi,
 };
 use log::{debug, warn};
 

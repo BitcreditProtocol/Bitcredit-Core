@@ -40,13 +40,14 @@ use bcr_ebill_core::{
     protocol::event::{ActionType, BillEventType},
     protocol::{OptionalPostalAddress, PostalAddress},
 };
-use bcr_ebill_persistence::nostr::{
+use bcr_ebill_persistence::traits::nostr::{
     NostrContactStoreApi, NostrQueuedMessageStoreApi, RelaySyncStatus, SyncStatus,
 };
-use bcr_ebill_persistence::notification::NotificationFilter;
+use bcr_ebill_persistence::traits::notification::NotificationFilter;
 use bcr_ebill_persistence::{
-    ContactStoreApi, FileReferenceStoreApi, NostrChainEventStoreApi, NostrEventOffsetStoreApi,
-    NotificationStoreApi, PendingContactShare, ShareDirection, SurrealDbConfig,
+    ContactStoreApi, DbConfig, FileReferenceStoreApi, NostrChainEventStoreApi,
+    NostrEventOffsetStoreApi, NotificationStoreApi, PendingContactShare, ShareDirection,
+    SurrealDbConfig,
 };
 use nostr_relay_builder::MockRelay;
 
@@ -56,6 +57,7 @@ use crate::handler::{FileMetadataProcessorApi, NotificationHandlerApi};
 
 use super::nostr::NostrClient;
 use serde::Serialize;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, OnceLock};
 
@@ -67,7 +69,7 @@ use bcr_ebill_api::service::transport_service::{
 use bcr_ebill_core::protocol::event::{
     BillChainEvent, BillChainEventPayload, CompanyChainEvent, Event, IdentityChainEvent,
 };
-use bcr_ebill_persistence::nostr::NostrChainEvent;
+use bcr_ebill_persistence::traits::nostr::NostrChainEvent;
 
 use async_trait::async_trait;
 use bitcoin::secp256k1::{PublicKey, SecretKey};
@@ -129,9 +131,9 @@ pub fn init_test_cfg() {
                     connection_string: "ws://localhost:8800".to_string(),
                     ..SurrealDbConfig::default()
                 },
-                files_db_config: SurrealDbConfig {
-                    connection_string: "ws://localhost:8800".to_string(),
-                    ..SurrealDbConfig::default()
+                db_conf: DbConfig {
+                    connection_string: "sqlite://local_db/ebill.db".to_string(),
+                    temp_files_path: PathBuf::from_str("/tmp").unwrap(),
                 },
                 nostr_config: bcr_ebill_api::NostrConfig {
                     only_known_contacts: false,
@@ -680,7 +682,7 @@ mockall::mock! {
             node_ids: &[NodeId],
         ) -> bcr_ebill_persistence::Result<HashMap<NodeId, bool>>;
         async fn add(&self, notification: Notification) -> bcr_ebill_persistence::Result<Notification>;
-        async fn list(&self, filter: bcr_ebill_persistence::notification::NotificationFilter) -> bcr_ebill_persistence::Result<Vec<Notification>>;
+        async fn list(&self, filter: bcr_ebill_persistence::traits::notification::NotificationFilter) -> bcr_ebill_persistence::Result<Vec<Notification>>;
         async fn get_latest_by_references(
             &self,
             reference: &[String],
@@ -728,7 +730,7 @@ mockall::mock! {
     impl bcr_ebill_core::application::ServiceTraitBounds for EmailNotificationStore {}
 
     #[async_trait]
-    impl bcr_ebill_persistence::notification::EmailNotificationStoreApi for EmailNotificationStore {
+    impl bcr_ebill_persistence::traits::notification::EmailNotificationStoreApi for EmailNotificationStore {
         async fn add_email_preferences_link_for_node_id(
             &self,
             email_preferences_link: &url::Url,
@@ -788,12 +790,12 @@ mockall::mock! {
 
     #[async_trait]
     impl NostrQueuedMessageStoreApi for NostrQueuedMessageStore {
-        async fn add_message(&self, message: bcr_ebill_persistence::nostr::NostrQueuedMessage, max_retries: i32) -> bcr_ebill_persistence::Result<()>;
-        async fn get_retry_messages(&self, limit: u64) -> bcr_ebill_persistence::Result<Vec<bcr_ebill_persistence::nostr::NostrQueuedMessage>>;
+        async fn add_message(&self, message: bcr_ebill_persistence::traits::nostr::NostrQueuedMessage, max_retries: i32) -> bcr_ebill_persistence::Result<()>;
+        async fn get_retry_messages(&self, limit: u64) -> bcr_ebill_persistence::Result<Vec<bcr_ebill_persistence::traits::nostr::NostrQueuedMessage>>;
         async fn fail_retry(&self, id: &str) -> bcr_ebill_persistence::Result<()>;
         async fn succeed_retry(&self, id: &str) -> bcr_ebill_persistence::Result<()>;
         async fn requeue_failed_entry(&self, id: &str) -> bcr_ebill_persistence::Result<()>;
-        async fn get_non_succeeded_retry_messages(&self) -> bcr_ebill_persistence::Result<Vec<(bcr_ebill_persistence::nostr::NostrQueuedMessage, bcr_ebill_persistence::nostr::NostrQueuedMessageStatus)>>;
+        async fn get_non_succeeded_retry_messages(&self) -> bcr_ebill_persistence::Result<Vec<(bcr_ebill_persistence::traits::nostr::NostrQueuedMessage, bcr_ebill_persistence::traits::nostr::NostrQueuedMessageStatus)>>;
     }
 }
 
