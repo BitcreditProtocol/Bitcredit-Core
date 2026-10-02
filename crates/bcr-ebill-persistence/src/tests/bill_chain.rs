@@ -25,7 +25,7 @@ use crate::{
     traits::bill::BillChainStoreApi,
 };
 
-fn get_first_block(id: &BillId) -> BillBlock {
+pub fn get_first_block(id: &BillId) -> BillBlock {
     let mut bill = empty_bitcredit_bill();
     bill.maturity_date = Date::new("2099-05-05").unwrap();
     bill.id = id.to_owned();

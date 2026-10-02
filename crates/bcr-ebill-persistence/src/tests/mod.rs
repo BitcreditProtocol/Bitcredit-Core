@@ -1,3 +1,4 @@
+pub mod bill;
 pub mod bill_chain;
 pub mod contact;
 pub mod email_notification;

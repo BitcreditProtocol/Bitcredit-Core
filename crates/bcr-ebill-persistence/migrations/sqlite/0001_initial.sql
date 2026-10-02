@@ -184,3 +184,143 @@ CREATE TABLE bill_chain (
     PRIMARY KEY (bill_id, block_id) -- only one block per chain height
 );
 
+-- Bill
+
+CREATE TABLE bill_cache (
+    bill_id TEXT PRIMARY KEY NOT NULL,
+    identity_node_id TEXT NOT NULL,
+    payload TEXT NOT NULL
+    CHECK (json_valid(payload))
+);
+
+CREATE INDEX bill_cache_identity_node_id_idx
+ON bill_cache(identity_node_id);
+
+CREATE TABLE bill_keys (
+    bill_id TEXT PRIMARY KEY NOT NULL,
+    private_key TEXT NOT NULL
+);
+
+CREATE TABLE bill_paid (
+    bill_id TEXT PRIMARY KEY NOT NULL,
+    payment_state TEXT NOT NULL,
+    block_time INTEGER
+    CHECK (block_time IS NULL OR block_time >= 0),
+    block_hash TEXT,
+    confirmations INTEGER
+    CHECK (confirmations IS NULL OR confirmations >= 0),
+    tx_id TEXT,
+    CHECK (
+        (
+            payment_state IN (
+                'paid_confirmed',
+                'paid_unconfirmed'
+            )
+            AND block_time IS NOT NULL
+            AND block_hash IS NOT NULL
+            AND confirmations IS NOT NULL
+            AND tx_id IS NOT NULL
+        )
+        OR
+        (
+            payment_state = 'in_mempool'
+            AND block_time IS NULL
+            AND block_hash IS NULL
+            AND confirmations IS NULL
+            AND tx_id IS NOT NULL
+        )
+        OR
+        (
+            payment_state = 'not_found'
+            AND block_time IS NULL
+            AND block_hash IS NULL
+            AND confirmations IS NULL
+            AND tx_id IS NULL
+        )
+    )
+);
+
+CREATE TABLE offer_to_sell_bill_paid (
+    bill_id TEXT NOT NULL,
+    block_id INTEGER NOT NULL
+    CHECK (block_id >= 1),
+    payment_state TEXT NOT NULL,
+    block_time INTEGER
+    CHECK (block_time IS NULL OR block_time >= 0),
+    block_hash TEXT,
+    confirmations INTEGER
+    CHECK (confirmations IS NULL OR confirmations >= 0),
+    tx_id TEXT,
+    PRIMARY KEY (bill_id, block_id),
+    CHECK (
+        (
+            payment_state IN (
+                'paid_confirmed',
+                'paid_unconfirmed'
+            )
+            AND block_time IS NOT NULL
+            AND block_hash IS NOT NULL
+            AND confirmations IS NOT NULL
+            AND tx_id IS NOT NULL
+        )
+        OR
+        (
+            payment_state = 'in_mempool'
+            AND block_time IS NULL
+            AND block_hash IS NULL
+            AND confirmations IS NULL
+            AND tx_id IS NOT NULL
+        )
+        OR
+        (
+            payment_state = 'not_found'
+            AND block_time IS NULL
+            AND block_hash IS NULL
+            AND confirmations IS NULL
+            AND tx_id IS NULL
+        )
+    )
+);
+
+CREATE TABLE recourse_bill_paid (
+    bill_id TEXT NOT NULL,
+    block_id INTEGER NOT NULL
+    CHECK (block_id >= 1),
+    payment_state TEXT NOT NULL,
+    block_time INTEGER
+    CHECK (block_time IS NULL OR block_time >= 0),
+    block_hash TEXT,
+    confirmations INTEGER
+    CHECK (confirmations IS NULL OR confirmations >= 0),
+    tx_id TEXT,
+    PRIMARY KEY (bill_id, block_id),
+    CHECK (
+        (
+            payment_state IN (
+                'paid_confirmed',
+                'paid_unconfirmed'
+            )
+            AND block_time IS NOT NULL
+            AND block_hash IS NOT NULL
+            AND confirmations IS NOT NULL
+            AND tx_id IS NOT NULL
+        )
+        OR
+        (
+            payment_state = 'in_mempool'
+            AND block_time IS NULL
+            AND block_hash IS NULL
+            AND confirmations IS NULL
+            AND tx_id IS NOT NULL
+        )
+        OR
+        (
+            payment_state = 'not_found'
+            AND block_time IS NULL
+            AND block_hash IS NULL
+            AND confirmations IS NULL
+            AND tx_id IS NULL
+        )
+    )
+);
+

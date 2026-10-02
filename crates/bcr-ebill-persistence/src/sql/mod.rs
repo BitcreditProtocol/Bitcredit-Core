@@ -6,6 +6,7 @@ use bcr_ebill_core::protocol::{
 use bitcoin::hashes::sha256::Hash as Sha256HexHash;
 use sqlx::types::Text;
 
+pub mod bill;
 pub mod bill_chain;
 pub mod contact;
 pub mod email_notification;
@@ -133,4 +134,8 @@ pub(crate) fn block_id_to_db(value: BlockId) -> Result<i64> {
 pub(crate) fn block_id_from_db(value: i64) -> Result<BlockId> {
     let value = u64_from_db(value, "block id")?;
     Ok(BlockId::from(value))
+}
+
+fn required<T>(value: Option<T>, field: &'static str) -> Result<T> {
+    value.ok_or_else(|| Error::InvalidData(format!("missing field: {field}")))
 }
