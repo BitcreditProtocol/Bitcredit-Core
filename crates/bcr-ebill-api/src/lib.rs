@@ -4,9 +4,9 @@ use bcr_common::core::NodeId;
 use bcr_ebill_persistence::db::surreal::SurrealWrapper;
 use bcr_ebill_persistence::{
     ContactStoreApi, FileReferenceStoreApi, NostrChainEventStoreApi, NostrContactStoreApi,
-    NostrEventOffsetStoreApi, NotificationStoreApi, SurrealCompanyStore, SurrealDbConfig,
-    SurrealFileReferenceStore, SurrealNostrChainEventStore, SurrealNostrContactStore,
-    SurrealNostrEventOffsetStore, SurrealNotificationStore,
+    NostrEventOffsetStoreApi, NotificationStoreApi, SurrealDbConfig, SurrealFileReferenceStore,
+    SurrealNostrChainEventStore, SurrealNostrContactStore, SurrealNostrEventOffsetStore,
+    SurrealNotificationStore,
     db::nostr_send_queue::SurrealNostrEventQueueStore,
     traits::bill::{BillChainStoreApi, BillStoreApi},
     traits::company::{CompanyChainStoreApi, CompanyStoreApi},
@@ -183,7 +183,20 @@ pub async fn get_db_context(conf: &Config) -> bcr_ebill_persistence::Result<DbCo
         files: false,
     };
 
-    let company_store = Arc::new(SurrealCompanyStore::new(surreal_wrapper.clone()));
+    #[cfg(feature = "sqlite")]
+    let database = bcr_ebill_persistence::get_sqlite_db(&conf.db_conf).await?;
+
+    #[cfg(all(not(feature = "sqlite"), feature = "postgres"))]
+    let database = bcr_ebill_persistence::get_postgres_db(&conf.db_conf).await?;
+
+    #[cfg(any(feature = "sqlite", feature = "postgres"))]
+    let company_store: Arc<dyn CompanyStoreApi> = { Arc::new(database.company_store()) };
+
+    #[cfg(all(not(feature = "sqlite"), not(feature = "postgres")))]
+    let company_store = Arc::new(
+        bcr_ebill_persistence::db::company::SurrealCompanyStore::new(surreal_wrapper.clone()),
+    );
+
     let file_upload_store = Arc::new(bcr_ebill_persistence::file_upload::FileUploadStore::new(
         conf.db_conf.temp_files_path.clone(),
     ));
@@ -191,12 +204,6 @@ pub async fn get_db_context(conf: &Config) -> bcr_ebill_persistence::Result<DbCo
     if let Err(e) = file_upload_store.cleanup_temp_uploads().await {
         error!("Error cleaning up temp uploads: {e}");
     }
-
-    #[cfg(feature = "sqlite")]
-    let database = bcr_ebill_persistence::get_sqlite_db(&conf.db_conf).await?;
-
-    #[cfg(all(not(feature = "sqlite"), feature = "postgres"))]
-    let database = bcr_ebill_persistence::get_postgres_db(&conf.db_conf).await?;
 
     #[cfg(any(feature = "sqlite", feature = "postgres"))]
     let contact_store: Arc<dyn ContactStoreApi> = { Arc::new(database.contact_store()) };

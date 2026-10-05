@@ -5,10 +5,12 @@ use bcr_ebill_core::protocol::{
     blockchain::{bill::ContactType, identity::IdentityType},
 };
 use bitcoin::hashes::sha256::Hash as Sha256HexHash;
+use serde::{Serialize, de::DeserializeOwned};
 use sqlx::types::Text;
 
 pub mod bill;
 pub mod bill_chain;
+pub mod company;
 pub mod company_chain;
 pub mod contact;
 pub mod email_notification;
@@ -159,4 +161,26 @@ pub(crate) fn block_id_from_db(value: i64) -> Result<BlockId> {
 
 fn required<T>(value: Option<T>, field: &'static str) -> Result<T> {
     value.ok_or_else(|| Error::InvalidData(format!("missing field: {field}")))
+}
+
+pub(crate) fn unit_enum_to_db<T>(value: &T) -> Result<String>
+where
+    T: Serialize,
+{
+    match serde_json::to_value(value)
+        .map_err(|e| Error::InvalidData(format!("could not serialize enum: {e}")))?
+    {
+        serde_json::Value::String(value) => Ok(value),
+        other => Err(Error::InvalidData(format!(
+            "expected unit enum string, got {other}"
+        ))),
+    }
+}
+
+pub(crate) fn unit_enum_from_db<T>(value: String) -> Result<T>
+where
+    T: DeserializeOwned,
+{
+    serde_json::from_value(serde_json::Value::String(value))
+        .map_err(|e| Error::InvalidData(format!("invalid persisted enum: {e}")))
 }

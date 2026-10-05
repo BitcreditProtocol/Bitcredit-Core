@@ -1,7 +1,7 @@
 use crate::{
     Error, Result,
     sqlite::{
-        bill::SqliteBillStore, bill_chain::SqliteBillChainStore,
+        bill::SqliteBillStore, bill_chain::SqliteBillChainStore, company::SqliteCompanyStore,
         company_chain::SqliteCompanyChainStore, contact::SqliteContactStore,
         email_notification::SqliteEmailNotificationStore, identity::SqliteIdentityStore,
         identity_chain::SqliteIdentityChainStore, mint::SqliteMintStore,
@@ -15,6 +15,7 @@ use std::{path::PathBuf, time::Duration};
 
 pub mod bill;
 pub mod bill_chain;
+pub mod company;
 pub mod company_chain;
 pub mod contact;
 pub mod email_notification;
@@ -100,6 +101,10 @@ impl SqlitePersistence {
 
     pub fn company_chain_store(&self) -> SqliteCompanyChainStore {
         SqliteCompanyChainStore::new(self.pool.clone())
+    }
+
+    pub fn company_store(&self) -> SqliteCompanyStore {
+        SqliteCompanyStore::new(self.pool.clone())
     }
 
     pub fn identity_chain_store(&self) -> SqliteIdentityChainStore {

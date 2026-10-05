@@ -456,3 +456,142 @@ CREATE TABLE email_confirmation (
     created_at BIGINT NOT NULL
     CHECK (created_at >= 0)
 );
+
+-- Company
+
+
+CREATE TABLE company (
+    id TEXT PRIMARY KEY NOT NULL,
+
+    name TEXT NOT NULL,
+    country_of_registration TEXT,
+    city_of_registration TEXT,
+
+    postal_address_country TEXT NOT NULL,
+    postal_address_city TEXT NOT NULL,
+    postal_address_zip TEXT,
+    postal_address_address TEXT NOT NULL,
+
+    email TEXT NOT NULL,
+    registration_number TEXT,
+    registration_date TEXT,
+
+    proof_of_registration_file_name TEXT,
+    proof_of_registration_file_hash TEXT,
+    proof_of_registration_file_nostr_hash TEXT,
+
+    logo_file_name TEXT,
+    logo_file_hash TEXT,
+    logo_file_nostr_hash TEXT,
+
+    creation_time BIGINT NOT NULL
+    CHECK (creation_time >= 0),
+    status TEXT NOT NULL,
+
+    CHECK (
+        (
+            proof_of_registration_file_name IS NULL
+            AND proof_of_registration_file_hash IS NULL
+            AND proof_of_registration_file_nostr_hash IS NULL
+        )
+        OR
+        (
+            proof_of_registration_file_name IS NOT NULL
+            AND proof_of_registration_file_hash IS NOT NULL
+            AND proof_of_registration_file_nostr_hash IS NOT NULL
+        )
+    ),
+
+    CHECK (
+        (
+            logo_file_name IS NULL
+            AND logo_file_hash IS NULL
+            AND logo_file_nostr_hash IS NULL
+        )
+        OR
+        (
+            logo_file_name IS NOT NULL
+            AND logo_file_hash IS NOT NULL
+            AND logo_file_nostr_hash IS NOT NULL
+        )
+    )
+);
+
+CREATE TABLE company_signatory (
+    company_id TEXT NOT NULL,
+    position BIGINT NOT NULL
+    CHECK (position >= 0),
+    signatory_type TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    ts BIGINT
+    CHECK (ts IS NULL OR ts >= 0),
+    inviter TEXT,
+    remover TEXT,
+    data_node_id TEXT,
+    data_company_node_id TEXT,
+    data_email TEXT,
+    data_created_at BIGINT
+    CHECK (
+        data_created_at IS NULL
+        OR data_created_at >= 0
+    ),
+    proof_signature TEXT,
+    proof_witness TEXT,
+    PRIMARY KEY (company_id, node_id),
+    UNIQUE (company_id, position),
+    FOREIGN KEY (company_id)
+        REFERENCES company(id)
+        ON DELETE CASCADE,
+    CHECK (
+        (
+            proof_signature IS NULL
+            AND proof_witness IS NULL
+        )
+        OR
+        (
+            proof_signature IS NOT NULL
+            AND proof_witness IS NOT NULL
+        )
+    ),
+
+    CHECK (
+        (
+            data_node_id IS NULL
+            AND data_company_node_id IS NULL
+            AND data_email IS NULL
+            AND data_created_at IS NULL
+        )
+        OR
+        (
+            data_node_id IS NOT NULL
+            AND data_email IS NOT NULL
+            AND data_created_at IS NOT NULL
+        )
+    )
+);
+
+CREATE TABLE company_keys (
+    id TEXT PRIMARY KEY NOT NULL,
+    private_key TEXT NOT NULL
+);
+
+CREATE TABLE company_email_confirmation (
+    company_id TEXT NOT NULL,
+    signature TEXT NOT NULL,
+    witness TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    company_node_id TEXT,
+    email TEXT NOT NULL,
+    created_at BIGINT NOT NULL
+    CHECK (created_at >= 0),
+    PRIMARY KEY (company_id, witness)
+);
+
+CREATE TABLE company_local_signatory_override (
+    company_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    PRIMARY KEY (company_id, node_id)
+);
+
