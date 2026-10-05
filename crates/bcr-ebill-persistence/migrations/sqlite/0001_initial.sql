@@ -324,3 +324,27 @@ CREATE TABLE recourse_bill_paid (
     )
 );
 
+-- Company Chain
+
+CREATE TABLE company_chain_locks (
+    company_id TEXT PRIMARY KEY NOT NULL
+);
+
+CREATE TABLE company_chain (
+    company_id TEXT NOT NULL,
+    block_id INTEGER NOT NULL
+    CHECK (block_id >= 1),
+    plaintext_hash TEXT NOT NULL,
+    hash TEXT NOT NULL,
+    previous_hash TEXT NOT NULL,
+    signature TEXT NOT NULL,
+    timestamp INTEGER NOT NULL
+    CHECK (timestamp >= 0),
+    public_key TEXT NOT NULL,
+    signatory_node_id TEXT NOT NULL,
+    data BLOB NOT NULL,
+    op_code TEXT NOT NULL,
+
+    PRIMARY KEY (company_id, block_id)
+);
+

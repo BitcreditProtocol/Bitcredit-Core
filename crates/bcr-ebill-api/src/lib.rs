@@ -4,8 +4,8 @@ use bcr_common::core::NodeId;
 use bcr_ebill_persistence::db::surreal::SurrealWrapper;
 use bcr_ebill_persistence::{
     ContactStoreApi, FileReferenceStoreApi, NostrChainEventStoreApi, NostrContactStoreApi,
-    NostrEventOffsetStoreApi, NotificationStoreApi, SurrealCompanyChainStore, SurrealCompanyStore,
-    SurrealDbConfig, SurrealFileReferenceStore, SurrealIdentityChainStore, SurrealIdentityStore,
+    NostrEventOffsetStoreApi, NotificationStoreApi, SurrealCompanyStore, SurrealDbConfig,
+    SurrealFileReferenceStore, SurrealIdentityChainStore, SurrealIdentityStore,
     SurrealNostrChainEventStore, SurrealNostrContactStore, SurrealNostrEventOffsetStore,
     SurrealNotificationStore,
     db::nostr_send_queue::SurrealNostrEventQueueStore,
@@ -225,7 +225,17 @@ pub async fn get_db_context(conf: &Config) -> bcr_ebill_persistence::Result<DbCo
 
     let identity_store = Arc::new(SurrealIdentityStore::new(surreal_wrapper.clone()));
     let identity_chain_store = Arc::new(SurrealIdentityChainStore::new(surreal_wrapper.clone()));
-    let company_chain_store = Arc::new(SurrealCompanyChainStore::new(surreal_wrapper.clone()));
+
+    #[cfg(any(feature = "sqlite", feature = "postgres"))]
+    let company_chain_store: Arc<dyn CompanyChainStoreApi> =
+        Arc::new(database.company_chain_store());
+
+    #[cfg(not(any(feature = "sqlite", feature = "postgres")))]
+    let company_chain_store = Arc::new(
+        bcr_ebill_persistence::db::company_chain::SurrealCompanyChainStore::new(
+            surreal_wrapper.clone(),
+        ),
+    );
 
     let nostr_event_offset_store =
         Arc::new(SurrealNostrEventOffsetStore::new(surreal_wrapper.clone()));

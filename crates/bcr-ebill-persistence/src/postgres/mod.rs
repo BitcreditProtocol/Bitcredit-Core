@@ -1,7 +1,8 @@
 use crate::{
     Error, Result,
     postgres::{
-        bill::PostgresBillStore, bill_chain::PostgresBillChainStore, contact::PostgresContactStore,
+        bill::PostgresBillStore, bill_chain::PostgresBillChainStore,
+        company_chain::PostgresCompanyChainStore, contact::PostgresContactStore,
         email_notification::PostgresEmailNotificationStore, mint::PostgresMintStore,
     },
 };
@@ -10,6 +11,7 @@ use std::time::Duration;
 
 pub mod bill;
 pub mod bill_chain;
+pub mod company_chain;
 pub mod contact;
 pub mod email_notification;
 pub mod mint;
@@ -77,6 +79,10 @@ impl PostgresPersistence {
 
     pub fn bill_store(&self) -> PostgresBillStore {
         PostgresBillStore::new(self.pool.clone())
+    }
+
+    pub fn company_chain_store(&self) -> PostgresCompanyChainStore {
+        PostgresCompanyChainStore::new(self.pool.clone())
     }
 }
 
