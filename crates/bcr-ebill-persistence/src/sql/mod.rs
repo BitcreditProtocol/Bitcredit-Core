@@ -11,6 +11,7 @@ pub mod bill_chain;
 pub mod company_chain;
 pub mod contact;
 pub mod email_notification;
+pub mod identity_chain;
 pub mod mint;
 
 pub(crate) fn decode_file(

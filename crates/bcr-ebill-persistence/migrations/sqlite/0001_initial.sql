@@ -348,3 +348,26 @@ CREATE TABLE company_chain (
     PRIMARY KEY (company_id, block_id)
 );
 
+-- Identity Chain
+
+CREATE TABLE identity_chain_lock (
+    id INTEGER PRIMARY KEY NOT NULL
+    CHECK (id = 1)
+);
+
+INSERT INTO identity_chain_lock (id)
+VALUES (1);
+
+CREATE TABLE identity_chain (
+    block_id INTEGER PRIMARY KEY NOT NULL
+    CHECK (block_id >= 1),
+    plaintext_hash TEXT NOT NULL,
+    hash TEXT NOT NULL,
+    previous_hash TEXT NOT NULL,
+    signature TEXT NOT NULL,
+    timestamp INTEGER NOT NULL
+    CHECK (timestamp >= 0),
+    public_key TEXT NOT NULL,
+    data BLOB NOT NULL,
+    op_code TEXT NOT NULL
+);
