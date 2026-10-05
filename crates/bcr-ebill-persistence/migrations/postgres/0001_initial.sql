@@ -370,3 +370,89 @@ CREATE TABLE identity_chain (
     op_code TEXT NOT NULL
 );
 
+-- Identity
+
+CREATE TABLE identity (
+    id BIGINT PRIMARY KEY NOT NULL CHECK (id = 1),
+    identity_type BIGINT NOT NULL
+    CHECK (identity_type IN (0, 1)),
+    node_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    email TEXT,
+
+    postal_address_country TEXT,
+    postal_address_city TEXT,
+    postal_address_zip TEXT,
+    postal_address_address TEXT,
+    date_of_birth TEXT,
+    country_of_birth TEXT,
+    city_of_birth TEXT,
+    identification_number TEXT,
+
+    identity_document_file_name TEXT,
+    identity_document_file_hash TEXT,
+    identity_document_file_nostr_hash TEXT,
+
+    profile_picture_file_name TEXT,
+    profile_picture_file_hash TEXT,
+    profile_picture_file_nostr_hash TEXT,
+    nostr_relays TEXT NOT NULL DEFAULT '[]',
+
+    CHECK (
+        (
+            identity_document_file_name IS NULL
+            AND identity_document_file_hash IS NULL
+            AND identity_document_file_nostr_hash IS NULL
+        )
+        OR
+        (
+            identity_document_file_name IS NOT NULL
+            AND identity_document_file_hash IS NOT NULL
+            AND identity_document_file_nostr_hash IS NOT NULL
+        )
+    ),
+
+    CHECK (
+        (
+            profile_picture_file_name IS NULL
+            AND profile_picture_file_hash IS NULL
+            AND profile_picture_file_nostr_hash IS NULL
+        )
+        OR
+        (
+            profile_picture_file_name IS NOT NULL
+            AND profile_picture_file_hash IS NOT NULL
+            AND profile_picture_file_nostr_hash IS NOT NULL
+        )
+    )
+);
+
+CREATE TABLE identity_keys (
+    id BIGINT PRIMARY KEY NOT NULL CHECK (id = 1),
+    key TEXT NOT NULL,
+    seed_phrase TEXT NOT NULL
+);
+
+
+CREATE TABLE identity_network (
+    id BIGINT PRIMARY KEY NOT NULL CHECK (id = 1),
+    network TEXT NOT NULL
+);
+
+
+CREATE TABLE active_identity (
+    id BIGINT PRIMARY KEY NOT NULL CHECK (id = 1),
+    personal TEXT NOT NULL,
+    company TEXT
+);
+
+
+CREATE TABLE email_confirmation (
+    witness TEXT PRIMARY KEY NOT NULL,
+    signature TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    company_node_id TEXT,
+    email TEXT NOT NULL,
+    created_at BIGINT NOT NULL
+    CHECK (created_at >= 0)
+);

@@ -3,8 +3,8 @@ use crate::{
     sqlite::{
         bill::SqliteBillStore, bill_chain::SqliteBillChainStore,
         company_chain::SqliteCompanyChainStore, contact::SqliteContactStore,
-        email_notification::SqliteEmailNotificationStore, identity_chain::SqliteIdentityChainStore,
-        mint::SqliteMintStore,
+        email_notification::SqliteEmailNotificationStore, identity::SqliteIdentityStore,
+        identity_chain::SqliteIdentityChainStore, mint::SqliteMintStore,
     },
 };
 use sqlx::{
@@ -18,6 +18,7 @@ pub mod bill_chain;
 pub mod company_chain;
 pub mod contact;
 pub mod email_notification;
+pub mod identity;
 pub mod identity_chain;
 pub mod mint;
 
@@ -100,8 +101,13 @@ impl SqlitePersistence {
     pub fn company_chain_store(&self) -> SqliteCompanyChainStore {
         SqliteCompanyChainStore::new(self.pool.clone())
     }
+
     pub fn identity_chain_store(&self) -> SqliteIdentityChainStore {
         SqliteIdentityChainStore::new(self.pool.clone())
+    }
+
+    pub fn identity_store(&self) -> SqliteIdentityStore {
+        SqliteIdentityStore::new(self.pool.clone())
     }
 }
 

@@ -3,6 +3,7 @@ pub mod bill_chain;
 pub mod company_chain;
 pub mod contact;
 pub mod email_notification;
+pub mod identity;
 pub mod identity_chain;
 pub mod mint;
 #[cfg(test)]

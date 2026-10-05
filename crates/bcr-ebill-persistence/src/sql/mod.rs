@@ -1,7 +1,8 @@
 use crate::{Error, Result};
 use bcr_ebill_core::protocol::{
     Address, BlockId, City, Country, Currency, ExchangeRate, File, Name, PostalAddress, Sha256Hash,
-    Sum, Timestamp, Zip, blockchain::bill::ContactType,
+    Sum, Timestamp, Zip,
+    blockchain::{bill::ContactType, identity::IdentityType},
 };
 use bitcoin::hashes::sha256::Hash as Sha256HexHash;
 use sqlx::types::Text;
@@ -11,6 +12,7 @@ pub mod bill_chain;
 pub mod company_chain;
 pub mod contact;
 pub mod email_notification;
+pub mod identity;
 pub mod identity_chain;
 pub mod mint;
 
@@ -69,6 +71,23 @@ pub(crate) fn contact_type_from_db(value: i64) -> Result<ContactType> {
         1 => Ok(ContactType::Company),
         2 => Ok(ContactType::Anon),
         value => Err(Error::InvalidData(format!("invalid contact type: {value}"))),
+    }
+}
+
+pub(crate) fn identity_type_to_db(value: &IdentityType) -> i64 {
+    match value {
+        IdentityType::Ident => 0,
+        IdentityType::Anon => 1,
+    }
+}
+
+pub(crate) fn identity_type_from_db(value: i64) -> Result<IdentityType> {
+    match value {
+        0 => Ok(IdentityType::Ident),
+        1 => Ok(IdentityType::Anon),
+        value => Err(Error::InvalidData(format!(
+            "invalid identity type: {value}"
+        ))),
     }
 }
 

@@ -3,7 +3,7 @@ use crate::{
     postgres::{
         bill::PostgresBillStore, bill_chain::PostgresBillChainStore,
         company_chain::PostgresCompanyChainStore, contact::PostgresContactStore,
-        email_notification::PostgresEmailNotificationStore,
+        email_notification::PostgresEmailNotificationStore, identity::PostgresIdentityStore,
         identity_chain::PostgresIdentityChainStore, mint::PostgresMintStore,
     },
 };
@@ -15,6 +15,7 @@ pub mod bill_chain;
 pub mod company_chain;
 pub mod contact;
 pub mod email_notification;
+pub mod identity;
 pub mod identity_chain;
 pub mod mint;
 
@@ -89,6 +90,10 @@ impl PostgresPersistence {
 
     pub fn identity_chain_store(&self) -> PostgresIdentityChainStore {
         PostgresIdentityChainStore::new(self.pool.clone())
+    }
+
+    pub fn identity_store(&self) -> PostgresIdentityStore {
+        PostgresIdentityStore::new(self.pool.clone())
     }
 }
 

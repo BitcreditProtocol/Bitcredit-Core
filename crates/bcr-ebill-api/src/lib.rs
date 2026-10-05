@@ -5,8 +5,8 @@ use bcr_ebill_persistence::db::surreal::SurrealWrapper;
 use bcr_ebill_persistence::{
     ContactStoreApi, FileReferenceStoreApi, NostrChainEventStoreApi, NostrContactStoreApi,
     NostrEventOffsetStoreApi, NotificationStoreApi, SurrealCompanyStore, SurrealDbConfig,
-    SurrealFileReferenceStore, SurrealIdentityStore, SurrealNostrChainEventStore,
-    SurrealNostrContactStore, SurrealNostrEventOffsetStore, SurrealNotificationStore,
+    SurrealFileReferenceStore, SurrealNostrChainEventStore, SurrealNostrContactStore,
+    SurrealNostrEventOffsetStore, SurrealNotificationStore,
     db::nostr_send_queue::SurrealNostrEventQueueStore,
     traits::bill::{BillChainStoreApi, BillStoreApi},
     traits::company::{CompanyChainStoreApi, CompanyStoreApi},
@@ -222,7 +222,13 @@ pub async fn get_db_context(conf: &Config) -> bcr_ebill_persistence::Result<DbCo
         bcr_ebill_persistence::db::bill_chain::SurrealBillChainStore::new(surreal_wrapper.clone()),
     );
 
-    let identity_store = Arc::new(SurrealIdentityStore::new(surreal_wrapper.clone()));
+    #[cfg(any(feature = "sqlite", feature = "postgres"))]
+    let identity_store: Arc<dyn IdentityStoreApi> = Arc::new(database.identity_store());
+
+    #[cfg(not(any(feature = "sqlite", feature = "postgres")))]
+    let identity_store = Arc::new(
+        bcr_ebill_persistence::db::identity::SurrealIdentityStore::new(surreal_wrapper.clone()),
+    );
 
     #[cfg(any(feature = "sqlite", feature = "postgres"))]
     let identity_chain_store: Arc<dyn IdentityChainStoreApi> =
