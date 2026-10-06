@@ -598,6 +598,7 @@ impl BillEventType {
     }
 }
 
+// WARN: if this is adapted, the persistence model needs to be adapted as well
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 #[allow(clippy::enum_variant_names, dead_code)]
 pub enum ActionType {

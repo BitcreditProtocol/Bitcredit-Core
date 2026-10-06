@@ -101,6 +101,7 @@ impl NostrContact {
     }
 }
 
+// WARN: if this is adapted, the persistence model needs to be adapted as well
 /// Trust level we assign for a Nostr contact.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TrustLevel {
@@ -115,6 +116,7 @@ pub enum TrustLevel {
     Banned,
 }
 
+// WARN: if this is adapted, the persistence model needs to be adapted as well
 /// Handshake is optional but requires some status tracking.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HandshakeStatus {

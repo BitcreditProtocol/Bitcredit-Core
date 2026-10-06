@@ -7,7 +7,7 @@ use crate::{
         identity::SqliteIdentityStore, identity_chain::SqliteIdentityChainStore,
         mint::SqliteMintStore, nostr_chain_event::SqliteNostrChainEventStore,
         nostr_contact_store::SqliteNostrStore, nostr_event_offset::SqliteNostrEventOffsetStore,
-        nostr_send_queue::SqliteNostrEventQueueStore,
+        nostr_send_queue::SqliteNostrEventQueueStore, notification::SqliteNotificationStore,
     },
 };
 use sqlx::{
@@ -30,6 +30,7 @@ pub mod nostr_chain_event;
 pub mod nostr_contact_store;
 pub mod nostr_event_offset;
 pub mod nostr_send_queue;
+pub mod notification;
 
 #[derive(Debug, Clone)]
 pub struct SqliteConfig {
@@ -141,6 +142,10 @@ impl SqlitePersistence {
 
     pub fn nostr_contact_store(&self) -> SqliteNostrStore {
         SqliteNostrStore::new(self.pool.clone())
+    }
+
+    pub fn notification_store(&self) -> SqliteNotificationStore {
+        SqliteNotificationStore::new(self.pool.clone())
     }
 }
 

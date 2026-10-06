@@ -185,6 +185,7 @@ pub trait NostrStoreApi: ServiceTraitBounds {
     ) -> Result<()>;
 }
 
+// WARN: if this is adapted, the persistence model needs to be adapted as well
 /// Direction of a contact share - incoming (we received) or outgoing (we sent)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ShareDirection {
@@ -295,6 +296,7 @@ impl NostrChainEvent {
 }
 
 /// Status of relay synchronization
+// WARN: if this is adapted, the persistence model needs to be adapted as well
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SyncStatus {
     /// Needs sync but hasn't started

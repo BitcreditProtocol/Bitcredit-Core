@@ -15,7 +15,7 @@ async-broadcast.workspace = true
 base64.workspace = true
 bcr-common = { workspace = true, features = ["webpki-roots"] }
 bcr-ebill-core.workspace = true
-bcr-ebill-persistence = {workspace = true, features = ["surrealkv", "sqlite"]}
+bcr-ebill-persistence = {workspace = true, features = ["sqlite"]}
 bcr-ebill-api = {workspace = true, features = ["sqlite"]}
 bcr-ebill-transport = {workspace = true}
 bitcoin.workspace = true

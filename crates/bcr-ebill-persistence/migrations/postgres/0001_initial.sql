@@ -885,3 +885,83 @@ CREATE INDEX relay_sync_retry_event_idx
         event_id
     );
 
+-- Notifications
+
+CREATE TABLE notifications (
+    id TEXT PRIMARY KEY NOT NULL,
+    node_id TEXT,
+    notification_type TEXT NOT NULL
+    CHECK (
+        notification_type IN (
+            'General',
+            'Company',
+            'Bill',
+            'Contact'
+        )
+    ),
+    reference_id TEXT,
+    description TEXT NOT NULL,
+    datetime BIGINT NOT NULL
+    CHECK (datetime >= 0),
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    level TEXT NOT NULL DEFAULT 'Informational'
+    CHECK (
+        level IN (
+            'Informational',
+            'ActionRequired'
+        )
+    ),
+    payload TEXT,
+    event_id TEXT
+);
+
+CREATE INDEX notifications_datetime_idx
+    ON notifications(datetime DESC);
+
+CREATE INDEX notifications_active_node_idx
+    ON notifications(node_id, active);
+
+CREATE INDEX notifications_reference_type_active_idx
+    ON notifications(
+        reference_id,
+        notification_type,
+        active,
+        datetime DESC
+    );
+
+CREATE INDEX notifications_event_node_idx
+    ON notifications(event_id, node_id);
+
+CREATE TABLE sent_notifications (
+    notification_type TEXT NOT NULL
+    CHECK (
+        notification_type IN (
+            'General',
+            'Company',
+            'Bill',
+            'Contact'
+        )
+    ),
+    reference_id TEXT NOT NULL,
+    block_height INTEGER NOT NULL,
+    action_type TEXT NOT NULL
+    CHECK (
+        action_type IN (
+            'BuyBill',
+            'RecourseBill',
+            'AcceptBill',
+            'CheckBill',
+            'PayBill',
+            'CheckQuote'
+        )
+    ),
+    datetime BIGINT NOT NULL
+    CHECK (datetime >= 0),
+    PRIMARY KEY (
+        notification_type,
+        reference_id,
+        block_height,
+        action_type
+    )
+);
+

@@ -63,6 +63,7 @@ pub enum Error {
     JSON(String),
 }
 
+// WARN: if this is adapted, the persistence model needs to be adapted as well
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
 )]

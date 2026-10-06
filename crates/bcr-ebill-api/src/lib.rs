@@ -1,10 +1,14 @@
 #![recursion_limit = "256"]
 use anyhow::{Result, anyhow};
 use bcr_common::core::NodeId;
+use bcr_ebill_persistence::DbConfig;
+#[cfg(all(not(feature = "sqlite"), not(feature = "postgres")))]
 use bcr_ebill_persistence::db::surreal::SurrealWrapper;
+#[cfg(all(not(feature = "sqlite"), not(feature = "postgres")))]
+use bcr_ebill_persistence::get_surreal_db;
 use bcr_ebill_persistence::{
     ContactStoreApi, FileReferenceStoreApi, NostrChainEventStoreApi, NostrContactStoreApi,
-    NostrEventOffsetStoreApi, NotificationStoreApi, SurrealDbConfig, SurrealNotificationStore,
+    NostrEventOffsetStoreApi, NotificationStoreApi, SurrealDbConfig,
     traits::bill::{BillChainStoreApi, BillStoreApi},
     traits::company::{CompanyChainStoreApi, CompanyStoreApi},
     traits::file_upload::FileUploadStoreApi,
@@ -13,7 +17,6 @@ use bcr_ebill_persistence::{
     traits::nostr::NostrQueuedMessageStoreApi,
     traits::notification::EmailNotificationStoreApi,
 };
-use bcr_ebill_persistence::{DbConfig, get_surreal_db};
 use bitcoin::Network;
 use log::error;
 use std::sync::{Arc, RwLock};
@@ -174,7 +177,9 @@ pub struct DbContext {
 
 /// Creates a new instance of the DbContext with the given SurrealDB configuration.
 pub async fn get_db_context(conf: &Config) -> bcr_ebill_persistence::Result<DbContext> {
+    #[cfg(all(not(feature = "sqlite"), not(feature = "postgres")))]
     let db = get_surreal_db(&conf.db_config).await?;
+    #[cfg(all(not(feature = "sqlite"), not(feature = "postgres")))]
     let surreal_wrapper = SurrealWrapper {
         db: db.clone(),
         files: false,
@@ -267,7 +272,15 @@ pub async fn get_db_context(conf: &Config) -> bcr_ebill_persistence::Result<DbCo
         ),
     );
 
-    let notification_store = Arc::new(SurrealNotificationStore::new(surreal_wrapper.clone()));
+    #[cfg(any(feature = "sqlite", feature = "postgres"))]
+    let notification_store: Arc<dyn NotificationStoreApi> = Arc::new(database.notification_store());
+
+    #[cfg(not(any(feature = "sqlite", feature = "postgres")))]
+    let notification_store = Arc::new(
+        bcr_ebill_persistence::db::notification::SurrealNotificationStore::new(
+            surreal_wrapper.clone(),
+        ),
+    );
 
     #[cfg(any(feature = "sqlite", feature = "postgres"))]
     let email_notification_store: Arc<dyn EmailNotificationStoreApi> =
