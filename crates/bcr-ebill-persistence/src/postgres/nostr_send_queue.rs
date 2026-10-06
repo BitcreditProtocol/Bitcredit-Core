@@ -4,7 +4,7 @@ use crate::{
     sql::{
         nostr_send_queue::{
             FAIL_RETRY, INSERT_MESSAGE, NostrQueuedMessageRow, REQUEUE_FAILED_ENTRY,
-            SELECT_NON_SUCCEEDED, SELECT_RETRY_MESSAGES, SET_PROCESSING_STARTED_AT, SUCCEED_RETRY,
+            SELECT_NON_SUCCEEDED, SET_PROCESSING_STARTED_AT, SUCCEED_RETRY,
         },
         timestamp_to_db,
     },
@@ -13,6 +13,27 @@ use crate::{
 use async_trait::async_trait;
 use bcr_ebill_core::{application::ServiceTraitBounds, protocol::Timestamp};
 use sqlx::PgPool;
+
+const SELECT_RETRY_MESSAGES_FOR_UPDATE: &str = r#"
+    SELECT
+        id,
+        sender_id,
+        recipient,
+        payload,
+        created,
+        last_try,
+        num_retries,
+        max_retries,
+        completed,
+        failed,
+        processing_started_at
+    FROM nostr_send_queue
+    WHERE completed = false
+      AND processing_started_at < $1
+    ORDER BY last_try ASC
+    LIMIT $2
+    FOR UPDATE SKIP LOCKED
+"#;
 
 #[derive(Clone)]
 pub struct PostgresNostrEventQueueStore {
@@ -67,7 +88,7 @@ impl NostrQueuedMessageStoreApi for PostgresNostrEventQueueStore {
 
         let mut tx = self.pool.begin().await?;
 
-        let rows: Vec<NostrQueuedMessageRow> = sqlx::query_as(SELECT_RETRY_MESSAGES)
+        let rows: Vec<NostrQueuedMessageRow> = sqlx::query_as(SELECT_RETRY_MESSAGES_FOR_UPDATE)
             .bind(retry_before)
             .bind(limit)
             .fetch_all(&mut *tx)
