@@ -5,7 +5,7 @@ use crate::{
         company_chain::SqliteCompanyChainStore, contact::SqliteContactStore,
         email_notification::SqliteEmailNotificationStore, file_reference::SqliteFileReferenceStore,
         identity::SqliteIdentityStore, identity_chain::SqliteIdentityChainStore,
-        mint::SqliteMintStore,
+        mint::SqliteMintStore, nostr_event_offset::SqliteNostrEventOffsetStore,
     },
 };
 use sqlx::{
@@ -24,6 +24,7 @@ pub mod file_reference;
 pub mod identity;
 pub mod identity_chain;
 pub mod mint;
+pub mod nostr_event_offset;
 
 #[derive(Debug, Clone)]
 pub struct SqliteConfig {
@@ -119,6 +120,10 @@ impl SqlitePersistence {
 
     pub fn file_reference_store(&self) -> SqliteFileReferenceStore {
         SqliteFileReferenceStore::new(self.pool.clone())
+    }
+
+    pub fn nostr_event_offset_store(&self) -> SqliteNostrEventOffsetStore {
+        SqliteNostrEventOffsetStore::new(self.pool.clone())
     }
 }
 

@@ -8,6 +8,7 @@ pub mod file_reference;
 pub mod identity;
 pub mod identity_chain;
 pub mod mint;
+pub mod nostr_event_offset;
 #[cfg(test)]
 #[allow(clippy::module_inception)]
 pub mod tests {

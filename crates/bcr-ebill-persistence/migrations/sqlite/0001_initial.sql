@@ -677,3 +677,17 @@ CREATE TABLE file_reference_context (
     )
 );
 
+-- Nostr Event Offset
+
+CREATE TABLE nostr_event_offset (
+    event_id TEXT PRIMARY KEY NOT NULL,
+    time INTEGER NOT NULL
+    CHECK (time >= 0),
+    success INTEGER NOT NULL
+    CHECK (success IN (0, 1)),
+    node_id TEXT NOT NULL
+);
+
+CREATE INDEX nostr_event_offset_node_id_time_idx
+    ON nostr_event_offset(node_id, time DESC);
+
