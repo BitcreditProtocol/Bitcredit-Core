@@ -4,6 +4,7 @@ use sqlx::types::Text;
 
 use crate::{Result, sql::timestamp_to_db, traits::nostr::NostrQueuedMessage};
 
+// SQL
 pub(crate) const INSERT_MESSAGE: &str = r#"
     INSERT INTO nostr_send_queue (
         id,

@@ -8,6 +8,7 @@ use nostr::event::Event;
 use serde::{Deserialize, Serialize};
 use sqlx::types::Text;
 
+// SQL
 pub(crate) const SELECT_CHAIN_EVENTS: &str = r#"
     SELECT
         event_id,
@@ -217,7 +218,7 @@ impl TryFrom<NostrChainEventRow> for NostrChainEvent {
     }
 }
 
-fn serialize_payload(event: Event) -> Result<String> {
+pub(crate) fn serialize_payload(event: Event) -> Result<String> {
     let event = NostrEventDb::try_from(event)?;
     serde_json::to_string(&event).map_err(|e| {
         Error::InvalidData(format!(
@@ -226,7 +227,7 @@ fn serialize_payload(event: Event) -> Result<String> {
     })
 }
 
-fn deserialize_payload(payload: &str) -> Result<Event> {
+pub(crate) fn deserialize_payload(payload: &str) -> Result<Event> {
     let event: NostrEventDb = serde_json::from_str(payload).map_err(|e| {
         Error::InvalidData(format!("invalid persisted nostr chain event payload: {e}"))
     })?;

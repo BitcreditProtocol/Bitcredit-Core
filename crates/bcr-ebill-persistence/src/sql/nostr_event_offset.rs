@@ -5,6 +5,7 @@ use crate::{
 use bcr_common::core::NodeId;
 use sqlx::types::Text;
 
+// SQL
 pub(crate) const SELECT_CURRENT_OFFSET: &str = r#"
     SELECT time
     FROM nostr_event_offset

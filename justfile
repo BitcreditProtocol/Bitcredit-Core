@@ -5,6 +5,9 @@ check: flutter
   cargo clippy --all-targets --all-features -- -D warnings
   cargo deny check
 
+test-postgres:
+    DATABASE_URL=postgres://postgres:password@localhost:5432/ cargo test --all --all-features
+
 
 flutter:
     dart run build_runner build --delete-conflicting-outputs

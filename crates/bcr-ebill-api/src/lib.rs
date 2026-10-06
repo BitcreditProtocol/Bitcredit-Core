@@ -4,8 +4,7 @@ use bcr_common::core::NodeId;
 use bcr_ebill_persistence::db::surreal::SurrealWrapper;
 use bcr_ebill_persistence::{
     ContactStoreApi, FileReferenceStoreApi, NostrChainEventStoreApi, NostrContactStoreApi,
-    NostrEventOffsetStoreApi, NotificationStoreApi, SurrealDbConfig, SurrealNostrContactStore,
-    SurrealNotificationStore,
+    NostrEventOffsetStoreApi, NotificationStoreApi, SurrealDbConfig, SurrealNotificationStore,
     traits::bill::{BillChainStoreApi, BillStoreApi},
     traits::company::{CompanyChainStoreApi, CompanyStoreApi},
     traits::file_upload::FileUploadStoreApi,
@@ -300,7 +299,16 @@ pub async fn get_db_context(conf: &Config) -> bcr_ebill_persistence::Result<DbCo
         ),
     );
 
-    let nostr_contact_store = Arc::new(SurrealNostrContactStore::new(surreal_wrapper.clone()));
+    #[cfg(any(feature = "sqlite", feature = "postgres"))]
+    let nostr_contact_store: Arc<dyn NostrContactStoreApi> =
+        Arc::new(database.nostr_contact_store());
+
+    #[cfg(not(any(feature = "sqlite", feature = "postgres")))]
+    let nostr_contact_store = Arc::new(
+        bcr_ebill_persistence::db::nostr_contact_store::SurrealNostrContactStore::new(
+            surreal_wrapper.clone(),
+        ),
+    );
 
     #[cfg(any(feature = "sqlite", feature = "postgres"))]
     let nostr_chain_event_store: Arc<dyn NostrChainEventStoreApi> =

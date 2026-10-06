@@ -763,3 +763,132 @@ CREATE INDEX nostr_chain_event_block_hash_idx
         received DESC
     );
 
+-- Nostr Contact Store
+
+CREATE TABLE nostr_contact (
+    id TEXT PRIMARY KEY NOT NULL,
+    node_id TEXT NOT NULL,
+    name TEXT,
+    relays TEXT NOT NULL DEFAULT '[]',
+    blossom_servers TEXT NOT NULL DEFAULT '[]',
+    trust_level TEXT NOT NULL
+    CHECK (
+        trust_level IN (
+            'none',
+            'participant',
+            'trusted',
+            'banned'
+        )
+    ),
+    handshake_status TEXT NOT NULL
+    CHECK (
+        handshake_status IN (
+            'none',
+            'in_progress',
+            'added'
+        )
+    ),
+    contact_private_key TEXT,
+    mint_url TEXT
+);
+
+CREATE UNIQUE INDEX nostr_contact_node_id_idx
+    ON nostr_contact(node_id);
+
+CREATE INDEX nostr_contact_trust_level_idx
+    ON nostr_contact(trust_level);
+
+CREATE TABLE pending_contact_share (
+    id TEXT PRIMARY KEY NOT NULL,
+    node_id TEXT NOT NULL,
+    contact TEXT NOT NULL,
+    sender_node_id TEXT NOT NULL,
+    contact_private_key TEXT NOT NULL,
+    receiver_node_id TEXT NOT NULL,
+    received_at INTEGER NOT NULL
+    CHECK (received_at >= 0),
+    direction TEXT NOT NULL
+    CHECK (
+        direction IN (
+            'incoming',
+            'outgoing'
+        )
+    ),
+    initial_share_id TEXT
+);
+
+CREATE INDEX pending_contact_share_private_key_idx
+    ON pending_contact_share(contact_private_key);
+
+CREATE INDEX pending_contact_share_receiver_idx
+    ON pending_contact_share(
+        receiver_node_id,
+        received_at DESC
+    );
+
+CREATE INDEX pending_contact_share_receiver_direction_idx
+    ON pending_contact_share(
+        receiver_node_id,
+        direction,
+        received_at DESC
+    );
+
+CREATE INDEX pending_contact_share_exists_idx
+    ON pending_contact_share(
+        node_id,
+        receiver_node_id,
+        direction
+    );
+
+CREATE TABLE relay_sync_status (
+    id TEXT PRIMARY KEY NOT NULL,
+    relay_url TEXT NOT NULL UNIQUE,
+    last_seen_in_config INTEGER NOT NULL
+    CHECK (last_seen_in_config >= 0),
+    sync_status TEXT NOT NULL
+    CHECK (
+        sync_status IN (
+            'pending',
+            'in_progress',
+            'completed',
+            'failed'
+        )
+    ),
+    events_synced INTEGER NOT NULL DEFAULT 0
+    CHECK (events_synced >= 0),
+    last_synced_timestamp INTEGER
+    CHECK (
+        last_synced_timestamp IS NULL
+        OR last_synced_timestamp >= 0
+    ),
+    last_error TEXT
+);
+
+CREATE INDEX relay_sync_status_status_idx
+    ON relay_sync_status(sync_status);
+
+CREATE TABLE relay_sync_retry (
+    id TEXT PRIMARY KEY NOT NULL,
+    relay_url TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    event TEXT NOT NULL,
+    retry_count INTEGER NOT NULL DEFAULT 0
+    CHECK (retry_count >= 0),
+    created_at INTEGER NOT NULL
+    CHECK (created_at >= 0),
+    last_retry_at INTEGER
+    CHECK (
+        last_retry_at IS NULL
+        OR last_retry_at >= 0
+    )
+);
+
+CREATE INDEX relay_sync_retry_relay_idx
+    ON relay_sync_retry(relay_url);
+
+CREATE INDEX relay_sync_retry_event_idx
+    ON relay_sync_retry(
+        relay_url,
+        event_id
+    );
+

@@ -6,7 +6,7 @@ use crate::{
         email_notification::PostgresEmailNotificationStore,
         file_reference::PostgresFileReferenceStore, identity::PostgresIdentityStore,
         identity_chain::PostgresIdentityChainStore, mint::PostgresMintStore,
-        nostr_chain_event::PostgresNostrChainEventStore,
+        nostr_chain_event::PostgresNostrChainEventStore, nostr_contact_store::PostgresNostrStore,
         nostr_event_offset::PostgresNostrEventOffsetStore,
         nostr_send_queue::PostgresNostrEventQueueStore,
     },
@@ -25,6 +25,7 @@ pub mod identity;
 pub mod identity_chain;
 pub mod mint;
 pub mod nostr_chain_event;
+pub mod nostr_contact_store;
 pub mod nostr_event_offset;
 pub mod nostr_send_queue;
 
@@ -123,6 +124,10 @@ impl PostgresPersistence {
 
     pub fn nostr_chain_event_store(&self) -> PostgresNostrChainEventStore {
         PostgresNostrChainEventStore::new(self.pool.clone())
+    }
+
+    pub fn nostr_contact_store(&self) -> PostgresNostrStore {
+        PostgresNostrStore::new(self.pool.clone())
     }
 }
 
