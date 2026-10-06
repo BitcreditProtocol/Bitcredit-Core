@@ -597,3 +597,83 @@ CREATE TABLE company_local_signatory_override (
     PRIMARY KEY (company_id, node_id)
 );
 
+-- File references
+
+CREATE TABLE file_reference (
+    hash TEXT PRIMARY KEY NOT NULL,
+    nostr_hash TEXT NOT NULL,
+    name TEXT,
+    server_urls TEXT NOT NULL DEFAULT '[]',
+    is_important INTEGER NOT NULL DEFAULT 0
+    CHECK (is_important IN (0, 1)),
+    created_at INTEGER NOT NULL
+    CHECK (created_at >= 0),
+    updated_at INTEGER NOT NULL
+    CHECK (updated_at >= 0)
+);
+
+CREATE INDEX file_reference_nostr_hash_idx
+    ON file_reference(nostr_hash);
+
+CREATE TABLE file_reference_context (
+    file_reference_hash TEXT NOT NULL,
+    position INTEGER NOT NULL
+    CHECK (position >= 0),
+    context_type TEXT NOT NULL,
+    context_field TEXT,
+    context_company_id TEXT,
+    context_node_id TEXT,
+    context_bill_id TEXT,
+    PRIMARY KEY (
+        file_reference_hash,
+        position
+    ),
+    FOREIGN KEY (file_reference_hash)
+        REFERENCES file_reference(hash)
+        ON DELETE CASCADE,
+    CHECK (
+        (
+            context_type = 'identity'
+            AND context_field IS NOT NULL
+            AND context_company_id IS NULL
+            AND context_node_id IS NULL
+            AND context_bill_id IS NULL
+        )
+        OR
+        (
+            context_type = 'company'
+            AND context_field IS NOT NULL
+            AND context_company_id IS NOT NULL
+            AND context_node_id IS NULL
+            AND context_bill_id IS NULL
+        )
+        OR
+        (
+            context_type = 'contact'
+            AND context_field IS NOT NULL
+            AND context_company_id IS NULL
+            AND context_node_id IS NOT NULL
+            AND context_bill_id IS NULL
+        )
+        OR
+        (
+            context_type = 'bill'
+            AND context_field IS NOT NULL
+            AND context_company_id IS NULL
+            AND context_node_id IS NULL
+            AND context_bill_id IS NOT NULL
+        )
+        OR
+        (
+            context_type IN (
+                'direct_upload',
+                'unknown'
+            )
+            AND context_field IS NULL
+            AND context_company_id IS NULL
+            AND context_node_id IS NULL
+            AND context_bill_id IS NULL
+        )
+    )
+);
+

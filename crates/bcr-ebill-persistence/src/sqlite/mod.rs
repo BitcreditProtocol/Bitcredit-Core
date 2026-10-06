@@ -3,8 +3,9 @@ use crate::{
     sqlite::{
         bill::SqliteBillStore, bill_chain::SqliteBillChainStore, company::SqliteCompanyStore,
         company_chain::SqliteCompanyChainStore, contact::SqliteContactStore,
-        email_notification::SqliteEmailNotificationStore, identity::SqliteIdentityStore,
-        identity_chain::SqliteIdentityChainStore, mint::SqliteMintStore,
+        email_notification::SqliteEmailNotificationStore, file_reference::SqliteFileReferenceStore,
+        identity::SqliteIdentityStore, identity_chain::SqliteIdentityChainStore,
+        mint::SqliteMintStore,
     },
 };
 use sqlx::{
@@ -19,6 +20,7 @@ pub mod company;
 pub mod company_chain;
 pub mod contact;
 pub mod email_notification;
+pub mod file_reference;
 pub mod identity;
 pub mod identity_chain;
 pub mod mint;
@@ -113,6 +115,10 @@ impl SqlitePersistence {
 
     pub fn identity_store(&self) -> SqliteIdentityStore {
         SqliteIdentityStore::new(self.pool.clone())
+    }
+
+    pub fn file_reference_store(&self) -> SqliteFileReferenceStore {
+        SqliteFileReferenceStore::new(self.pool.clone())
     }
 }
 
