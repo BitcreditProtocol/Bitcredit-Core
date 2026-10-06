@@ -691,3 +691,35 @@ CREATE TABLE nostr_event_offset (
 CREATE INDEX nostr_event_offset_node_id_time_idx
     ON nostr_event_offset(node_id, time DESC);
 
+-- Nostr Send Queue
+
+CREATE TABLE nostr_send_queue (
+    id TEXT PRIMARY KEY NOT NULL,
+    sender_id TEXT NOT NULL,
+    recipient TEXT,
+    payload TEXT NOT NULL,
+    created INTEGER NOT NULL
+    CHECK (created >= 0),
+    last_try INTEGER NOT NULL DEFAULT 0
+    CHECK (last_try >= 0),
+    num_retries INTEGER NOT NULL DEFAULT 0
+    CHECK (num_retries >= 0),
+    max_retries INTEGER NOT NULL,
+    completed INTEGER NOT NULL DEFAULT 0
+    CHECK (completed IN (0, 1)),
+    failed INTEGER NOT NULL DEFAULT 0
+    CHECK (failed IN (0, 1)),
+    processing_started_at INTEGER NOT NULL DEFAULT 0
+    CHECK (processing_started_at >= 0)
+);
+
+CREATE INDEX nostr_send_queue_retry_idx
+    ON nostr_send_queue(
+        completed,
+        processing_started_at,
+        last_try
+    );
+
+CREATE INDEX nostr_send_queue_created_idx
+    ON nostr_send_queue(created);
+

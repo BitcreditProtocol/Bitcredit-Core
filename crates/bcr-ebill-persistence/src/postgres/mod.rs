@@ -7,6 +7,7 @@ use crate::{
         file_reference::PostgresFileReferenceStore, identity::PostgresIdentityStore,
         identity_chain::PostgresIdentityChainStore, mint::PostgresMintStore,
         nostr_event_offset::PostgresNostrEventOffsetStore,
+        nostr_send_queue::PostgresNostrEventQueueStore,
     },
 };
 use sqlx::{PgPool, postgres::PgPoolOptions};
@@ -23,6 +24,7 @@ pub mod identity;
 pub mod identity_chain;
 pub mod mint;
 pub mod nostr_event_offset;
+pub mod nostr_send_queue;
 
 #[derive(Clone)]
 pub struct PostgresPersistence {
@@ -111,6 +113,10 @@ impl PostgresPersistence {
 
     pub fn nostr_event_offset_store(&self) -> PostgresNostrEventOffsetStore {
         PostgresNostrEventOffsetStore::new(self.pool.clone())
+    }
+
+    pub fn nostr_event_queue_store(&self) -> PostgresNostrEventQueueStore {
+        PostgresNostrEventQueueStore::new(self.pool.clone())
     }
 }
 

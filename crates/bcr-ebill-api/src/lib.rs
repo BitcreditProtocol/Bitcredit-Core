@@ -6,7 +6,6 @@ use bcr_ebill_persistence::{
     ContactStoreApi, FileReferenceStoreApi, NostrChainEventStoreApi, NostrContactStoreApi,
     NostrEventOffsetStoreApi, NotificationStoreApi, SurrealDbConfig, SurrealNostrChainEventStore,
     SurrealNostrContactStore, SurrealNotificationStore,
-    db::nostr_send_queue::SurrealNostrEventQueueStore,
     traits::bill::{BillChainStoreApi, BillStoreApi},
     traits::company::{CompanyChainStoreApi, CompanyStoreApi},
     traits::file_upload::FileUploadStoreApi,
@@ -290,7 +289,17 @@ pub async fn get_db_context(conf: &Config) -> bcr_ebill_persistence::Result<DbCo
         bcr_ebill_persistence::db::mint::SurrealMintStore::new(surreal_wrapper.clone()),
     );
 
-    let queued_message_store = Arc::new(SurrealNostrEventQueueStore::new(surreal_wrapper.clone()));
+    #[cfg(any(feature = "sqlite", feature = "postgres"))]
+    let queued_message_store: Arc<dyn NostrQueuedMessageStoreApi> =
+        Arc::new(database.nostr_event_queue_store());
+
+    #[cfg(not(any(feature = "sqlite", feature = "postgres")))]
+    let queued_message_store = Arc::new(
+        bcr_ebill_persistence::db::nostr_send_queue::SurrealNostrEventQueueStore::new(
+            surreal_wrapper.clone(),
+        ),
+    );
+
     let nostr_contact_store = Arc::new(SurrealNostrContactStore::new(surreal_wrapper.clone()));
     let nostr_chain_event_store =
         Arc::new(SurrealNostrChainEventStore::new(surreal_wrapper.clone()));

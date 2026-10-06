@@ -19,6 +19,7 @@ pub mod identity;
 pub mod identity_chain;
 pub mod mint;
 pub mod nostr_event_offset;
+pub mod nostr_send_queue;
 
 pub(crate) fn decode_file(
     name: Option<Text<Name>>,
