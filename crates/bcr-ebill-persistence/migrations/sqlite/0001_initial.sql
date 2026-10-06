@@ -723,3 +723,43 @@ CREATE INDEX nostr_send_queue_retry_idx
 CREATE INDEX nostr_send_queue_created_idx
     ON nostr_send_queue(created);
 
+-- Nostr Chain Event
+
+CREATE TABLE nostr_chain_event (
+    event_id TEXT PRIMARY KEY NOT NULL,
+    root_id TEXT NOT NULL,
+    reply_id TEXT,
+    author TEXT NOT NULL,
+    chain_id TEXT NOT NULL,
+    chain_type TEXT NOT NULL
+    CHECK (
+        chain_type IN (
+            'bill',
+            'company',
+            'identity'
+        )
+    ),
+    block_height INTEGER NOT NULL
+    CHECK (block_height >= 0),
+    block_hash TEXT NOT NULL,
+    received INTEGER NOT NULL
+    CHECK (received >= 0),
+    time INTEGER NOT NULL
+    CHECK (time >= 0),
+    payload TEXT NOT NULL
+);
+
+CREATE INDEX nostr_chain_event_chain_idx
+    ON nostr_chain_event (
+        chain_id,
+        chain_type,
+        block_height DESC
+    );
+
+CREATE INDEX nostr_chain_event_block_hash_idx
+    ON nostr_chain_event (
+        block_hash,
+        block_height DESC,
+        received DESC
+    );
+

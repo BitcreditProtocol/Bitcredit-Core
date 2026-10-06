@@ -18,6 +18,7 @@ pub mod file_reference;
 pub mod identity;
 pub mod identity_chain;
 pub mod mint;
+pub mod nostr_chain_event;
 pub mod nostr_event_offset;
 pub mod nostr_send_queue;
 

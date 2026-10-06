@@ -5,7 +5,8 @@ use crate::{
         company_chain::SqliteCompanyChainStore, contact::SqliteContactStore,
         email_notification::SqliteEmailNotificationStore, file_reference::SqliteFileReferenceStore,
         identity::SqliteIdentityStore, identity_chain::SqliteIdentityChainStore,
-        mint::SqliteMintStore, nostr_event_offset::SqliteNostrEventOffsetStore,
+        mint::SqliteMintStore, nostr_chain_event::SqliteNostrChainEventStore,
+        nostr_event_offset::SqliteNostrEventOffsetStore,
         nostr_send_queue::SqliteNostrEventQueueStore,
     },
 };
@@ -25,6 +26,7 @@ pub mod file_reference;
 pub mod identity;
 pub mod identity_chain;
 pub mod mint;
+pub mod nostr_chain_event;
 pub mod nostr_event_offset;
 pub mod nostr_send_queue;
 
@@ -130,6 +132,10 @@ impl SqlitePersistence {
 
     pub fn nostr_event_queue_store(&self) -> SqliteNostrEventQueueStore {
         SqliteNostrEventQueueStore::new(self.pool.clone())
+    }
+
+    pub fn nostr_chain_event_store(&self) -> SqliteNostrChainEventStore {
+        SqliteNostrChainEventStore::new(self.pool.clone())
     }
 }
 
