@@ -1,5 +1,6 @@
 use crate::protocol::{Sum, Timestamp};
 use bcr_common::core::{BillId, NodeId};
+use strum::{AsRefStr, EnumDiscriminants, EnumString, IntoStaticStr};
 use uuid::Uuid;
 
 /// A request to mint
@@ -19,7 +20,14 @@ pub struct MintRequest {
     pub status: MintRequestStatus,
 }
 
-#[derive(Debug, Clone)]
+// WARNING: IF YOU CHANGE A VARIANT NAME HERE, THIS HAS SERIALIZATION IMPLICATIONS
+// FOR WIRE AND PERSISTENCE MODELS
+#[derive(Debug, Clone, PartialEq, Eq, EnumDiscriminants)]
+#[strum_discriminants(
+    name(MintRequestStatusKind),
+    derive(AsRefStr, EnumString, IntoStaticStr)
+)]
+#[strum_discriminants(strum(serialize_all = "snake_case"))]
 pub enum MintRequestStatus {
     /// Waiting for an answer from the mint
     Pending,

@@ -8,7 +8,7 @@ use bcr_ebill_core::{
 };
 use bitcoin::hashes::sha256::Hash as Sha256HexHash;
 
-use super::Result;
+use crate::Result;
 
 #[async_trait]
 pub trait FileReferenceStoreApi: ServiceTraitBounds {

@@ -1,6 +1,6 @@
 use super::{FileDb, OptionalPostalAddressDb, Result, surreal::SurrealWrapper};
 use crate::{
-    Error, db::EmailConfirmationDb, identity::IdentityStoreApi, protocol::crypto::BcrKeys,
+    Error, db::EmailConfirmationDb, protocol::crypto::BcrKeys, traits::identity::IdentityStoreApi,
 };
 use async_trait::async_trait;
 use bcr_common::core::NodeId;

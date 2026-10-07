@@ -15,9 +15,9 @@ async-broadcast.workspace = true
 base64.workspace = true
 bcr-common = { workspace = true, features = ["webpki-roots"] }
 bcr-ebill-core.workspace = true
-bcr-ebill-persistence = {workspace = true, features = ["surrealkv"]}
-bcr-ebill-api.workspace = true
-bcr-ebill-transport.workspace = true
+bcr-ebill-persistence = {workspace = true, features = ["sqlite"]}
+bcr-ebill-api = {workspace = true, features = ["sqlite"]}
+bcr-ebill-transport = {workspace = true}
 bitcoin.workspace = true
 env_logger = {version = "0.11"}
 flutter_rust_bridge = { version = "=2.13.0", default-features = false, features = ["anyhow", "dart-opaque", "portable-atomic", "rust-async", "thread-pool", "user-utils", "wasm-start"] }

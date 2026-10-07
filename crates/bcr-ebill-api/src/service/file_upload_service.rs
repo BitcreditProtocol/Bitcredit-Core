@@ -7,7 +7,7 @@ use crate::util::get_uuid_v4;
 use async_trait::async_trait;
 use bcr_ebill_core::application::{ServiceTraitBounds, UploadFileResult, ValidationError};
 use bcr_ebill_core::protocol::{Name, ProtocolValidationError};
-use bcr_ebill_persistence::file_upload::FileUploadStoreApi;
+use bcr_ebill_persistence::traits::file_upload::FileUploadStoreApi;
 use log::{debug, error};
 use std::sync::Arc;
 use std::{ffi::OsStr, path::Path};

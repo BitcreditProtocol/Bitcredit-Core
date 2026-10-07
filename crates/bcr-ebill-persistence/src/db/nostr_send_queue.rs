@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{
     constants::{DB_IDS, DB_LIMIT, DB_TABLE, NOSTR_QUEUE_PROCESSING_TIMEOUT_SECS},
-    nostr::NostrQueuedMessageStatus,
+    traits::nostr::NostrQueuedMessageStatus,
 };
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use surrealdb::sql::Thing;
 use time::{UtcOffset, format_description::well_known::Rfc3339};
 
-use crate::nostr::{NostrQueuedMessage, NostrQueuedMessageStoreApi};
+use crate::traits::nostr::{NostrQueuedMessage, NostrQueuedMessageStoreApi};
 
 #[derive(Clone)]
 pub struct SurrealNostrEventQueueStore {

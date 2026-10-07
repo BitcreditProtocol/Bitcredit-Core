@@ -383,11 +383,11 @@ mod test_utils {
     };
     use bcr_ebill_persistence::{
         NostrChainEventStoreApi, NotificationStoreApi, Result, ShareDirection,
-        bill::{BillChainStoreApi, BillStoreApi},
-        company::{CompanyChainStoreApi, CompanyStoreApi},
-        identity::{IdentityChainStoreApi, IdentityStoreApi},
-        nostr::{NostrContactStoreApi, PendingContactShare, RelaySyncStatus, SyncStatus},
-        notification::NotificationFilter,
+        traits::bill::{BillChainStoreApi, BillStoreApi},
+        traits::company::{CompanyChainStoreApi, CompanyStoreApi},
+        traits::identity::{IdentityChainStoreApi, IdentityStoreApi},
+        traits::nostr::{NostrContactStoreApi, PendingContactShare, RelaySyncStatus, SyncStatus},
+        traits::notification::NotificationFilter,
     };
     use mockall::mock;
     use nostr::event::{EventBuilder, FinalizeEvent};
@@ -727,20 +727,20 @@ mod test_utils {
               &self,
               chain_id: &str,
               chain_type: bcr_ebill_core::protocol::blockchain::BlockchainType,
-          ) -> Result<Vec<bcr_ebill_persistence::nostr::NostrChainEvent>>;
+          ) -> Result<Vec<bcr_ebill_persistence::traits::nostr::NostrChainEvent>>;
           async fn find_latest_block_events(
               &self,
               chain_id: &str,
               chain_type: bcr_ebill_core::protocol::blockchain::BlockchainType,
-          ) -> Result<Vec<bcr_ebill_persistence::nostr::NostrChainEvent>>;
+          ) -> Result<Vec<bcr_ebill_persistence::traits::nostr::NostrChainEvent>>;
           async fn find_root_event(
               &self,
               chain_id: &str,
               chain_type: bcr_ebill_core::protocol::blockchain::BlockchainType,
-          ) -> Result<Option<bcr_ebill_persistence::nostr::NostrChainEvent>>;
-          async fn find_by_block_hash(&self, hash: &bcr_ebill_core::protocol::Sha256Hash) -> Result<Option<bcr_ebill_persistence::nostr::NostrChainEvent>>;
-          async fn add_chain_event(&self, event: bcr_ebill_persistence::nostr::NostrChainEvent) -> Result<()>;
-          async fn by_event_id(&self, event_id: &str) -> Result<Option<bcr_ebill_persistence::nostr::NostrChainEvent>>;
+          ) -> Result<Option<bcr_ebill_persistence::traits::nostr::NostrChainEvent>>;
+          async fn find_by_block_hash(&self, hash: &bcr_ebill_core::protocol::Sha256Hash) -> Result<Option<bcr_ebill_persistence::traits::nostr::NostrChainEvent>>;
+          async fn add_chain_event(&self, event: bcr_ebill_persistence::traits::nostr::NostrChainEvent) -> Result<()>;
+          async fn by_event_id(&self, event_id: &str) -> Result<Option<bcr_ebill_persistence::traits::nostr::NostrChainEvent>>;
           async fn remove_chain_events(&self, chain_id: &str, chain_type: bcr_ebill_core::protocol::blockchain::BlockchainType) -> Result<()>;
         }
     }

@@ -1,17 +1,20 @@
 #![recursion_limit = "256"]
-pub mod bill;
-pub mod company;
 pub mod constants;
-pub mod contact;
+#[cfg(any(feature = "surrealkv", feature = "protocol-ws"))]
 pub mod db;
-pub mod file_reference;
 pub mod file_upload;
-pub mod identity;
-pub mod mint;
-pub mod nostr;
-pub mod notification;
 #[cfg(test)]
 mod tests;
+pub mod traits;
+
+#[cfg(feature = "postgres")]
+pub mod postgres;
+#[cfg(feature = "sqlite")]
+pub mod sqlite;
+
+mod sql;
+
+use std::path::PathBuf;
 
 use bcr_ebill_core::protocol;
 use thiserror::Error;
@@ -54,18 +57,62 @@ pub enum Error {
 
     #[error("Persistence error: {0}")]
     Persistence(String),
+
+    #[error("Migration error: {0}")]
+    Migration(#[from] sqlx::migrate::MigrateError),
+
+    #[error("Initialization error: {0}")]
+    Init(String),
+
+    #[error("Invalid Data error: {0}")]
+    InvalidData(String),
+
+    #[error("Json error: {0}")]
+    Json(#[from] serde_json::Error),
+
+    #[error("Sqlx query error: {0}")]
+    SqlxQuery(#[from] sqlx::Error),
 }
 
+#[cfg(any(feature = "surrealkv", feature = "protocol-ws"))]
 impl From<surrealdb::Error> for Error {
     fn from(e: surrealdb::Error) -> Self {
         Error::SurrealConnection(format!("SurrealDB connection error: {e}"))
     }
 }
 
-pub use contact::ContactStoreApi;
+#[derive(Clone, Debug)]
+pub struct DbConfig {
+    pub connection_string: String,
+    pub temp_files_path: PathBuf,
+}
+
+#[cfg(feature = "sqlite")]
+pub async fn get_sqlite_db(config: &DbConfig) -> Result<sqlite::SqlitePersistence> {
+    use std::str::FromStr;
+    let db = sqlite::SqlitePersistence::open(sqlite::SqliteConfig::new(
+        std::path::PathBuf::from_str(&config.connection_string)
+            .map_err(|e| Error::Init(format!("Invalid Sqlite folder: {e}")))?,
+    ))
+    .await?;
+    Ok(db)
+}
+
+#[cfg(feature = "postgres")]
+pub async fn get_postgres_db(config: &DbConfig) -> Result<postgres::PostgresPersistence> {
+    use crate::postgres::{PostgresConfig, PostgresPersistence};
+    let db =
+        PostgresPersistence::connect(PostgresConfig::new(config.connection_string.clone())).await?;
+    Ok(db)
+}
+
+#[cfg(any(feature = "surrealkv", feature = "protocol-ws"))]
 pub use db::file_reference::SurrealFileReferenceStore;
+#[cfg(any(feature = "surrealkv", feature = "protocol-ws"))]
 pub use db::file_upload::FileUploadStore;
+#[cfg(any(feature = "surrealkv", feature = "protocol-ws"))]
 pub use db::get_surreal_db;
+#[cfg(any(feature = "surrealkv", feature = "protocol-ws"))]
 pub use db::{
     SurrealDbConfig, bill::SurrealBillStore, bill_chain::SurrealBillChainStore,
     company::SurrealCompanyStore, company_chain::SurrealCompanyChainStore,
@@ -74,14 +121,16 @@ pub use db::{
     nostr_contact_store::SurrealNostrStore, nostr_event_offset::SurrealNostrEventOffsetStore,
     notification::SurrealNotificationStore,
 };
-pub use file_reference::FileReferenceStoreApi;
+pub use traits::contact::ContactStoreApi;
+pub use traits::file_reference::FileReferenceStoreApi;
 // Backwards compatibility alias
+#[cfg(any(feature = "surrealkv", feature = "protocol-ws"))]
 pub use db::nostr_contact_store::SurrealNostrStore as SurrealNostrContactStore;
-pub use nostr::{
+pub use traits::nostr::{
     NostrChainEventStoreApi, NostrEventOffset, NostrEventOffsetStoreApi,
     NostrQueuedMessageStoreApi, NostrStoreApi, PendingContactShare, RelaySyncRetry,
     RelaySyncStatus, ShareDirection, SyncStatus,
 };
 // Backwards compatibility alias
-pub use nostr::NostrStoreApi as NostrContactStoreApi;
-pub use notification::NotificationStoreApi;
+pub use traits::nostr::NostrStoreApi as NostrContactStoreApi;
+pub use traits::notification::NotificationStoreApi;

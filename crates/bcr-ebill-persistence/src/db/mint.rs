@@ -19,7 +19,7 @@ use crate::{
         DB_PROOFS_SPENT, DB_RECOVERY_DATA, DB_STATUS, DB_STATUS_ACCEPTED, DB_STATUS_MINTINGENABLED,
         DB_STATUS_OFFERED, DB_STATUS_PENDING, DB_TABLE,
     },
-    mint::MintStoreApi,
+    traits::mint::MintStoreApi,
 };
 
 use super::surreal::SurrealWrapper;

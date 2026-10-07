@@ -5,10 +5,20 @@ check: flutter
   cargo clippy --all-targets --all-features -- -D warnings
   cargo deny check
 
+test-postgres:
+    DATABASE_URL=postgres://postgres:password@localhost:5432/ cargo test --all --all-features
+
 
 flutter:
-    dart run build_runner build --delete-conflicting-outputs
+    dart run build_runner build
     flutter_rust_bridge_codegen generate
+
+# DB sqlite
+export DATABASE_URL := env_var_or_default("DATABASE_URL", "sqlite://local_db/ebill.db")
+
+db-reset:
+    sqlx database create
+    sqlx migrate run --source crates/bcr-ebill-persistence/migrations/sqlite
 
 # Local Regtest Payment
 # Usage:

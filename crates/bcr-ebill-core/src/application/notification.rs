@@ -123,6 +123,7 @@ impl Notification {
     }
 }
 
+// WARN: if this is adapted, the persistence model needs to be adapted as well
 /// The type/topic of a notification we show to the user
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum NotificationType {
@@ -138,6 +139,7 @@ impl Display for NotificationType {
     }
 }
 
+// WARN: if this is adapted, the persistence model needs to be adapted as well
 /// Indicates the urgency/attention level of a notification.
 /// ActionRequired means the user needs to take action.
 /// Informational means no immediate action is needed.

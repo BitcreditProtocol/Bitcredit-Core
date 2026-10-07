@@ -7,7 +7,7 @@ use crate::{
         DB_BLOCK_ID, DB_DATA, DB_HASH, DB_OP_CODE, DB_PLAINTEXT_HASH, DB_PREVIOUS_HASH,
         DB_PUBLIC_KEY, DB_SIGNATURE, DB_TABLE, DB_TIMESTAMP,
     },
-    identity::IdentityChainStoreApi,
+    traits::identity::IdentityChainStoreApi,
 };
 use async_trait::async_trait;
 use bcr_ebill_core::{

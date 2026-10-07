@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, str::FromStr};
 
 use crate::protocol::{
     ProtocolValidationError,
@@ -99,6 +99,14 @@ impl Sum {
     pub fn as_sat_string(&self) -> String {
         // TODO (currency): in the future, we have to calculate this based on the exchange rate, if the currency is not SAT
         self.amount.to_string()
+    }
+
+    pub fn amount(&self) -> u64 {
+        self.amount
+    }
+
+    pub fn reference_exchange_rate(&self) -> &ExchangeRate {
+        &self.reference_exchange_rate
     }
 }
 
@@ -315,6 +323,20 @@ impl borsh::BorshDeserialize for ExchangeRate {
         let scale: u32 = borsh::BorshDeserialize::deserialize_reader(reader)?;
         let d = Decimal::from_i128_with_scale(mantissa, scale);
         Ok(ExchangeRate(d))
+    }
+}
+
+impl Display for ExchangeRate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl FromStr for ExchangeRate {
+    type Err = rust_decimal::Error;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Ok(Self(rust_decimal::Decimal::from_str(value)?))
     }
 }
 

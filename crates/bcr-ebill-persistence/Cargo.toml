@@ -9,8 +9,10 @@ doctest = false
 
 [features]
 default = []
-protocol-ws = ["surrealdb/protocol-ws"]
-surrealkv = ["surrealdb/kv-surrealkv"]
+sqlite = ["sqlx/sqlite-bundled"]
+postgres = ["sqlx/postgres"]
+protocol-ws = ["dep:surrealdb", "surrealdb/protocol-ws"]
+surrealkv = ["dep:surrealdb", "surrealdb/kv-surrealkv"]
 
 [dependencies]
 borsh.workspace = true
@@ -26,13 +28,13 @@ nostr.workspace = true
 bcr-ebill-core.workspace = true
 bcr-common.workspace = true
 time.workspace = true
-surrealdb = { workspace = true, default-features = false, features = ["protocol-ws"] }
+surrealdb = { version = "2.3", optional = true, default-features = false }
 tokio.workspace = true
 bitcoin.workspace = true
 url.workspace = true
 arc-swap = "1.7"
+sqlx.workspace = true
 
 [dev-dependencies]
-nostr_043 = { package = "nostr", version = "=0.43.1" } # for backwards-compat testing
-surrealdb = { workspace = true, default-features = false, features = ["kv-mem"] }
-
+surrealdb = { version = "2.3", default-features = false, features = ["kv-mem"] }
+tempfile = "3"

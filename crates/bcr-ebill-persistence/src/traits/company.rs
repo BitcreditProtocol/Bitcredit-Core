@@ -9,7 +9,7 @@ use bcr_ebill_core::protocol::crypto::BcrKeys;
 use bcr_ebill_core::protocol::{EmailIdentityProofData, SignedIdentityProof};
 use std::collections::HashMap;
 
-use super::Result;
+use crate::Result;
 use async_trait::async_trait;
 
 #[async_trait]

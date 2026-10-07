@@ -18,7 +18,7 @@ use bcr_ebill_core::protocol::blockchain::bill::BillBlock;
 use bcr_ebill_core::protocol::event::{
     BillChainEvent, CompanyChainEvent, EventEnvelope, IdentityChainEvent,
 };
-use bcr_ebill_persistence::nostr::NostrChainEvent;
+use bcr_ebill_persistence::traits::nostr::NostrChainEvent;
 use bitcoin::base58;
 use log::{debug, error};
 
@@ -466,7 +466,7 @@ mod tests {
     use bcr_ebill_core::protocol::crypto::BcrKeys;
     use bcr_ebill_core::protocol::event::{BillBlockEvent, Event};
     use bcr_ebill_core::protocol::{BlockId, Sha256Hash, Timestamp};
-    use bcr_ebill_persistence::nostr::NostrChainEvent;
+    use bcr_ebill_persistence::traits::nostr::NostrChainEvent;
     use nostr::event::FinalizeEvent;
 
     fn create_test_chain_event(

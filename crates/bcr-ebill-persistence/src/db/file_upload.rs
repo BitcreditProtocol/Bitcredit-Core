@@ -1,5 +1,5 @@
 use super::{
-    super::{Error, Result, file_upload::FileUploadStoreApi},
+    super::{Error, Result, traits::file_upload::FileUploadStoreApi},
     surreal::{Bindings, SurrealWrapper},
 };
 use crate::constants::{DB_FILE_UPLOAD_ID, DB_TABLE};

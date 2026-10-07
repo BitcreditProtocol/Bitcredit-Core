@@ -6046,8 +6046,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     if (arr.length != 19)
       throw Exception('unexpected arr length: expect 19 but see ${arr.length}');
     return EbillConfig(
-      dbFolderPath: dco_decode_String(arr[0]),
-      dbFolderPathFiles: dco_decode_String(arr[1]),
+      sqliteDbPath: dco_decode_String(arr[0]),
+      tempFilesPath: dco_decode_String(arr[1]),
       logLevel: dco_decode_opt_String(arr[2]),
       bitcoinNetwork: dco_decode_String(arr[3]),
       esploraBaseUrls: dco_decode_list_String(arr[4]),
@@ -9598,8 +9598,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   EbillConfig sse_decode_ebill_config(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    var var_dbFolderPath = sse_decode_String(deserializer);
-    var var_dbFolderPathFiles = sse_decode_String(deserializer);
+    var var_sqliteDbPath = sse_decode_String(deserializer);
+    var var_tempFilesPath = sse_decode_String(deserializer);
     var var_logLevel = sse_decode_opt_String(deserializer);
     var var_bitcoinNetwork = sse_decode_String(deserializer);
     var var_esploraBaseUrls = sse_decode_list_String(deserializer);
@@ -9623,8 +9623,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_mandatoryEmailConfirmations = sse_decode_bool(deserializer);
     var var_defaultCourtUrl = sse_decode_String(deserializer);
     return EbillConfig(
-      dbFolderPath: var_dbFolderPath,
-      dbFolderPathFiles: var_dbFolderPathFiles,
+      sqliteDbPath: var_sqliteDbPath,
+      tempFilesPath: var_tempFilesPath,
       logLevel: var_logLevel,
       bitcoinNetwork: var_bitcoinNetwork,
       esploraBaseUrls: var_esploraBaseUrls,
@@ -13384,8 +13384,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   void sse_encode_ebill_config(EbillConfig self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_String(self.dbFolderPath, serializer);
-    sse_encode_String(self.dbFolderPathFiles, serializer);
+    sse_encode_String(self.sqliteDbPath, serializer);
+    sse_encode_String(self.tempFilesPath, serializer);
     sse_encode_opt_String(self.logLevel, serializer);
     sse_encode_String(self.bitcoinNetwork, serializer);
     sse_encode_list_String(self.esploraBaseUrls, serializer);

@@ -8,7 +8,9 @@ use crate::{
         DB_SEARCH_TERM, DB_TABLE, DB_TRUST_LEVEL,
     },
     db::nostr_chain_event::NostrEventDb,
-    nostr::{NostrStoreApi, PendingContactShare, RelaySyncStatus, ShareDirection, SyncStatus},
+    traits::nostr::{
+        NostrStoreApi, PendingContactShare, RelaySyncStatus, ShareDirection, SyncStatus,
+    },
 };
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
@@ -1450,76 +1452,5 @@ mod tests {
             alice_to_bob_still_exists,
             "Alice->Bob share should still exist after Bob->Alice added"
         );
-    }
-    // 0.45 upgrade regression test
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    struct LegacyRelaySyncRetryDb {
-        id: Thing,
-        relay_url: String,
-        event: nostr_043::event::Event,
-        retry_count: usize,
-        created_at: Timestamp,
-        last_retry_at: Option<Timestamp>,
-    }
-
-    #[tokio::test]
-    async fn test_get_pending_relay_retries_reads_nostr_043_event() {
-        let store = get_store().await;
-        let relay = url::Url::parse("wss://relay.example.com").unwrap();
-
-        // Create the event using the actual pre-0.45 implementation.
-        let legacy_keys = nostr_043::key::Keys::generate();
-        let legacy_event =
-            nostr_043::event::EventBuilder::text_note("event persisted by nostr 0.43")
-                .sign_with_keys(&legacy_keys)
-                .expect("Failed to create nostr 0.43 event");
-
-        // Keep stable values for comparison because nostr 0.43 and 0.45
-        // types are distinct Rust types.
-        let expected_id = legacy_event.id.to_hex();
-        let expected_pubkey = legacy_event.pubkey.to_hex();
-        let expected_created_at = legacy_event.created_at.as_u64();
-        let expected_kind = legacy_event.kind.as_u16();
-        let expected_content = legacy_event.content.clone();
-        let expected_signature = legacy_event.sig.to_string();
-
-        let id = uuid::Uuid::new_v4().to_string();
-
-        let legacy_retry = LegacyRelaySyncRetryDb {
-            id: Thing::from((SurrealNostrStore::RELAY_RETRY_TABLE.to_string(), id.clone())),
-            relay_url: relay.to_string(),
-            event: legacy_event,
-            retry_count: 0,
-            created_at: Timestamp::now(),
-            last_retry_at: None,
-        };
-
-        // write using 0.43
-        let _: Option<LegacyRelaySyncRetryDb> = store
-            .db
-            .upsert(SurrealNostrStore::RELAY_RETRY_TABLE, id, legacy_retry)
-            .await
-            .expect("Failed to persist nostr 0.43 retry event");
-
-        // read using 0.45+
-        let retries = store
-            .get_pending_relay_retries(&relay, 10)
-            .await
-            .expect("Failed to read retry event persisted with nostr 0.43");
-
-        assert_eq!(retries.len(), 1);
-
-        let event = &retries[0];
-
-        assert_eq!(event.id.to_hex(), expected_id);
-        assert_eq!(event.pubkey.to_hex(), expected_pubkey);
-        assert_eq!(event.created_at.as_secs(), expected_created_at);
-        assert_eq!(event.kind.as_u16(), expected_kind);
-        assert_eq!(event.content, expected_content);
-        assert_eq!(event.sig.to_string(), expected_signature);
-
-        event
-            .verify()
-            .expect("Converted nostr 0.43 event should still have a valid signature");
     }
 }

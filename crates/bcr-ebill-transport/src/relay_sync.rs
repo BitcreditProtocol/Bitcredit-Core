@@ -4,7 +4,7 @@ use bcr_ebill_api::{
     service::transport_service::{Error, Result},
 };
 use bcr_ebill_core::protocol::Timestamp;
-use bcr_ebill_persistence::nostr::{NostrStoreApi, SyncStatus};
+use bcr_ebill_persistence::traits::nostr::{NostrStoreApi, SyncStatus};
 use futures::future::join_all;
 use log::{debug, error, info, warn};
 use nostr::{event::Kind, filter::Filter, key::PublicKey};
@@ -286,7 +286,7 @@ async fn should_skip_event(
 mod tests {
     use super::*;
     use crate::test_utils::MockNostrContactStore;
-    use bcr_ebill_persistence::nostr::{NostrStoreApi, RelaySyncStatus};
+    use bcr_ebill_persistence::traits::nostr::{NostrStoreApi, RelaySyncStatus};
 
     use bcr_common::core::NodeId;
     use mockall::predicate::eq;

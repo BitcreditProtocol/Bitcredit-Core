@@ -14,7 +14,7 @@ use bcr_ebill_core::{
         PostalAddress, ProtocolValidationError, Sha256Hash, Timestamp, Zip,
     },
 };
-use bcr_ebill_persistence::notification::NotificationFilter;
+use bcr_ebill_persistence::traits::notification::NotificationFilter;
 use bitcoin::hashes::sha256::Hash as Sha256HexHash;
 use flutter_rust_bridge::frb;
 

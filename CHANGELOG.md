@@ -5,6 +5,8 @@
 * Create a flutter test harness in the `example` folder
 * Adapted CI/CD away from wasm to Flutter
 * Precompiled binaries: new `public_key` in `cargokit.yaml`, one parallel job per target, a pinned Android NDK, and binaries for macOS, Windows and Linux (x64 and arm64)
+* Add `sqlite` and `postgres` persistence implementation baseline (using `sqlx`)
+* Add `temp_files_path` config option and replace DB-based temp upload files with a file-based version.
 
 # 0.5.16
 

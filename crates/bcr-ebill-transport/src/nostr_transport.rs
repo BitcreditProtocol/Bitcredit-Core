@@ -25,8 +25,8 @@ use bcr_ebill_core::protocol::event::EventType;
 use bcr_ebill_core::protocol::event::IdentityBlockEvent;
 use bcr_ebill_core::protocol::event::{BillChainEventPayload, Event, EventEnvelope};
 use bcr_ebill_persistence::ContactStoreApi;
-use bcr_ebill_persistence::nostr::NostrQueuedMessageStatus;
-use bcr_ebill_persistence::nostr::{
+use bcr_ebill_persistence::traits::nostr::NostrQueuedMessageStatus;
+use bcr_ebill_persistence::traits::nostr::{
     NostrChainEvent, NostrChainEventStoreApi, NostrContactStoreApi, NostrQueuedMessage,
     NostrQueuedMessageStoreApi,
 };

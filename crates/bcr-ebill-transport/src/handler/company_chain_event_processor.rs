@@ -43,8 +43,8 @@ use bcr_ebill_core::{
 };
 use bcr_ebill_persistence::{
     ContactStoreApi, FileReferenceStoreApi, NostrChainEventStoreApi, NotificationStoreApi,
-    company::{CompanyChainStoreApi, CompanyStoreApi},
-    identity::IdentityStoreApi,
+    traits::company::{CompanyChainStoreApi, CompanyStoreApi},
+    traits::identity::IdentityStoreApi,
 };
 
 use super::inbound_file_anchor::{anchor_important_file, company_file_context};
