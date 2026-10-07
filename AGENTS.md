@@ -69,9 +69,11 @@ checklist asks for both.
   `lib/src/rust/` and in `crates/bcr-ebill-flutter-ffi/src/frb_generated.rs`. Never hand-edit
   generated bridge code — change its source and run `just flutter`. Signature, type and data
   shape changes affect Flutter consumers and must be treated as public API changes.
-* **Dependencies float.** `Cargo.lock` is gitignored, so CI resolves fresh within `Cargo.toml`
-  ranges — don't commit one. `bcr-common` is pinned by git `rev` in the root `Cargo.toml` and
-  bumped there (deny.toml allows git sources only from the BitcreditProtocol org).
+* **Dependencies are locked.** `Cargo.lock` is committed for reproducible binaries (#1026).
+  Change the version in `Cargo.toml`. Then run `cargo update -p <crate>` to update the lockfile.
+  On a rebase conflict in `Cargo.lock`, use the `master` version of the file. Then run the same
+  command again. `bcr-common` is pinned by git `rev` in the root `Cargo.toml` and bumped there
+  (deny.toml allows git sources only from the BitcreditProtocol org).
 
 ## Common Gotchas
 
