@@ -1,8 +1,8 @@
-# Copilot Instructions for E-Bills Project
+# Copilot Instructions for eBills Project
 
 ## Project Overview
 
-**E-Bills** is a Rust-based project for the Bitcredit E-Bills system, primarily targeting **WebAssembly (WASM)** as the main execution environment. The project provides a core API for managing electronic bills with Bitcoin integration, Nostr-based transport, and SurrealDB persistence.
+**eBills** is a Rust-based project for the Bitcredit eBills system, primarily targeting **WebAssembly (WASM)** as the main execution environment. The project provides a core API for managing electronic bills with Bitcoin integration, Nostr-based transport, and SurrealDB persistence.
 
 ## Project Structure
 
@@ -53,7 +53,7 @@ This is a Rust workspace with the following crates:
 
 ### Bill Lifecycle
 
-E-Bills follow a complex state machine with multiple roles:
+E-bills follow a complex state machine with multiple roles:
 - **Drawer**: Bill issuer
 - **Payer**: Bill drawee (who pays)
 - **Holder**: Current bill holder (payee or endorsee)
