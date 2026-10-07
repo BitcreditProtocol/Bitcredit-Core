@@ -9,6 +9,7 @@
 * Add `sqlite` and `postgres` persistence implementation baseline (using `sqlx`)
 * Add `temp_files_path` config option and replace DB-based temp upload files with a file-based version.
 * `Cargo.lock` is committed for reproducible binaries (#1026); AGENTS.md now says how to update it
+* CI: Rust caches are saved only on `master`, and development builds skip debuginfo
 
 # 0.5.16
 
