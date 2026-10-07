@@ -156,8 +156,9 @@ pub async fn test_get_or_create_key_pair<S>(store: &S)
 where
     S: IdentityStoreApi + ?Sized,
 {
+    let (keys, seed) = BcrKeys::new_with_seed_phrase().expect("key can be generated");
     let generated = store
-        .get_or_create_key_pair()
+        .get_or_create_key_pair(&keys, &seed)
         .await
         .expect("key is generated");
     let persisted = store
@@ -170,7 +171,7 @@ where
 
     // Existing key is returned rather than
     // another key being generated
-    let generated_again = store.get_or_create_key_pair().await.unwrap();
+    let generated_again = store.get_or_create_key_pair(&keys, &seed).await.unwrap();
     assert_eq!(
         generated_again.get_private_key(),
         generated.get_private_key()

@@ -17,9 +17,14 @@ import 'dev_config.dart';
 import 'mappings.dart' as mappings;
 
 class HarnessPage extends StatefulWidget {
-  const HarnessPage({required this.dataDirectory, super.key});
+  const HarnessPage({
+    required this.environment,
+    super.key,
+  });
 
-  final String dataDirectory;
+  final DevEnvironment environment;
+
+  String get dataDirectory => environment.baseDir.path;
 
   @override
   State<HarnessPage> createState() => _HarnessPageState();
@@ -493,6 +498,12 @@ class _HarnessPageState extends State<HarnessPage> {
         );
         return identity_api.active();
       }),
+      const SizedBox(width: double.infinity, height: 0),
+      _button('Generate Seed', () async {
+        final result = await general_api.generateRandomMnemonic();
+        _seedPhrase.text = result.mnemonic;
+        return result;
+      }),
       _button('Seed backup', () async {
         final result = await identity_api.seedBackup();
         _seedPhrase.text = result.seedPhrase;
@@ -500,12 +511,18 @@ class _HarnessPageState extends State<HarnessPage> {
       }),
       _field('Seed phrase', _seedPhrase, width: 620),
       _button('Seed recover', () async {
+        final mnemonic = _required(_seedPhrase, 'Seed phrase');
+
         await identity_api.seedRecover(
           seedPhrasePayload: identity_data.SeedPhrase(
-            seedPhrase: _required(_seedPhrase, 'Seed phrase'),
+            seedPhrase: mnemonic,
           ),
         );
-        return 'OK';
+
+        // Only overwrite it after seedRecover succeeded
+        await widget.environment.replaceMnemonic(mnemonic);
+
+        return 'OK - recovery mnemonic persisted';
       }),
       _field('Email confirmation code', _identityConfirmationCode),
       _button('Confirm email', () async {
@@ -1236,8 +1253,7 @@ class _HarnessPageState extends State<HarnessPage> {
     final identity = await identity_api.detail();
     final counterparty = _required(_billCounterpartyNodeId, 'Counterparty contact node ID');
     final issueDate = _date(DateTime.now());
-    final maturityDate = _date(DateTime.now().add(const Duration(days: 1)));
-    // final maturityDate = issueDate;
+    final maturityDate = _date(DateTime.now().add(const Duration(days: 0)));
     final payload = bill_data.BitcreditBillPayload(
       t: type,
       countryOfIssuing: 'at',

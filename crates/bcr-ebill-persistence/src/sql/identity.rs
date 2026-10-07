@@ -3,7 +3,7 @@ use bcr_ebill_core::{
     application::identity::{ActiveIdentityState, Identity},
     protocol::{
         Address, City, Country, Date, Email, EmailIdentityProofData, Identification, Name,
-        OptionalPostalAddress, SecretKey, Sha256Hash, SignedIdentityProof, Zip,
+        OptionalPostalAddress, Sha256Hash, SignedIdentityProof, Zip,
     },
 };
 use bitcoin::hashes::sha256::Hash as Sha256HexHash;
@@ -278,7 +278,7 @@ pub(crate) struct IdentityRow {
 
 #[derive(Debug, Clone, FromRow)]
 pub(crate) struct IdentityKeysRow {
-    pub key: Text<SecretKey>,
+    pub key: String,
     pub seed_phrase: String,
 }
 

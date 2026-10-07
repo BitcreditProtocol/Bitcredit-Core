@@ -1,7 +1,7 @@
 #![recursion_limit = "256"]
 use anyhow::{Result, anyhow};
 use bcr_common::core::NodeId;
-use bcr_ebill_persistence::DbConfig;
+use bcr_ebill_core::protocol::crypto::BcrKeys;
 #[cfg(all(not(feature = "sqlite"), not(feature = "postgres")))]
 use bcr_ebill_persistence::db::surreal::SurrealWrapper;
 #[cfg(all(not(feature = "sqlite"), not(feature = "postgres")))]
@@ -17,6 +17,7 @@ use bcr_ebill_persistence::{
     traits::nostr::NostrQueuedMessageStoreApi,
     traits::notification::EmailNotificationStoreApi,
 };
+use bcr_ebill_persistence::{DbConfig, EncryptionContext};
 use bitcoin::Network;
 use log::error;
 use std::sync::{Arc, RwLock};
@@ -177,7 +178,12 @@ pub struct DbContext {
 }
 
 /// Creates a new instance of the DbContext with the given configuration
-pub async fn get_db_context(conf: &Config) -> bcr_ebill_persistence::Result<DbContext> {
+pub async fn get_db_context(
+    conf: &Config,
+    encryption_keys: &BcrKeys,
+) -> bcr_ebill_persistence::Result<DbContext> {
+    let encryption_context = Arc::new(EncryptionContext::new(encryption_keys.to_owned()));
+
     #[cfg(all(not(feature = "sqlite"), not(feature = "postgres")))]
     let db = get_surreal_db(&conf.db_config).await?;
     #[cfg(all(not(feature = "sqlite"), not(feature = "postgres")))]
@@ -193,7 +199,8 @@ pub async fn get_db_context(conf: &Config) -> bcr_ebill_persistence::Result<DbCo
     let database = bcr_ebill_persistence::get_postgres_db(&conf.db_conf).await?;
 
     #[cfg(any(feature = "sqlite", feature = "postgres"))]
-    let company_store: Arc<dyn CompanyStoreApi> = { Arc::new(database.company_store()) };
+    let company_store: Arc<dyn CompanyStoreApi> =
+        { Arc::new(database.company_store(encryption_context.clone())) };
 
     #[cfg(all(not(feature = "sqlite"), not(feature = "postgres")))]
     let company_store = Arc::new(
@@ -217,7 +224,8 @@ pub async fn get_db_context(conf: &Config) -> bcr_ebill_persistence::Result<DbCo
     );
 
     #[cfg(any(feature = "sqlite", feature = "postgres"))]
-    let bill_store: Arc<dyn BillStoreApi> = Arc::new(database.bill_store());
+    let bill_store: Arc<dyn BillStoreApi> =
+        Arc::new(database.bill_store(encryption_context.clone()));
 
     #[cfg(not(any(feature = "sqlite", feature = "postgres")))]
     let bill_store = Arc::new(bcr_ebill_persistence::db::bill::SurrealBillStore::new(
@@ -233,7 +241,8 @@ pub async fn get_db_context(conf: &Config) -> bcr_ebill_persistence::Result<DbCo
     );
 
     #[cfg(any(feature = "sqlite", feature = "postgres"))]
-    let identity_store: Arc<dyn IdentityStoreApi> = Arc::new(database.identity_store());
+    let identity_store: Arc<dyn IdentityStoreApi> =
+        Arc::new(database.identity_store(encryption_context.clone()));
 
     #[cfg(not(any(feature = "sqlite", feature = "postgres")))]
     let identity_store = Arc::new(
@@ -295,7 +304,8 @@ pub async fn get_db_context(conf: &Config) -> bcr_ebill_persistence::Result<DbCo
     );
 
     #[cfg(any(feature = "sqlite", feature = "postgres"))]
-    let mint_store: Arc<dyn MintStoreApi> = Arc::new(database.mint_store());
+    let mint_store: Arc<dyn MintStoreApi> =
+        Arc::new(database.mint_store(encryption_context.clone()));
 
     #[cfg(not(any(feature = "sqlite", feature = "postgres")))]
     let mint_store: Arc<dyn MintStoreApi> = Arc::new(
@@ -304,7 +314,7 @@ pub async fn get_db_context(conf: &Config) -> bcr_ebill_persistence::Result<DbCo
 
     #[cfg(any(feature = "sqlite", feature = "postgres"))]
     let queued_message_store: Arc<dyn NostrQueuedMessageStoreApi> =
-        Arc::new(database.nostr_event_queue_store());
+        Arc::new(database.nostr_event_queue_store(encryption_context.clone()));
 
     #[cfg(not(any(feature = "sqlite", feature = "postgres")))]
     let queued_message_store = Arc::new(
@@ -315,7 +325,7 @@ pub async fn get_db_context(conf: &Config) -> bcr_ebill_persistence::Result<DbCo
 
     #[cfg(any(feature = "sqlite", feature = "postgres"))]
     let nostr_contact_store: Arc<dyn NostrContactStoreApi> =
-        Arc::new(database.nostr_contact_store());
+        Arc::new(database.nostr_contact_store(encryption_context.clone()));
 
     #[cfg(not(any(feature = "sqlite", feature = "postgres")))]
     let nostr_contact_store = Arc::new(

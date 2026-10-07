@@ -864,6 +864,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   MintRequestStatusFfi dco_decode_mint_request_status_ffi(dynamic raw);
 
   @protected
+  MnemonicResponse dco_decode_mnemonic_response(dynamic raw);
+
+  @protected
   NewContactPayload dco_decode_new_contact_payload(dynamic raw);
 
   @protected
@@ -2163,6 +2166,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   MintRequestStatusFfi sse_decode_mint_request_status_ffi(
     SseDeserializer deserializer,
   );
+
+  @protected
+  MnemonicResponse sse_decode_mnemonic_response(SseDeserializer deserializer);
 
   @protected
   NewContactPayload sse_decode_new_contact_payload(
@@ -3752,6 +3758,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_mint_request_status_ffi(
     MintRequestStatusFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_mnemonic_response(
+    MnemonicResponse self,
     SseSerializer serializer,
   );
 

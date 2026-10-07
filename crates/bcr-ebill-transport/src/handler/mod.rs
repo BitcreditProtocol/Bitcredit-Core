@@ -601,7 +601,6 @@ mod test_utils {
             async fn search(&self, search_term: &str, levels: Vec<TrustLevel>) -> Result<Vec<NostrContact>>;
             async fn add_pending_share(&self, pending_share: PendingContactShare) -> Result<()>;
             async fn get_pending_share(&self, id: &str) -> Result<Option<PendingContactShare>>;
-            async fn get_pending_share_by_private_key(&self, private_key: &SecretKey) -> Result<Option<PendingContactShare>>;
             async fn list_pending_shares_by_receiver(&self, receiver_node_id: &NodeId) -> Result<Vec<PendingContactShare>>;
             async fn list_pending_shares_by_receiver_and_direction(&self, receiver_node_id: &NodeId, direction: ShareDirection) -> Result<Vec<PendingContactShare>>;
             async fn delete_pending_share(&self, id: &str) -> Result<()>;
@@ -631,7 +630,7 @@ mod test_utils {
             async fn get_full(&self) -> Result<IdentityWithAll>;
             async fn save_key_pair(&self, key_pair: &BcrKeys, seed: &str) -> Result<()>;
             async fn get_key_pair(&self) -> Result<BcrKeys>;
-            async fn get_or_create_key_pair(&self) -> Result<BcrKeys>;
+            async fn get_or_create_key_pair(&self, keys: &BcrKeys, seed: &str) -> Result<BcrKeys>;
             async fn get_seedphrase(&self) -> Result<String>;
             async fn get_current_identity(&self) -> Result<bcr_ebill_core::application::identity::ActiveIdentityState>;
             async fn set_current_identity(&self, identity_state: &bcr_ebill_core::application::identity::ActiveIdentityState) -> Result<()>;

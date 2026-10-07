@@ -11,6 +11,21 @@
 * Add `temp_files_path` config option and replace DB-based temp upload files with a file-based version.
 * `Cargo.lock` is committed for reproducible binaries (#1026); AGENTS.md now says how to update it
 * CI: Rust caches are saved only on `master`, and development builds skip debuginfo
+* Remove `files_db_config` and `db_config` configuration options, which were used for SurrealDB
+* Add `db_conf` config option with the `temp_files_path` and `connection` string 
+* Add `sqlite_db_path` to flutter ffi config - the path to the sqlite database file
+* Add `mnemonic` to the ffi configuration, which is the seed phrase of the personal identity
+    * This needs to match the current personal identity's mnemonic, otherwise initialization fails
+    * The private key of this mnemonic is used for local persistence encryption
+* Add endpoint `generate_random_mnemonic`, which returns a random mnemonic
+* Add encryption for sensitive persistence models
+    * Identity Keys
+    * Company Keys
+    * Bill Keys
+    * Mint Proofs
+    * Mint Recovery Data
+    * Contact Share private Key
+    * Nostr re-send queue
 
 # 0.5.16
 

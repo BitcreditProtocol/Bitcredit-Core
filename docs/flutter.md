@@ -84,7 +84,8 @@ void main() async {
     numConfirmationsForPayment: BigInt.from(1),
     devMode: true,
     mandatoryEmailConfirmations: false,
-    defaultCourtUrl: "https://bcr-court-dev.minibill.tech"
+    defaultCourtUrl: "https://bcr-court-dev.minibill.tech",
+    mnemonic: "test test .."
   );
   await RustLib.init();
 

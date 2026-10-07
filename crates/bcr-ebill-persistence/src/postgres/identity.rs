@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use bcr_ebill_core::{
     application::{
@@ -6,11 +8,11 @@ use bcr_ebill_core::{
     },
     protocol::{EmailIdentityProofData, SignedIdentityProof},
 };
-use bitcoin::Network;
+use bitcoin::{Network, base58};
 use sqlx::{PgPool, types::Text};
 
 use crate::{
-    Error, Result,
+    EncryptionContext, Error, Result,
     protocol::crypto::BcrKeys,
     sql::identity::{
         ActiveIdentityRow, EmailConfirmationRow, INSERT_NETWORK, IdentityKeysRow, IdentityRow,
@@ -25,11 +27,15 @@ use crate::{
 #[derive(Clone)]
 pub struct PostgresIdentityStore {
     pool: PgPool,
+    encryption_ctx: Arc<EncryptionContext>,
 }
 
 impl PostgresIdentityStore {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new(pool: PgPool, encryption_ctx: Arc<EncryptionContext>) -> Self {
+        Self {
+            pool,
+            encryption_ctx,
+        }
     }
 
     async fn get_db_keys(&self) -> Result<Option<IdentityKeysRow>> {
@@ -80,11 +86,26 @@ impl IdentityStoreApi for PostgresIdentityStore {
     }
 
     async fn save_key_pair(&self, key_pair: &BcrKeys, seed: &str) -> Result<()> {
+        let plaintext_key = key_pair.get_private_key_string();
+        // encrypt using the new keys
+        let encrypted_key = self
+            .encryption_ctx
+            .encrypt_with_keys(plaintext_key.as_bytes(), key_pair)?;
+        let encoded_key = base58::encode(&encrypted_key);
+
+        let encrypted_seed = self
+            .encryption_ctx
+            .encrypt_with_keys(seed.as_bytes(), key_pair)?;
+        let encoded_seed = base58::encode(&encrypted_seed);
         sqlx::query(UPSERT_KEYS)
-            .bind(Text(key_pair.get_private_key_string()))
-            .bind(seed)
+            .bind(encoded_key)
+            .bind(encoded_seed)
             .execute(&self.pool)
             .await?;
+
+        // update the encryption context key with the new local persistence encryption key
+        self.encryption_ctx.replace_keys(key_pair.to_owned());
+
         Ok(())
     }
 
@@ -95,8 +116,12 @@ impl IdentityStoreApi for PostgresIdentityStore {
                 String::new(),
             )),
             Some(row) => {
-                let private_key = row.key.into_inner();
-                Ok(BcrKeys::from_private_key(&private_key))
+                let decoded_private_key = base58::decode(&row.key)?;
+                let decrypted_private_key = self.encryption_ctx.decrypt(&decoded_private_key)?;
+                let private_key = String::from_utf8(decrypted_private_key).map_err(|e| {
+                    Error::InvalidData(format!("Invalid decrypted private key: {e}"))
+                })?;
+                Ok(BcrKeys::from_private_key_string(&private_key)?)
             }
         }
     }
@@ -119,22 +144,34 @@ impl IdentityStoreApi for PostgresIdentityStore {
         }
     }
 
-    async fn get_or_create_key_pair(&self) -> Result<BcrKeys> {
-        let keys = match self.get_key_pair().await {
-            Ok(keys) => keys,
-            _ => {
-                let (new_keys, seed) = BcrKeys::new_with_seed_phrase()?;
-                self.save_key_pair(&new_keys, &seed).await?;
-                new_keys
+    async fn get_or_create_key_pair(&self, keys: &BcrKeys, seed: &str) -> Result<BcrKeys> {
+        match self.get_key_pair().await {
+            Ok(stored_keys) => {
+                if stored_keys != *keys {
+                    return Err(Error::Init(
+                        "stored key does not match given key".to_string(),
+                    ));
+                }
+                Ok(stored_keys)
             }
-        };
-
-        Ok(keys)
+            Err(Error::NoSuchEntity(entity, _)) if entity == "identity key pair" => {
+                self.save_key_pair(keys, seed).await?;
+                Ok(keys.to_owned())
+            }
+            Err(e) => Err(e),
+        }
     }
 
     async fn get_seedphrase(&self) -> Result<String> {
         match self.get_db_keys().await? {
-            Some(row) => Ok(row.seed_phrase),
+            Some(row) => {
+                let decoded_seed_phrase = base58::decode(&row.seed_phrase)?;
+                let decrypted_seed_phrase = self.encryption_ctx.decrypt(&decoded_seed_phrase)?;
+                let seed_phrase = String::from_utf8(decrypted_seed_phrase).map_err(|e| {
+                    Error::InvalidData(format!("Invalid decrypted seed phrase: {e}"))
+                })?;
+                Ok(seed_phrase)
+            }
             None => Err(Error::NoSuchEntity("seedphrase".to_owned(), String::new())),
         }
     }
@@ -207,18 +244,25 @@ impl IdentityStoreApi for PostgresIdentityStore {
 #[cfg(test)]
 mod tests {
     use super::PostgresIdentityStore;
-    use crate::tests::identity::{test_get_or_create_key_pair, test_identity_store};
+    use crate::{
+        EncryptionContext,
+        tests::identity::{test_get_or_create_key_pair, test_identity_store},
+    };
+    use bcr_ebill_core::protocol::crypto::BcrKeys;
     use sqlx::PgPool;
+    use std::sync::Arc;
 
     #[sqlx::test(migrations = "migrations/postgres")]
     async fn identity_store(pool: PgPool) {
-        let store = PostgresIdentityStore::new(pool);
+        let store =
+            PostgresIdentityStore::new(pool, Arc::new(EncryptionContext::new(BcrKeys::new())));
         test_identity_store(&store).await;
     }
 
     #[sqlx::test(migrations = "migrations/postgres")]
     async fn get_or_create_key_pair(pool: PgPool) {
-        let store = PostgresIdentityStore::new(pool);
+        let store =
+            PostgresIdentityStore::new(pool, Arc::new(EncryptionContext::new(BcrKeys::new())));
         test_get_or_create_key_pair(&store).await;
     }
 }

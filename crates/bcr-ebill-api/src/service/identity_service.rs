@@ -664,7 +664,7 @@ impl IdentityServiceApi for IdentityService {
         timestamp: Timestamp,
     ) -> Result<()> {
         debug!("creating identity");
-        let keys = self.store.get_or_create_key_pair().await?;
+        let keys = self.store.get_key_pair().await?;
         let node_id = NodeId::new(keys.pub_key(), get_config().bitcoin_network());
         validate_create_identity(t.clone(), &email, &postal_address)?;
         let email_confirmation = self.check_confirmed_email(&email, &t, &node_id).await?;
@@ -1070,7 +1070,7 @@ impl IdentityServiceApi for IdentityService {
     }
 
     async fn confirm_email(&self, email: &Email) -> Result<()> {
-        let keys = self.store.get_or_create_key_pair().await?;
+        let keys = self.store.get_key_pair().await?;
         let node_id = NodeId::new(keys.pub_key(), get_config().bitcoin_network());
 
         // use default mint URL for now, until we support multiple mints
@@ -1084,7 +1084,7 @@ impl IdentityServiceApi for IdentityService {
     }
 
     async fn verify_email(&self, confirmation_code: &str) -> Result<()> {
-        let keys = self.store.get_or_create_key_pair().await?;
+        let keys = self.store.get_key_pair().await?;
         let node_id = NodeId::new(keys.pub_key(), get_config().bitcoin_network());
 
         // use default mint URL for now, until we support multiple mints
@@ -1203,7 +1203,7 @@ mod tests {
         init_test_cfg();
         let mut storage = MockIdentityStoreApiMock::new();
         storage
-            .expect_get_or_create_key_pair()
+            .expect_get_key_pair()
             .returning(|| Ok(BcrKeys::from_private_key(&private_key_test())));
         storage
             .expect_get_email_confirmations()
@@ -1257,7 +1257,7 @@ mod tests {
         let mut storage = MockIdentityStoreApiMock::new();
 
         storage
-            .expect_get_or_create_key_pair()
+            .expect_get_key_pair()
             .returning(|| Ok(BcrKeys::from_private_key(&private_key_test())));
         storage.expect_save().returning(move |_| Ok(()));
         storage
@@ -1306,7 +1306,7 @@ mod tests {
         init_test_cfg();
         let mut storage = MockIdentityStoreApiMock::new();
         storage
-            .expect_get_or_create_key_pair()
+            .expect_get_key_pair()
             .returning(|| Ok(BcrKeys::from_private_key(&private_key_test())));
         storage.expect_save().returning(move |_| Ok(()));
         storage
@@ -1364,7 +1364,7 @@ mod tests {
         init_test_cfg();
         let mut storage = MockIdentityStoreApiMock::new();
         storage
-            .expect_get_or_create_key_pair()
+            .expect_get_key_pair()
             .returning(|| Ok(BcrKeys::from_private_key(&private_key_test())));
         storage.expect_save().returning(move |_| Ok(()));
         storage
@@ -1414,7 +1414,7 @@ mod tests {
         init_test_cfg();
         let mut storage = MockIdentityStoreApiMock::new();
         storage
-            .expect_get_or_create_key_pair()
+            .expect_get_key_pair()
             .returning(|| Ok(BcrKeys::from_private_key(&private_key_test())));
         storage.expect_save().returning(move |_| Ok(()));
         storage
@@ -1513,7 +1513,7 @@ mod tests {
         let mut storage = MockIdentityStoreApiMock::new();
         storage.expect_save().returning(|_| Ok(()));
         storage
-            .expect_get_or_create_key_pair()
+            .expect_get_key_pair()
             .returning(|| Ok(BcrKeys::from_private_key(&private_key_test())));
         storage
             .expect_get_key_pair()
@@ -1549,7 +1549,7 @@ mod tests {
     async fn update_identity_propagates_errors() {
         let mut storage = MockIdentityStoreApiMock::new();
         storage
-            .expect_get_or_create_key_pair()
+            .expect_get_key_pair()
             .returning(|| Ok(BcrKeys::from_private_key(&private_key_test())));
         storage
             .expect_get_key_pair()
@@ -1716,7 +1716,7 @@ mod tests {
         let keys = BcrKeys::new();
         let mut storage = MockIdentityStoreApiMock::new();
         storage
-            .expect_get_or_create_key_pair()
+            .expect_get_key_pair()
             .returning(move || Ok(keys.clone()));
         storage
             .expect_set_email_confirmation()
@@ -1756,7 +1756,7 @@ mod tests {
     async fn test_confirm_email() {
         let mut storage = MockIdentityStoreApiMock::new();
         storage
-            .expect_get_or_create_key_pair()
+            .expect_get_key_pair()
             .returning(|| Ok(BcrKeys::new()));
         let mut email_client = MockEmailClientApi::new();
         email_client

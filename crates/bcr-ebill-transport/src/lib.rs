@@ -62,9 +62,9 @@ pub async fn create_nostr_clients(
     nostr_contact_store: Arc<dyn bcr_ebill_persistence::traits::nostr::NostrContactStoreApi>,
 ) -> Result<Arc<NostrClient>> {
     // primary identity is required to launch
-    let keys = identity_store.get_or_create_key_pair().await.map_err(|e| {
-        error!("Failed to get or create nostr key pair for nostr client: {e}");
-        Error::Crypto("Failed to get or create nostr key pair".to_string())
+    let keys = identity_store.get_key_pair().await.map_err(|e| {
+        error!("Failed to get nostr key pair for nostr client: {e}");
+        Error::Crypto("Failed to get nostr key pair".to_string())
     })?;
 
     let primary_node_id = NodeId::new(keys.pub_key(), get_config().bitcoin_network());
@@ -356,7 +356,7 @@ pub async fn create_restore_account_service(
     push_service: Arc<dyn PushApi>,
     mint_client: Arc<dyn MintClientApi>,
 ) -> Result<RestoreAccountService> {
-    let db_context = get_db_context(config)
+    let db_context = get_db_context(config, keys)
         .await
         .expect("could not create db context");
 

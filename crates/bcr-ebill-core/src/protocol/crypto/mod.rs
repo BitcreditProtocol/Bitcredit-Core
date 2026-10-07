@@ -8,6 +8,9 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub use bcrkeys::BcrKeys;
 pub use bcrkeys::DeriveKeypair;
 
+/// Number of words to use when generating BIP39 seed phrases
+pub const BIP39_WORD_COUNT: bip39::WordCount = bip39::WordCount::Words12;
+
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("Private key error: {0}")]

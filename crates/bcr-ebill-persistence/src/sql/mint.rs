@@ -196,9 +196,9 @@ pub(crate) struct MintOfferRow {
     pub discounted_sum_currency_code: String,
     pub discounted_sum_currency_decimals: i64,
     pub discounted_sum_reference_exchange_rate: Text<ExchangeRate>,
-    pub proofs: Option<String>,
+    pub proofs: Option<Vec<u8>>,
     pub proofs_spent: bool,
-    pub recovery_data: Option<String>,
+    pub recovery_data: Option<Vec<u8>>,
 }
 
 pub(crate) fn status_to_db(status: &MintRequestStatus) -> Result<(&'static str, Option<i64>)> {
@@ -277,6 +277,7 @@ fn recovery_data_from_json(value: Option<String>) -> Result<Option<MintOfferReco
         .map(|value| {
             let value: RecoveryDataJson = serde_json::from_str(&value)
                 .map_err(|e| Error::InvalidData(format!("invalid mint recovery data: {e}")))?;
+
             Ok(MintOfferRecoveryData {
                 secrets: value.secrets,
                 rs: value.rs,
@@ -289,6 +290,23 @@ impl TryFrom<MintOfferRow> for MintOffer {
     type Error = Error;
 
     fn try_from(row: MintOfferRow) -> Result<Self> {
+        let proofs = row
+            .proofs
+            .map(|proofs| {
+                String::from_utf8(proofs)
+                    .map_err(|e| Error::InvalidData(format!("invalid mint offer proofs: {e}")))
+            })
+            .transpose()?;
+
+        let recovery_data = row
+            .recovery_data
+            .map(|recovery_data| {
+                String::from_utf8(recovery_data).map_err(|e| {
+                    Error::InvalidData(format!("invalid mint offer recovery data: {e}"))
+                })
+            })
+            .transpose()?;
+
         Ok(Self {
             mint_request_id: row.mint_request_id.into_inner(),
             keyset_id: row.keyset_id,
@@ -299,9 +317,9 @@ impl TryFrom<MintOfferRow> for MintOffer {
                 row.discounted_sum_currency_decimals,
                 row.discounted_sum_reference_exchange_rate.into_inner(),
             )?,
-            proofs: row.proofs,
+            proofs,
             proofs_spent: row.proofs_spent,
-            recovery_data: recovery_data_from_json(row.recovery_data)?,
+            recovery_data: recovery_data_from_json(recovery_data)?,
         })
     }
 }

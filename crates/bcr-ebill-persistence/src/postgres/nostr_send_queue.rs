@@ -1,5 +1,5 @@
 use crate::{
-    Error, Result,
+    EncryptionContext, Error, Result,
     constants::NOSTR_QUEUE_PROCESSING_TIMEOUT_SECS,
     sql::{
         nostr_send_queue::{
@@ -13,6 +13,7 @@ use crate::{
 use async_trait::async_trait;
 use bcr_ebill_core::{application::ServiceTraitBounds, protocol::Timestamp};
 use sqlx::PgPool;
+use std::sync::Arc;
 
 const SELECT_RETRY_MESSAGES_FOR_UPDATE: &str = r#"
     SELECT
@@ -38,11 +39,31 @@ const SELECT_RETRY_MESSAGES_FOR_UPDATE: &str = r#"
 #[derive(Clone)]
 pub struct PostgresNostrEventQueueStore {
     pool: PgPool,
+    encryption_ctx: Arc<EncryptionContext>,
 }
 
 impl PostgresNostrEventQueueStore {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new(pool: PgPool, encryption_ctx: Arc<EncryptionContext>) -> Self {
+        Self {
+            pool,
+            encryption_ctx,
+        }
+    }
+
+    fn encrypt_queued_message_row(
+        &self,
+        mut row: NostrQueuedMessageRow,
+    ) -> Result<NostrQueuedMessageRow> {
+        row.payload = self.encryption_ctx.encrypt(&row.payload)?;
+        Ok(row)
+    }
+
+    fn decrypt_queued_message_row(
+        &self,
+        mut row: NostrQueuedMessageRow,
+    ) -> Result<NostrQueuedMessage> {
+        row.payload = self.encryption_ctx.decrypt(&row.payload)?;
+        row.try_into()
     }
 }
 
@@ -51,8 +72,8 @@ impl ServiceTraitBounds for PostgresNostrEventQueueStore {}
 #[async_trait]
 impl NostrQueuedMessageStoreApi for PostgresNostrEventQueueStore {
     async fn add_message(&self, message: NostrQueuedMessage, max_retries: i32) -> Result<()> {
-        let row = NostrQueuedMessageRow::new(message, max_retries)?;
-
+        let row =
+            self.encrypt_queued_message_row(NostrQueuedMessageRow::new(message, max_retries)?)?;
         sqlx::query(INSERT_MESSAGE)
             .bind(row.id)
             .bind(row.sender_id)
@@ -67,7 +88,6 @@ impl NostrQueuedMessageStoreApi for PostgresNostrEventQueueStore {
             .bind(row.processing_started_at)
             .execute(&self.pool)
             .await?;
-
         Ok(())
     }
 
@@ -102,9 +122,12 @@ impl NostrQueuedMessageStoreApi for PostgresNostrEventQueueStore {
                 .await?;
         }
 
+        let messages = rows
+            .into_iter()
+            .map(|row| self.decrypt_queued_message_row(row))
+            .collect::<Result<Vec<_>>>()?;
         tx.commit().await?;
-
-        Ok(rows.into_iter().map(Into::into).collect())
+        Ok(messages)
     }
 
     async fn fail_retry(&self, id: &str) -> Result<()> {
@@ -156,24 +179,26 @@ impl NostrQueuedMessageStoreApi for PostgresNostrEventQueueStore {
 
         Ok(rows
             .into_iter()
-            .map(|row| {
+            .map(|row| -> Result<_> {
                 let status = if row.failed {
                     NostrQueuedMessageStatus::Failed
                 } else {
                     NostrQueuedMessageStatus::Pending
                 };
-
-                (row.into(), status)
+                let message = self.decrypt_queued_message_row(row)?;
+                Ok((message, status))
             })
-            .collect())
+            .collect::<Result<_>>()?)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::PostgresNostrEventQueueStore;
     use crate::{
-        Result,
+        EncryptionContext, Result,
         sql::{
             nostr_send_queue::{NostrQueuedMessageRow, SET_PROCESSING_STARTED_AT},
             timestamp_from_db, timestamp_to_db,
@@ -183,7 +208,7 @@ mod tests {
         },
     };
     use async_trait::async_trait;
-    use bcr_ebill_core::protocol::Timestamp;
+    use bcr_ebill_core::protocol::{Timestamp, crypto::BcrKeys};
     use sqlx::PgPool;
 
     #[async_trait]
@@ -225,55 +250,82 @@ mod tests {
 
     #[sqlx::test(migrations = "migrations/postgres")]
     async fn insert_query_and_mark_succeeded(pool: PgPool) {
-        let store = PostgresNostrEventQueueStore::new(pool);
+        let store = PostgresNostrEventQueueStore::new(
+            pool,
+            Arc::new(EncryptionContext::new(BcrKeys::new())),
+        );
         nostr_send_queue::test_insert_query_and_mark_succeeded(&store).await;
     }
 
     #[sqlx::test(migrations = "migrations/postgres")]
     async fn insert_query_and_mark_failed(pool: PgPool) {
-        let store = PostgresNostrEventQueueStore::new(pool);
+        let store = PostgresNostrEventQueueStore::new(
+            pool,
+            Arc::new(EncryptionContext::new(BcrKeys::new())),
+        );
         nostr_send_queue::test_insert_query_and_mark_failed(&store).await;
     }
 
     #[sqlx::test(migrations = "migrations/postgres")]
     async fn stale_processing_started_at_is_retryable_again(pool: PgPool) {
-        let store = PostgresNostrEventQueueStore::new(pool);
+        let store = PostgresNostrEventQueueStore::new(
+            pool,
+            Arc::new(EncryptionContext::new(BcrKeys::new())),
+        );
         nostr_send_queue::test_stale_processing_started_at_is_retryable_again(&store).await;
     }
 
     #[sqlx::test(migrations = "migrations/postgres")]
     async fn fail_retry_resets_processing_started_at(pool: PgPool) {
-        let store = PostgresNostrEventQueueStore::new(pool);
+        let store = PostgresNostrEventQueueStore::new(
+            pool,
+            Arc::new(EncryptionContext::new(BcrKeys::new())),
+        );
         nostr_send_queue::test_fail_retry_resets_processing_started_at(&store).await;
     }
 
     #[sqlx::test(migrations = "migrations/postgres")]
     async fn fail_retry_with_more_than_max_retries_fails_the_entry(pool: PgPool) {
-        let store = PostgresNostrEventQueueStore::new(pool);
+        let store = PostgresNostrEventQueueStore::new(
+            pool,
+            Arc::new(EncryptionContext::new(BcrKeys::new())),
+        );
         nostr_send_queue::test_fail_retry_with_more_than_max_retries_fails_the_entry(&store).await;
     }
 
     #[sqlx::test(migrations = "migrations/postgres")]
     async fn succeed_retry_resets_processing_started_at(pool: PgPool) {
-        let store = PostgresNostrEventQueueStore::new(pool);
+        let store = PostgresNostrEventQueueStore::new(
+            pool,
+            Arc::new(EncryptionContext::new(BcrKeys::new())),
+        );
         nostr_send_queue::test_succeed_retry_resets_processing_started_at(&store).await;
     }
 
     #[sqlx::test(migrations = "migrations/postgres")]
     async fn succeed_retry_doesnt_set_failed(pool: PgPool) {
-        let store = PostgresNostrEventQueueStore::new(pool);
+        let store = PostgresNostrEventQueueStore::new(
+            pool,
+            Arc::new(EncryptionContext::new(BcrKeys::new())),
+        );
         nostr_send_queue::test_succeed_retry_doesnt_set_failed(&store).await;
     }
 
     #[sqlx::test(migrations = "migrations/postgres")]
     async fn requeue_failed_entry_resets_entry(pool: PgPool) {
-        let store = PostgresNostrEventQueueStore::new(pool);
+        let store = PostgresNostrEventQueueStore::new(
+            pool,
+            Arc::new(EncryptionContext::new(BcrKeys::new())),
+        );
         nostr_send_queue::test_requeue_failed_entry_resets_entry(&store).await;
     }
 
     #[sqlx::test(migrations = "migrations/postgres")]
     async fn get_non_succeeded_retry_messages(pool: PgPool) {
-        let store = PostgresNostrEventQueueStore::new(pool);
+        let store = PostgresNostrEventQueueStore::new(
+            pool,
+            Arc::new(EncryptionContext::new(BcrKeys::new())),
+        );
         nostr_send_queue::test_get_non_succeeded_retry_messages(&store).await;
     }
 }

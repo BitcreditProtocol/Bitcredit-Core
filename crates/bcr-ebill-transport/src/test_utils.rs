@@ -988,7 +988,6 @@ mockall::mock! {
         async fn search(&self, search_term: &str, levels: Vec<TrustLevel>) -> bcr_ebill_persistence::Result<Vec<NostrContact>>;
         async fn add_pending_share(&self, pending_share: PendingContactShare) -> bcr_ebill_persistence::Result<()>;
         async fn get_pending_share(&self, id: &str) -> bcr_ebill_persistence::Result<Option<PendingContactShare>>;
-        async fn get_pending_share_by_private_key(&self, private_key: &SecretKey) -> bcr_ebill_persistence::Result<Option<PendingContactShare>>;
         async fn list_pending_shares_by_receiver(&self, receiver_node_id: &NodeId) -> bcr_ebill_persistence::Result<Vec<PendingContactShare>>;
         async fn list_pending_shares_by_receiver_and_direction(&self, receiver_node_id: &NodeId, direction: ShareDirection) -> bcr_ebill_persistence::Result<Vec<PendingContactShare>>;
         async fn delete_pending_share(&self, id: &str) -> bcr_ebill_persistence::Result<()>;

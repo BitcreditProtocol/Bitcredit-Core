@@ -2,7 +2,7 @@ use bcr_common::core::NodeId;
 use bcr_ebill_core::protocol::Timestamp;
 use sqlx::types::Text;
 
-use crate::{Result, sql::timestamp_to_db, traits::nostr::NostrQueuedMessage};
+use crate::{Error, Result, sql::timestamp_to_db, traits::nostr::NostrQueuedMessage};
 
 // SQL
 pub(crate) const INSERT_MESSAGE: &str = r#"
@@ -113,7 +113,7 @@ pub(crate) struct NostrQueuedMessageRow {
     pub id: String,
     pub sender_id: Text<NodeId>,
     pub recipient: Option<Text<NodeId>>,
-    pub payload: String,
+    pub payload: Vec<u8>,
     pub created: i64,
     pub last_try: i64,
     pub num_retries: i32,
@@ -129,7 +129,7 @@ impl NostrQueuedMessageRow {
             id: message.id,
             sender_id: Text(message.sender_id),
             recipient: message.recipient.map(Text),
-            payload: message.payload,
+            payload: message.payload.into_bytes(),
             created: timestamp_to_db(Timestamp::now())?,
             last_try: timestamp_to_db(Timestamp::zero())?,
             num_retries: 0,
@@ -141,13 +141,17 @@ impl NostrQueuedMessageRow {
     }
 }
 
-impl From<NostrQueuedMessageRow> for NostrQueuedMessage {
-    fn from(row: NostrQueuedMessageRow) -> Self {
-        Self {
+impl TryFrom<NostrQueuedMessageRow> for NostrQueuedMessage {
+    type Error = Error;
+
+    fn try_from(row: NostrQueuedMessageRow) -> Result<Self> {
+        let payload = String::from_utf8(row.payload)
+            .map_err(|e| Error::InvalidData(format!("Invalid queued message payload: {e}")))?;
+        Ok(Self {
             id: row.id,
             sender_id: row.sender_id.into_inner(),
             recipient: row.recipient.map(Text::into_inner),
-            payload: row.payload,
-        }
+            payload,
+        })
     }
 }

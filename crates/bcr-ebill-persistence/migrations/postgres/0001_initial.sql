@@ -150,10 +150,10 @@ CREATE TABLE mint_offers (
     ),
     discounted_sum_reference_exchange_rate TEXT NOT NULL,
 
-    proofs TEXT,
+    proofs BYTEA,
     proofs_spent BOOLEAN NOT NULL DEFAULT FALSE,
 
-    recovery_data TEXT,
+    recovery_data BYTEA,
     FOREIGN KEY (mint_request_id)
         REFERENCES mint_requests(mint_request_id)
         ON DELETE CASCADE
@@ -692,7 +692,7 @@ CREATE TABLE nostr_send_queue (
     id TEXT PRIMARY KEY NOT NULL,
     sender_id TEXT NOT NULL,
     recipient TEXT,
-    payload TEXT NOT NULL,
+    payload BYTEA NOT NULL, -- encrypted JSON string
     created BIGINT NOT NULL
     CHECK (created >= 0),
     last_try BIGINT NOT NULL DEFAULT 0

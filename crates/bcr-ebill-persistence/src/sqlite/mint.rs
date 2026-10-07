@@ -1,5 +1,5 @@
 use crate::{
-    Error, Result,
+    EncryptionContext, Error, Result,
     sql::{
         mint::{
             ADD_PROOFS, ADD_RECOVERY_DATA, DELETE_REQUESTS_FOR_BILL, EXISTS_FOR_BILL, INSERT_OFFER,
@@ -21,16 +21,39 @@ use bcr_ebill_core::{
     },
 };
 use sqlx::{SqlitePool, types::Text};
+use std::sync::Arc;
 use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct SqliteMintStore {
     pool: SqlitePool,
+    encryption_ctx: Arc<EncryptionContext>,
 }
 
 impl SqliteMintStore {
-    pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+    pub fn new(pool: SqlitePool, encryption_ctx: Arc<EncryptionContext>) -> Self {
+        Self {
+            pool,
+            encryption_ctx,
+        }
+    }
+
+    fn encrypt_mint_offer_value(&self, value: &str) -> Result<Vec<u8>> {
+        self.encryption_ctx.encrypt(value.as_bytes())
+    }
+
+    fn decrypt_mint_offer_value(&self, value: &[u8]) -> Result<Vec<u8>> {
+        self.encryption_ctx.decrypt(value)
+    }
+
+    fn decrypt_mint_offer_row(&self, mut row: MintOfferRow) -> Result<MintOffer> {
+        if let Some(proofs) = row.proofs.as_mut() {
+            *proofs = self.decrypt_mint_offer_value(proofs)?;
+        }
+        if let Some(recovery_data) = row.recovery_data.as_mut() {
+            *recovery_data = self.decrypt_mint_offer_value(recovery_data)?;
+        }
+        row.try_into()
     }
 }
 
@@ -154,8 +177,9 @@ impl MintStoreApi for SqliteMintStore {
     }
 
     async fn add_proofs_to_offer(&self, mint_request_id: &Uuid, proofs: &str) -> Result<()> {
+        let encrypted_proofs = self.encrypt_mint_offer_value(proofs)?;
         let result = sqlx::query(ADD_PROOFS)
-            .bind(proofs)
+            .bind(encrypted_proofs)
             .bind(Text(*mint_request_id))
             .execute(&self.pool)
             .await?;
@@ -185,9 +209,10 @@ impl MintStoreApi for SqliteMintStore {
         rs: &[String],
     ) -> Result<()> {
         let recovery_data = recovery_data_to_json(secrets, rs)?;
+        let encrypted_recovery_data = self.encrypt_mint_offer_value(&recovery_data)?;
 
         let result = sqlx::query(ADD_RECOVERY_DATA)
-            .bind(recovery_data)
+            .bind(encrypted_recovery_data)
             .bind(Text(*mint_request_id))
             .execute(&self.pool)
             .await?;
@@ -256,9 +281,9 @@ impl MintStoreApi for SqliteMintStore {
             .bind(&row.discounted_sum_currency_code)
             .bind(row.discounted_sum_currency_decimals)
             .bind(&row.discounted_sum_reference_exchange_rate)
-            .bind(Option::<String>::None)
+            .bind(Option::<Vec<u8>>::None)
             .bind(false)
-            .bind(Option::<String>::None)
+            .bind(Option::<Vec<u8>>::None)
             .execute(&self.pool)
             .await?;
 
@@ -274,13 +299,19 @@ impl MintStoreApi for SqliteMintStore {
             .bind(Text(*mint_request_id))
             .fetch_optional(&self.pool)
             .await?;
-
-        row.map(TryInto::try_into).transpose()
+        row.map(|row| self.decrypt_mint_offer_row(row)).transpose()
     }
 }
 
-#[sqlx::test(migrations = "migrations/sqlite")]
-async fn mint_store_contract_sqlite(pool: sqlx::SqlitePool) {
-    let store = SqliteMintStore::new(pool);
-    crate::tests::mint::mint_store_contract(&store).await;
+#[cfg(test)]
+mod tests {
+    use crate::{EncryptionContext, sqlite::mint::SqliteMintStore};
+    use bcr_ebill_core::protocol::crypto::BcrKeys;
+    use std::sync::Arc;
+
+    #[sqlx::test(migrations = "migrations/sqlite")]
+    async fn mint_store_contract_sqlite(pool: sqlx::SqlitePool) {
+        let store = SqliteMintStore::new(pool, Arc::new(EncryptionContext::new(BcrKeys::new())));
+        crate::tests::mint::mint_store_contract(&store).await;
+    }
 }

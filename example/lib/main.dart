@@ -1,23 +1,39 @@
 import 'package:ebill_flutter_ffi/ebill_flutter_ffi.dart';
 import 'package:flutter/material.dart';
+import 'package:ebill_flutter_ffi/data/lib.dart' as data;
+import 'package:ebill_flutter_ffi/api/general.dart' as general_api;
 
 import 'dev_config.dart';
 import 'harness_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  final env = await DevEnvironment.prepare();
   await RustLib.init();
-  await initEbillFfi(conf: env.toConfig());
 
-  runApp(EbillHarnessApp(dataDirectory: env.baseDir.path));
+  final env = await DevEnvironment.prepare(
+    generateMnemonic: () async {
+      final result = await general_api.generateRandomMnemonic();
+
+      return result.mnemonic;
+    },
+  );
+
+  await initEbillFfi(
+    conf: env.toConfig(),
+  );
+
+  runApp(
+    EbillHarnessApp(environment: env),
+  );
 }
 
 class EbillHarnessApp extends StatelessWidget {
-  const EbillHarnessApp({required this.dataDirectory, super.key});
+  const EbillHarnessApp({
+    required this.environment,
+    super.key,
+  });
 
-  final String dataDirectory;
+  final DevEnvironment environment;
 
   @override
   Widget build(BuildContext context) {
@@ -29,7 +45,9 @@ class EbillHarnessApp extends StatelessWidget {
         brightness: Brightness.light,
         useMaterial3: true,
       ),
-      home: HarnessPage(dataDirectory: dataDirectory),
+      home: HarnessPage(
+        environment: environment,
+      ),
     );
   }
 }

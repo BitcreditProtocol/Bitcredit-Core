@@ -186,21 +186,6 @@ impl NostrStoreApi for SurrealNostrStore {
         Ok(value)
     }
 
-    async fn get_pending_share_by_private_key(
-        &self,
-        private_key: &SecretKey,
-    ) -> Result<Option<PendingContactShare>> {
-        let mut bindings = Bindings::default();
-        bindings.add(DB_TABLE, Self::PENDING_SHARE_TABLE)?;
-        bindings.add("contact_private_key", private_key.to_owned())?;
-        let query = format!(
-            "SELECT * FROM type::table(${DB_TABLE}) WHERE contact_private_key = $contact_private_key LIMIT 1"
-        );
-        let result: Vec<PendingContactShareDb> = self.db.query(&query, bindings).await?;
-        let value = result.into_iter().next().and_then(|v| v.try_into().ok());
-        Ok(value)
-    }
-
     async fn list_pending_shares_by_receiver(
         &self,
         receiver_node_id: &NodeId,

@@ -1,5 +1,5 @@
 use crate::{
-    Error, Result,
+    EncryptionContext, Error, Result,
     sqlite::{
         bill::SqliteBillStore, bill_chain::SqliteBillChainStore, company::SqliteCompanyStore,
         company_chain::SqliteCompanyChainStore, contact::SqliteContactStore,
@@ -14,7 +14,7 @@ use sqlx::{
     SqlitePool,
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
 };
-use std::{path::PathBuf, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 pub mod bill;
 pub mod bill_chain;
@@ -96,32 +96,32 @@ impl SqlitePersistence {
         SqliteEmailNotificationStore::new(self.pool.clone())
     }
 
-    pub fn mint_store(&self) -> SqliteMintStore {
-        SqliteMintStore::new(self.pool.clone())
+    pub fn mint_store(&self, encryption_ctx: Arc<EncryptionContext>) -> SqliteMintStore {
+        SqliteMintStore::new(self.pool.clone(), encryption_ctx)
     }
 
     pub fn bill_chain_store(&self) -> SqliteBillChainStore {
         SqliteBillChainStore::new(self.pool.clone())
     }
 
-    pub fn bill_store(&self) -> SqliteBillStore {
-        SqliteBillStore::new(self.pool.clone())
+    pub fn bill_store(&self, encryption_ctx: Arc<EncryptionContext>) -> SqliteBillStore {
+        SqliteBillStore::new(self.pool.clone(), encryption_ctx)
     }
 
     pub fn company_chain_store(&self) -> SqliteCompanyChainStore {
         SqliteCompanyChainStore::new(self.pool.clone())
     }
 
-    pub fn company_store(&self) -> SqliteCompanyStore {
-        SqliteCompanyStore::new(self.pool.clone())
+    pub fn company_store(&self, encryption_ctx: Arc<EncryptionContext>) -> SqliteCompanyStore {
+        SqliteCompanyStore::new(self.pool.clone(), encryption_ctx)
     }
 
     pub fn identity_chain_store(&self) -> SqliteIdentityChainStore {
         SqliteIdentityChainStore::new(self.pool.clone())
     }
 
-    pub fn identity_store(&self) -> SqliteIdentityStore {
-        SqliteIdentityStore::new(self.pool.clone())
+    pub fn identity_store(&self, encryption_ctx: Arc<EncryptionContext>) -> SqliteIdentityStore {
+        SqliteIdentityStore::new(self.pool.clone(), encryption_ctx)
     }
 
     pub fn file_reference_store(&self) -> SqliteFileReferenceStore {
@@ -132,16 +132,19 @@ impl SqlitePersistence {
         SqliteNostrEventOffsetStore::new(self.pool.clone())
     }
 
-    pub fn nostr_event_queue_store(&self) -> SqliteNostrEventQueueStore {
-        SqliteNostrEventQueueStore::new(self.pool.clone())
+    pub fn nostr_event_queue_store(
+        &self,
+        encryption_ctx: Arc<EncryptionContext>,
+    ) -> SqliteNostrEventQueueStore {
+        SqliteNostrEventQueueStore::new(self.pool.clone(), encryption_ctx)
     }
 
     pub fn nostr_chain_event_store(&self) -> SqliteNostrChainEventStore {
         SqliteNostrChainEventStore::new(self.pool.clone())
     }
 
-    pub fn nostr_contact_store(&self) -> SqliteNostrStore {
-        SqliteNostrStore::new(self.pool.clone())
+    pub fn nostr_contact_store(&self, encryption_ctx: Arc<EncryptionContext>) -> SqliteNostrStore {
+        SqliteNostrStore::new(self.pool.clone(), encryption_ctx)
     }
 
     pub fn notification_store(&self) -> SqliteNotificationStore {

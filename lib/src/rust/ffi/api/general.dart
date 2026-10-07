@@ -43,3 +43,6 @@ Future<void> requeueFailedResendQueueEntry({
 }) => RustLib.instance.api.crateFfiApiGeneralRequeueFailedResendQueueEntry(
   pl: pl,
 );
+
+Future<MnemonicResponse> generateRandomMnemonic() =>
+    RustLib.instance.api.crateFfiApiGeneralGenerateRandomMnemonic();

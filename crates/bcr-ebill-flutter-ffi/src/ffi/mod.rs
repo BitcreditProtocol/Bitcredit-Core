@@ -4,6 +4,7 @@ use bcr_ebill_api::{
     Config as ApiConfig, CourtConfig, DevModeConfig, MintConfig, NostrConfig, PaymentConfig,
     get_db_context, util::validate_node_id_network,
 };
+use bcr_ebill_core::protocol::crypto::BcrKeys;
 use bcr_ebill_persistence::DbConfig;
 use flutter_rust_bridge::{JoinHandle, frb};
 use log::{debug, error, info};
@@ -144,6 +145,8 @@ pub struct EbillConfig {
     pub dev_mode: bool,
     pub mandatory_email_confirmations: bool,
     pub default_court_url: String,
+    // The mnemonic for the main identity, used for persistence encryption
+    pub mnemonic: String,
 }
 
 #[frb]
@@ -162,6 +165,10 @@ pub async fn init_ebill_ffi(conf: EbillConfig) -> Result<(), EbillFfiError> {
     };
 
     let api_config = build_api_config(&conf)?;
+
+    // parse mnemonic to keys
+    let parsed_mnemonic_keys = BcrKeys::from_seedphrase(&conf.mnemonic)?;
+
     let mut rt = EBILL_RUNTIME.lock().await;
 
     // reset on initialization
@@ -184,13 +191,16 @@ pub async fn init_ebill_ffi(conf: EbillConfig) -> Result<(), EbillFfiError> {
     validate_node_id_network(&api_config.mint_config.default_mint_node_id)?;
 
     // init db
-    let db = get_db_context(&api_config).await?;
+    let db = get_db_context(&api_config, &parsed_mnemonic_keys).await?;
 
     // set the network and check if the configured network matches the persisted network and fail, if not
     db.identity_store
         .set_or_check_network(api_config.bitcoin_network())
         .await?;
-    let keys = db.identity_store.get_or_create_key_pair().await?;
+    let keys = db
+        .identity_store
+        .get_or_create_key_pair(&parsed_mnemonic_keys, &conf.mnemonic)
+        .await?;
 
     let node_id = NodeId::new(keys.pub_key(), api_config.bitcoin_network());
     info!("Initialized Flutter API {}", general::VERSION);

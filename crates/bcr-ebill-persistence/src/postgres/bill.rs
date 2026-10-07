@@ -1,6 +1,3 @@
-use std::collections::HashSet;
-use std::str::FromStr;
-
 use crate::sql::bill::{
     BILL_EXISTS, BILLS_WITH_LATEST_OP_CODE, BillCacheRow, BitcreditBillResultDb, CLEAR_CACHE,
     GET_BILL_IDS, INSERT_KEYS, INVALIDATE_CACHE, IS_PAID, PaymentStateRow, SELECT_CACHE_ONE,
@@ -9,7 +6,7 @@ use crate::sql::bill::{
     WAITING_FOR_PAYMENT, payment_state_to_db,
 };
 use crate::sql::{block_id_to_db, timestamp_to_db};
-use crate::{Error, Result};
+use crate::{EncryptionContext, Error, Result};
 use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::application::bill::PaymentState;
@@ -17,20 +14,26 @@ use bcr_ebill_core::application::{ServiceTraitBounds, bill::BitcreditBillResult}
 use bcr_ebill_core::protocol::blockchain::bill::BillOpCode;
 use bcr_ebill_core::protocol::crypto::BcrKeys;
 use bcr_ebill_core::protocol::{BlockId, Timestamp};
-use bitcoin::secp256k1::SecretKey;
+use bitcoin::base58;
 use sqlx::types::Json;
 use sqlx::{PgPool, types::Text};
+use std::collections::HashSet;
+use std::sync::Arc;
 
 use crate::traits::bill::BillStoreApi;
 
 #[derive(Clone)]
 pub struct PostgresBillStore {
     pool: PgPool,
+    encryption_ctx: Arc<EncryptionContext>,
 }
 
 impl PostgresBillStore {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new(pool: PgPool, encryption_ctx: Arc<EncryptionContext>) -> Self {
+        Self {
+            pool,
+            encryption_ctx,
+        }
     }
 }
 
@@ -114,23 +117,30 @@ impl BillStoreApi for PostgresBillStore {
     }
 
     async fn save_keys(&self, id: &BillId, key_pair: &BcrKeys) -> Result<()> {
-        let key = key_pair.get_private_key_string();
+        let plaintext_key = key_pair.get_private_key_string();
+        let encrypted_key = self.encryption_ctx.encrypt(plaintext_key.as_bytes())?;
+        let encoded_key = base58::encode(&encrypted_key);
         sqlx::query(INSERT_KEYS)
             .bind(Text(id.clone()))
-            .bind(key)
+            .bind(encoded_key)
             .execute(&self.pool)
             .await?;
         Ok(())
     }
 
     async fn get_keys(&self, id: &BillId) -> Result<BcrKeys> {
-        let key: Option<String> = sqlx::query_scalar(SELECT_KEYS)
+        let private_key: Option<String> = sqlx::query_scalar(SELECT_KEYS)
             .bind(Text(id.clone()))
             .fetch_optional(&self.pool)
             .await?;
-        let key = key.ok_or_else(|| Error::NoSuchEntity("bill".to_owned(), id.to_string()))?;
-        let private_key = SecretKey::from_str(&key).map_err(|_| Error::EncodingError)?;
-        Ok(BcrKeys::from_private_key(&private_key))
+        let row_private_key =
+            private_key.ok_or_else(|| Error::NoSuchEntity("bill".to_owned(), id.to_string()))?;
+        let encoded_private_key = row_private_key;
+        let decoded_private_key = base58::decode(&encoded_private_key)?;
+        let decrypted_private_key = self.encryption_ctx.decrypt(&decoded_private_key)?;
+        let private_key = String::from_utf8(decrypted_private_key)
+            .map_err(|e| Error::InvalidData(format!("Invalid private key: {e}")))?;
+        Ok(BcrKeys::from_private_key_string(&private_key)?)
     }
 
     async fn set_payment_state(&self, id: &BillId, payment_state: &PaymentState) -> Result<()> {
@@ -301,13 +311,20 @@ impl BillStoreApi for PostgresBillStore {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use crate::EncryptionContext;
     use crate::postgres::bill::PostgresBillStore;
     use crate::postgres::bill_chain::PostgresBillChainStore;
     use crate::tests::bill::test_bill_store;
+    use bcr_ebill_core::protocol::crypto::BcrKeys;
     use sqlx::PgPool;
     #[sqlx::test(migrations = "migrations/postgres")]
     async fn bill_store(pool: PgPool) {
-        let store = PostgresBillStore::new(pool.clone());
+        let store = PostgresBillStore::new(
+            pool.clone(),
+            Arc::new(EncryptionContext::new(BcrKeys::new())),
+        );
         let chain_store = PostgresBillChainStore::new(pool);
         test_bill_store(&store, &chain_store).await;
     }

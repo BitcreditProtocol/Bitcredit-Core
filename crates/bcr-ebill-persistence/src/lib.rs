@@ -15,8 +15,11 @@ pub mod sqlite;
 mod sql;
 
 use std::path::PathBuf;
+use std::sync::RwLock;
 
 use bcr_ebill_core::protocol;
+use bcr_ebill_core::protocol::crypto::{BcrKeys, decrypt_ecies, encrypt_ecies};
+use bitcoin::base58;
 use thiserror::Error;
 
 /// Generic persistence result type
@@ -72,6 +75,9 @@ pub enum Error {
 
     #[error("Sqlx query error: {0}")]
     SqlxQuery(#[from] sqlx::Error),
+
+    #[error("Base58 decoding Error: {0}")]
+    Base58(#[from] base58::InvalidCharacterError),
 }
 
 #[cfg(any(feature = "surrealkv", feature = "protocol-ws"))]
@@ -85,6 +91,46 @@ impl From<surrealdb::Error> for Error {
 pub struct DbConfig {
     pub connection_string: String,
     pub temp_files_path: PathBuf,
+}
+
+pub struct EncryptionContext {
+    keys: RwLock<BcrKeys>,
+}
+
+impl EncryptionContext {
+    pub fn new(keys: BcrKeys) -> Self {
+        Self {
+            keys: RwLock::new(keys),
+        }
+    }
+
+    pub fn encrypt(&self, plaintext: &[u8]) -> Result<Vec<u8>> {
+        let key = {
+            let keys = self.keys.read().expect("can get keys lock");
+            keys.pub_key()
+        };
+        let res = encrypt_ecies(plaintext, &key)?;
+        Ok(res)
+    }
+
+    pub fn decrypt(&self, ciphertext: &[u8]) -> Result<Vec<u8>> {
+        let key = {
+            let keys = self.keys.read().expect("can get keys lock");
+            keys.get_private_key()
+        };
+        let res = decrypt_ecies(ciphertext, &key)?;
+        Ok(res)
+    }
+
+    pub fn encrypt_with_keys(&self, plaintext: &[u8], keys: &BcrKeys) -> Result<Vec<u8>> {
+        let key = keys.pub_key();
+        let res = encrypt_ecies(plaintext, &key)?;
+        Ok(res)
+    }
+
+    pub fn replace_keys(&self, keys: BcrKeys) {
+        *self.keys.write().expect("can get keys lock") = keys;
+    }
 }
 
 #[cfg(feature = "sqlite")]
