@@ -190,3 +190,9 @@ where
     serde_json::from_value(serde_json::Value::String(value))
         .map_err(|e| Error::InvalidData(format!("invalid persisted enum: {e}")))
 }
+
+pub(crate) fn escape_like(term: &str) -> String {
+    term.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}

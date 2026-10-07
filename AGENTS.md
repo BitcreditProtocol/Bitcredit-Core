@@ -16,9 +16,10 @@ Dependencies run `bcr-ebill-core` → `bcr-ebill-persistence` → `bcr-ebill-api
 `bcr-ebill-transport` → `bcr-ebill-flutter-ffi`; the supported consumer entrypoint is the
 Flutter plugin `ebill_flutter_ffi`. The FFI crate builds native `cdylib`/`staticlib` artifacts
 for Flutter. There is no server: keys and state live on the client, persisted through
-SurrealDB/SurrealKV at app-provided database paths, while Nostr relays, Esplora, mints and
+`sqlx/sqlite` at app-provided database paths, while Nostr relays, Esplora, mints and
 other configured services are external. Workspace crates are libraries; no crate defines a
 binary.
+The library is also used for a web-backend, which uses `sqlx/postgres` for persistence.
 
 ## Quality Gates
 
@@ -39,11 +40,12 @@ checklist asks for both.
 
 * Tests run natively. The Flutter FFI layer gets basic wiring coverage and is excluded from
   Rust coverage; put behavior tests in the lower crates whenever possible.
-* Keep tests hermetic: in-memory SurrealDB (`kv-mem`), `mockall`, `mockito` and the
+* Keep tests hermetic: in-memory sqlite, `mockall`, `mockito` and the
   in-process `nostr-relay-builder` relay are the fixtures; CI has no live relay, Esplora or mint.
 * NEVER manually trigger the `Release precompiled binaries` workflow to test anything: it
   publishes signed precompiled native artifacts to GitHub releases. Validate locally with
   `just check`; release workflows are not test fixtures.
+* Always check that persistence changes are done for `sqlite` AND `postgres`
 
 ## Key Patterns
 

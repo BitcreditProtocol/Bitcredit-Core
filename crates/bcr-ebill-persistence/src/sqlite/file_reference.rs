@@ -1,8 +1,8 @@
 use crate::sql::file_reference::{
     DELETE_CONTEXTS, DELETE_FILE_REFERENCE, FileReferenceContextRow, FileReferenceRow,
-    INSERT_CONTEXT, INSERT_FILE_REFERENCE, SELECT_ALL, SELECT_BY_NOSTR_HASH, SELECT_CONTEXTS,
-    SELECT_FILE_REFERENCE, SELECT_IMPORTANT, UPDATE_FILE_REFERENCE, add_url_deduped,
-    context_to_row, file_reference_from_row, file_reference_to_row,
+    INSERT_CONTEXT, INSERT_FILE_REFERENCE_IF_ABSENT, SELECT_ALL, SELECT_BY_NOSTR_HASH,
+    SELECT_CONTEXTS, SELECT_FILE_REFERENCE, SELECT_IMPORTANT, UPDATE_FILE_REFERENCE,
+    add_url_deduped, context_to_row, file_reference_from_row, file_reference_to_row,
 };
 use crate::{FileReferenceStoreApi, Result};
 use async_trait::async_trait;
@@ -69,7 +69,7 @@ impl SqliteFileReferenceStore {
         let row = file_reference_to_row(reference)?;
         let mut tx = self.pool.begin().await?;
         if insert {
-            sqlx::query(INSERT_FILE_REFERENCE)
+            sqlx::query(INSERT_FILE_REFERENCE_IF_ABSENT)
                 .bind(row.hash)
                 .bind(row.nostr_hash)
                 .bind(row.name)

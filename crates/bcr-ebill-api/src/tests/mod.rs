@@ -47,7 +47,7 @@ pub mod tests {
     use bcr_ebill_persistence::traits::notification::EmailNotificationStoreApi;
     use bcr_ebill_persistence::{
         ContactStoreApi, FileReferenceStoreApi, NostrEventOffset, NostrEventOffsetStoreApi,
-        NotificationStoreApi, PendingContactShare, Result, ShareDirection, SurrealDbConfig,
+        NotificationStoreApi, PendingContactShare, Result, ShareDirection,
         traits::bill::{BillChainStoreApi, BillStoreApi},
         traits::company::{CompanyChainStoreApi, CompanyStoreApi},
         traits::file_upload::FileUploadStoreApi,
@@ -539,10 +539,6 @@ pub mod tests {
         crate::init(crate::Config {
             bitcoin_network: "testnet".to_string(),
             esplora_base_urls: vec![url::Url::parse("https://esplora.minibill.tech").unwrap()],
-            db_config: SurrealDbConfig {
-                connection_string: "ws://localhost:8800".to_string(),
-                ..SurrealDbConfig::default()
-            },
             db_conf: DbConfig {
                 connection_string: "sqlite://local_db/ebill.db".to_string(),
                 temp_files_path: PathBuf::from_str("/tmp").unwrap(),

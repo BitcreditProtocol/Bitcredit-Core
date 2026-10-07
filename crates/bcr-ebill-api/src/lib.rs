@@ -8,7 +8,7 @@ use bcr_ebill_persistence::db::surreal::SurrealWrapper;
 use bcr_ebill_persistence::get_surreal_db;
 use bcr_ebill_persistence::{
     ContactStoreApi, FileReferenceStoreApi, NostrChainEventStoreApi, NostrContactStoreApi,
-    NostrEventOffsetStoreApi, NotificationStoreApi, SurrealDbConfig,
+    NostrEventOffsetStoreApi, NotificationStoreApi,
     traits::bill::{BillChainStoreApi, BillStoreApi},
     traits::company::{CompanyChainStoreApi, CompanyStoreApi},
     traits::file_upload::FileUploadStoreApi,
@@ -20,6 +20,9 @@ use bcr_ebill_persistence::{
 use bitcoin::Network;
 use log::error;
 use std::sync::{Arc, RwLock};
+
+#[cfg(not(any(feature = "sqlite", feature = "postgres")))]
+compile_error!("Either feature `sqlite` or `postgres` must be enabled.");
 
 pub mod constants;
 pub mod external;
@@ -35,9 +38,7 @@ pub struct Config {
     /// The first URL is used for API requests with fallback to subsequent URLs on failure.
     /// The first URL is also used for user-facing links (e.g., mempool explorer links).
     pub esplora_base_urls: Vec<url::Url>,
-    /// The old surreal db config
-    pub db_config: SurrealDbConfig,
-    /// The new database config
+    /// The database config
     pub db_conf: DbConfig,
     pub nostr_config: NostrConfig,
     pub mint_config: MintConfig,
@@ -175,7 +176,7 @@ pub struct DbContext {
     pub nostr_chain_event_store: Arc<dyn NostrChainEventStoreApi>,
 }
 
-/// Creates a new instance of the DbContext with the given SurrealDB configuration.
+/// Creates a new instance of the DbContext with the given configuration
 pub async fn get_db_context(conf: &Config) -> bcr_ebill_persistence::Result<DbContext> {
     #[cfg(all(not(feature = "sqlite"), not(feature = "postgres")))]
     let db = get_surreal_db(&conf.db_config).await?;

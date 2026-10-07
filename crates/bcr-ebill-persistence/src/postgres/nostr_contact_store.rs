@@ -1,6 +1,7 @@
 use crate::{
     Error, Result,
     sql::{
+        escape_like,
         nostr_chain_event::NostrEventDb,
         nostr_contact_store::{
             CONTACT_SELECT_BASE, DELETE_CONTACT, DELETE_PENDING_SHARE, DELETE_RELAY_RETRY,
@@ -161,8 +162,9 @@ impl NostrStoreApi for PostgresNostrStore {
                 separated.push_bind(trust_level_to_db(&level));
             }
         }
-        query.push(") AND LOWER(name) LIKE ");
-        query.push_bind(format!("%{}%", search_term.to_lowercase()));
+        query.push(") AND LOWER(name) LIKE LOWER(");
+        query.push_bind(format!("%{}%", escape_like(search_term)));
+        query.push(") ESCAPE '\\'");
         let rows: Vec<NostrContactRow> = query.build_query_as().fetch_all(&self.pool).await?;
         rows.into_iter().map(TryInto::try_into).collect()
     }

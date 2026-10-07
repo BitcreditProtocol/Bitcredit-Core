@@ -1,5 +1,6 @@
 #![recursion_limit = "256"]
 pub mod constants;
+#[cfg(any(feature = "surrealkv", feature = "protocol-ws"))]
 pub mod db;
 pub mod file_upload;
 #[cfg(test)]
@@ -73,6 +74,7 @@ pub enum Error {
     SqlxQuery(#[from] sqlx::Error),
 }
 
+#[cfg(any(feature = "surrealkv", feature = "protocol-ws"))]
 impl From<surrealdb::Error> for Error {
     fn from(e: surrealdb::Error) -> Self {
         Error::SurrealConnection(format!("SurrealDB connection error: {e}"))
@@ -104,9 +106,13 @@ pub async fn get_postgres_db(config: &DbConfig) -> Result<postgres::PostgresPers
     Ok(db)
 }
 
+#[cfg(any(feature = "surrealkv", feature = "protocol-ws"))]
 pub use db::file_reference::SurrealFileReferenceStore;
+#[cfg(any(feature = "surrealkv", feature = "protocol-ws"))]
 pub use db::file_upload::FileUploadStore;
+#[cfg(any(feature = "surrealkv", feature = "protocol-ws"))]
 pub use db::get_surreal_db;
+#[cfg(any(feature = "surrealkv", feature = "protocol-ws"))]
 pub use db::{
     SurrealDbConfig, bill::SurrealBillStore, bill_chain::SurrealBillChainStore,
     company::SurrealCompanyStore, company_chain::SurrealCompanyChainStore,
@@ -118,6 +124,7 @@ pub use db::{
 pub use traits::contact::ContactStoreApi;
 pub use traits::file_reference::FileReferenceStoreApi;
 // Backwards compatibility alias
+#[cfg(any(feature = "surrealkv", feature = "protocol-ws"))]
 pub use db::nostr_contact_store::SurrealNostrStore as SurrealNostrContactStore;
 pub use traits::nostr::{
     NostrChainEventStoreApi, NostrEventOffset, NostrEventOffsetStoreApi,

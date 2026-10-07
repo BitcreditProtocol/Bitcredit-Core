@@ -287,12 +287,6 @@ pub(crate) const DELETE_LOCAL_OVERRIDE: &str = r#"
       AND node_id = $2
 "#;
 
-pub(crate) fn escape_like(term: &str) -> String {
-    term.replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_")
-}
-
 macro_rules! bind_company {
     ($query:expr, $row:expr) => {
         $query

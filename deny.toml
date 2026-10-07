@@ -22,20 +22,10 @@ unmaintained = "workspace"
 # https://embarkstudios.github.io/cargo-deny/checks/licenses/cfg.html
 [licenses]
 allow = ["MIT", "Apache-2.0", "Unicode-3.0", "Unlicense", "CDLA-Permissive-2.0", "MPL-2.0", "ISC", "CC0-1.0",
-    "BUSL-1.1", "BSD-3-Clause", "MITNFA", "Zlib", "BSD-2-Clause", "Apache-2.0 WITH LLVM-exception"
+    "BSD-3-Clause", "MITNFA", "Zlib", "BSD-2-Clause", "Apache-2.0 WITH LLVM-exception"
 ]
 confidence-threshold = 0.8
 exceptions = []
-
-[[licenses.clarify]]
-name = "surrealdb"
-expression = "BUSL-1.1"
-license-files = []
-
-[[licenses.clarify]]
-name = "surrealdb-core"
-expression = "BUSL-1.1"
-license-files = []
 
 [[licenses.clarify]]
 name = "allo-isolate"

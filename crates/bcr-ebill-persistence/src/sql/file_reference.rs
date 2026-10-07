@@ -51,7 +51,7 @@ pub(crate) const SELECT_CONTEXTS: &str = r#"
     ORDER BY position ASC
 "#;
 
-pub(crate) const INSERT_FILE_REFERENCE: &str = r#"
+pub(crate) const INSERT_FILE_REFERENCE_IF_ABSENT: &str = r#"
     INSERT INTO file_reference (
         hash,
         nostr_hash,
@@ -65,6 +65,7 @@ pub(crate) const INSERT_FILE_REFERENCE: &str = r#"
         $1, $2, $3, $4,
         $5, $6, $7
     )
+    ON CONFLICT (hash) DO NOTHING
 "#;
 
 pub(crate) const UPDATE_FILE_REFERENCE: &str = r#"

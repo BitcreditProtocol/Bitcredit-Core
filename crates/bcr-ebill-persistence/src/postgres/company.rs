@@ -4,12 +4,12 @@ use crate::sql::company::{
     LocalSignatoryOverrideRow, SEARCH, SELECT_COMPANIES_WITH_KEYS_BY_STATUS, SELECT_COMPANY,
     SELECT_EMAIL_CONFIRMATIONS, SELECT_KEY, SELECT_LOCAL_OVERRIDES, SELECT_SIGNATORIES,
     UPDATE_COMPANY, UPSERT_EMAIL_CONFIRMATION, UPSERT_LOCAL_OVERRIDE, bind_company, bind_signatory,
-    company_from_row, company_signatory_to_row, company_to_row, escape_like,
+    company_from_row, company_signatory_to_row, company_to_row,
 };
 use crate::sql::identity::{
     EmailConfirmationRow, email_confirmation_from_row, email_confirmation_to_row,
 };
-use crate::sql::{unit_enum_from_db, unit_enum_to_db};
+use crate::sql::{escape_like, unit_enum_from_db, unit_enum_to_db};
 use crate::traits::company::CompanyStoreApi;
 use crate::{Error, Result};
 use async_trait::async_trait;

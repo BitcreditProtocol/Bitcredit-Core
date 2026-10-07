@@ -19,7 +19,6 @@ Future<void> initCryptoProvider() =>
     RustLib.instance.api.crateFfiInitCryptoProvider();
 
 class EbillConfig {
-  final String dbFolderPath;
   final String sqliteDbPath;
   final String tempFilesPath;
   final String? logLevel;
@@ -41,7 +40,6 @@ class EbillConfig {
   final String defaultCourtUrl;
 
   const EbillConfig({
-    required this.dbFolderPath,
     required this.sqliteDbPath,
     required this.tempFilesPath,
     this.logLevel,
@@ -65,7 +63,6 @@ class EbillConfig {
 
   @override
   int get hashCode =>
-      dbFolderPath.hashCode ^
       sqliteDbPath.hashCode ^
       tempFilesPath.hashCode ^
       logLevel.hashCode ^
@@ -91,7 +88,6 @@ class EbillConfig {
       identical(this, other) ||
       other is EbillConfig &&
           runtimeType == other.runtimeType &&
-          dbFolderPath == other.dbFolderPath &&
           sqliteDbPath == other.sqliteDbPath &&
           tempFilesPath == other.tempFilesPath &&
           logLevel == other.logLevel &&

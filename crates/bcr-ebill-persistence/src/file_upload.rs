@@ -86,6 +86,13 @@ impl FileUploadStoreApi for FileUploadStore {
     }
 }
 
+fn is_sidecar(name: &str) -> bool {
+    matches!(
+        name,
+        ".DS_Store" | "Thumbs.db" | "ehthumbs.db" | "desktop.ini" | ".directory"
+    ) || name.starts_with("._")
+}
+
 async fn read_first_file(dir: impl AsRef<Path>) -> io::Result<Option<(String, Vec<u8>)>> {
     let mut entries = fs::read_dir(dir).await?;
 
@@ -93,8 +100,7 @@ async fn read_first_file(dir: impl AsRef<Path>) -> io::Result<Option<(String, Ve
         let file_name = entry.file_name();
         let name = file_name.to_string_lossy();
 
-        // Ignore hidden files/directories like .DS_Store, .git, etc.
-        if name.starts_with('.') {
+        if is_sidecar(&name) {
             continue;
         }
 
@@ -168,7 +174,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn read_temp_upload_file_ignores_hidden_files() {
+    async fn read_temp_upload_file_ignores_sidecar_files() {
         let temp = tempdir().unwrap();
         let store = FileUploadStore::new(temp.path().to_path_buf());
         let upload_id = Uuid::new_v4();
@@ -177,7 +183,7 @@ mod tests {
         fs::write(upload_dir.join(".DS_Store"), b"hidden")
             .await
             .unwrap();
-        fs::write(upload_dir.join(".hidden"), b"also hidden")
+        fs::write(upload_dir.join(".directory"), b"also hidden")
             .await
             .unwrap();
         fs::write(upload_dir.join("visible.txt"), b"visible contents")
@@ -215,7 +221,7 @@ mod tests {
         let upload_id = Uuid::new_v4();
         let upload_dir = store.upload_dir(&upload_id);
         fs::create_dir_all(&upload_dir).await.unwrap();
-        fs::write(upload_dir.join(".hidden"), b"hidden")
+        fs::write(upload_dir.join(".DS_Store"), b"hidden")
             .await
             .unwrap();
         let result = store.read_temp_upload_file(&upload_id).await;

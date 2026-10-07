@@ -10,7 +10,7 @@ test-postgres:
 
 
 flutter:
-    dart run build_runner build --delete-conflicting-outputs
+    dart run build_runner build
     flutter_rust_bridge_codegen generate
 
 # DB sqlite

@@ -11,13 +11,11 @@ const defaultBlossomServer =
 class DevEnvironment {
   DevEnvironment({
     required this.baseDir,
-    required this.dbDir,
     required this.tempFilesDir,
     required this.sqliteDbFile,
   });
 
   final Directory baseDir;
-  final Directory dbDir;
   final Directory tempFilesDir;
   final File sqliteDbFile;
 
@@ -39,18 +37,14 @@ class DevEnvironment {
       await resetMarker.delete();
     }
 
-    final db = Directory('${base.path}/db');
-    final files = Directory('${base.path}/files');
     final tempFiles = Directory('${base.path}/temp_files');
     final sqliteDir = Directory('${base.path}/sqlite');
     final sqliteDbFile = File('${sqliteDir.path}/ebill.db');
 
-    await db.create(recursive: true);
-    await files.create(recursive: true);
     await tempFiles.create(recursive: true);
     await sqliteDir.create(recursive: true);
 
-    return DevEnvironment(baseDir: base, dbDir: db, tempFilesDir: tempFiles, sqliteDbFile: sqliteDbFile);
+    return DevEnvironment(baseDir: base, tempFilesDir: tempFiles, sqliteDbFile: sqliteDbFile);
   }
 
   static Future<void> requestReset(String basePath) async {
@@ -64,7 +58,6 @@ class DevEnvironment {
   }
 
   EbillConfig toConfig() => EbillConfig(
-        dbFolderPath: dbDir.path,
         sqliteDbPath: sqliteDbFile.path,
         tempFilesPath: tempFilesDir.path,
         logLevel: 'debug',

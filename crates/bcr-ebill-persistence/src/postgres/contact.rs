@@ -7,9 +7,12 @@ use sqlx::{PgPool, types::Text};
 
 use crate::{
     ContactStoreApi, Result,
-    sql::contact::{
-        ContactRow, DELETE, INSERT, SEARCH, SELECT_ALL, SELECT_ONE, UPDATE, bind_insert,
-        bind_update, ensure_node_id_matches,
+    sql::{
+        contact::{
+            ContactRow, DELETE, INSERT, SEARCH, SELECT_ALL, SELECT_ONE, UPDATE, bind_insert,
+            bind_update, ensure_node_id_matches,
+        },
+        escape_like,
     },
 };
 
@@ -29,7 +32,7 @@ impl ServiceTraitBounds for PostgresContactStore {}
 #[async_trait]
 impl ContactStoreApi for PostgresContactStore {
     async fn search(&self, search_term: &str) -> Result<Vec<Contact>> {
-        let search_term = format!("%{}%", search_term);
+        let search_term = format!("%{}%", escape_like(search_term));
         let rows: Vec<ContactRow> = sqlx::query_as(SEARCH)
             .bind(search_term)
             .fetch_all(&self.pool)

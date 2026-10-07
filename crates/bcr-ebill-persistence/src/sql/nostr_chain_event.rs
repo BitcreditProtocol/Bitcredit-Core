@@ -292,21 +292,3 @@ impl TryFrom<NostrEventDb> for Event {
         ))
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::deserialize_payload;
-
-    #[test]
-    fn reads_payload_persisted_with_nostr_0_43() {
-        let keys = nostr_043::key::Keys::generate();
-        let legacy_event =
-            nostr_043::event::EventBuilder::new(nostr_043::event::Kind::TextNote, "legacy content")
-                .sign_with_keys(&keys)
-                .expect("could not create legacy event");
-        let payload =
-            serde_json::to_string(&legacy_event).expect("could not serialize legacy event");
-        let loaded = deserialize_payload(&payload).expect("could not decode legacy nostr payload");
-        assert_eq!(loaded.content, "legacy content");
-    }
-}

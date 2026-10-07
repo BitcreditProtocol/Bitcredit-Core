@@ -47,7 +47,6 @@ use bcr_ebill_persistence::traits::notification::NotificationFilter;
 use bcr_ebill_persistence::{
     ContactStoreApi, DbConfig, FileReferenceStoreApi, NostrChainEventStoreApi,
     NostrEventOffsetStoreApi, NotificationStoreApi, PendingContactShare, ShareDirection,
-    SurrealDbConfig,
 };
 use nostr_relay_builder::MockRelay;
 
@@ -127,10 +126,6 @@ pub fn init_test_cfg() {
             let _ = bcr_ebill_api::init(Config {
                 bitcoin_network: "testnet".to_string(),
                 esplora_base_urls: vec![url::Url::parse("https://esplora.minibill.tech").unwrap()],
-                db_config: SurrealDbConfig {
-                    connection_string: "ws://localhost:8800".to_string(),
-                    ..SurrealDbConfig::default()
-                },
                 db_conf: DbConfig {
                     connection_string: "sqlite://local_db/ebill.db".to_string(),
                     temp_files_path: PathBuf::from_str("/tmp").unwrap(),
