@@ -6,7 +6,7 @@ You can install it with `cargo install bdk-cli --features esplora`
 
 Then, you can use the `justfile` in the project root to check balance, sync the wallet, or send transactions:
 
-Example with descriptor `tr(cPHbchvqgi9ACegotAK34Hr17RokaeEqavMdsRw3XuWtghXBUYU2)#ujfsz6y4` - you can get this from E-Bill.
+Example with descriptor `tr(cPHbchvqgi9ACegotAK34Hr17RokaeEqavMdsRw3XuWtghXBUYU2)#ujfsz6y4` - you can get this from eBills.
 
 First, sync the wallet:
 

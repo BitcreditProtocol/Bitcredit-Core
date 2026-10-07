@@ -1,6 +1,6 @@
-# E-Bills
+# eBills
 
-Bitcredit E-Bills project
+Bitcredit eBills project
 
 ### Crates
 
@@ -9,8 +9,8 @@ The project consists of the following crates:
 * `bcr-ebill-core` - core data models and traits
 * `bcr-ebill-persistence` - persistence traits and SurrealDB implementation
 * `bcr-ebill-transport` - network transport API traits and Nostr implementation
-* `bcr-ebill-api` - API of the E-Bills project, contains most of the business logic
-* `bcr-ebill-flutter-ffi` - Entrypoint for the Native Flutter FFI version of the E-Bill API
+* `bcr-ebill-api` - API of the eBills project, contains most of the business logic
+* `bcr-ebill-flutter-ffi` - Entrypoint for the Native Flutter FFI version of the eBills API
 
 ### Entrypoint
 

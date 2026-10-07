@@ -1,6 +1,6 @@
 # Documentation
 
-This is the documentation of the E-Bill API. The API can be used both as a Web API, as well as a WebAssembly API.
+This is the documentation of the eBills API. The API can be used both as a Web API, as well as a WebAssembly API.
 
 ## Contents
 

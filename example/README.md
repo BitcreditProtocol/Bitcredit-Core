@@ -1,6 +1,6 @@
-# E-Bill Flutter FFI test harness
+# eBills Flutter FFI test harness
 
-Simple test harness for the E-Bill Flutter FFI
+Simple test harness for the eBills Flutter FFI
 
 ## Rebuild FFI Bindings
 
