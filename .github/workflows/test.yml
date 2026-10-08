@@ -15,6 +15,7 @@ permissions:
 
 env:
   CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+  CARGO_PROFILE_DEV_DEBUG: "0"
 
 jobs:
   test:
@@ -57,6 +58,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           prefix-key: "ebill-01"
+          save-if: ${{ github.ref == 'refs/heads/master' }}
 
       - name: Run tests
         run: cargo test --workspace --verbose
