@@ -467,3 +467,8 @@ impl From<bcr_ebill_core::application::nostr::ResendQueueEntryStatus> for Resend
         }
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct MnemonicResponse {
+    pub mnemonic: String,
+}

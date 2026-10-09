@@ -1,5 +1,7 @@
+use std::sync::Arc;
+
 use crate::{
-    Error, Result,
+    EncryptionContext, Error, Result,
     sql::{
         escape_like,
         nostr_chain_event::NostrEventDb,
@@ -7,13 +9,13 @@ use crate::{
             CONTACT_SELECT_BASE, DELETE_CONTACT, DELETE_PENDING_SHARE, DELETE_RELAY_RETRY,
             INSERT_RELAY_RETRY, NostrContactRow, PendingContactShareRow, RelaySyncRetryRow,
             RelaySyncStatusRow, SELECT_CONTACT_BY_ID, SELECT_PENDING_RELAY_RETRIES,
-            SELECT_PENDING_RELAYS, SELECT_PENDING_SHARE, SELECT_PENDING_SHARE_BY_PRIVATE_KEY,
-            SELECT_PENDING_SHARE_EXISTS, SELECT_PENDING_SHARES_BY_RECEIVER,
-            SELECT_PENDING_SHARES_BY_RECEIVER_DIRECTION, SELECT_RELAY_RETRY_COUNT,
-            SELECT_RELAY_SYNC_STATUS, UPDATE_HANDSHAKE_STATUS, UPDATE_RELAY_RETRY_FAILED,
-            UPDATE_RELAY_SYNC_PROGRESS, UPDATE_TRUST_LEVEL, UPSERT_CONTACT, UPSERT_PENDING_SHARE,
-            UPSERT_RELAY_LAST_SEEN, UPSERT_RELAY_SYNC_STATUS, handshake_status_to_db,
-            nostr_contact_to_row, share_direction_to_db, sync_status_to_db, trust_level_to_db,
+            SELECT_PENDING_RELAYS, SELECT_PENDING_SHARE, SELECT_PENDING_SHARE_EXISTS,
+            SELECT_PENDING_SHARES_BY_RECEIVER, SELECT_PENDING_SHARES_BY_RECEIVER_DIRECTION,
+            SELECT_RELAY_RETRY_COUNT, SELECT_RELAY_SYNC_STATUS, UPDATE_HANDSHAKE_STATUS,
+            UPDATE_RELAY_RETRY_FAILED, UPDATE_RELAY_SYNC_PROGRESS, UPDATE_TRUST_LEVEL,
+            UPSERT_CONTACT, UPSERT_PENDING_SHARE, UPSERT_RELAY_LAST_SEEN, UPSERT_RELAY_SYNC_STATUS,
+            handshake_status_to_db, nostr_contact_to_row, share_direction_to_db, sync_status_to_db,
+            trust_level_to_db,
         },
         timestamp_to_db,
     },
@@ -26,18 +28,63 @@ use bcr_common::core::NodeId;
 use bcr_ebill_core::{
     application::ServiceTraitBounds,
     application::nostr_contact::{HandshakeStatus, NostrContact, NostrPublicKey, TrustLevel},
-    protocol::{SecretKey, Timestamp},
+    protocol::Timestamp,
 };
+use bitcoin::base58;
 use sqlx::{PgPool, Postgres, QueryBuilder, types::Json};
 
 #[derive(Clone)]
 pub struct PostgresNostrStore {
     pool: PgPool,
+    encryption_ctx: Arc<EncryptionContext>,
 }
 
 impl PostgresNostrStore {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new(pool: PgPool, encryption_ctx: Arc<EncryptionContext>) -> Self {
+        Self {
+            pool,
+            encryption_ctx,
+        }
+    }
+
+    fn encrypt_contact_row(&self, mut row: NostrContactRow) -> Result<NostrContactRow> {
+        if let Some(key) = row.contact_private_key.as_mut() {
+            let encrypted_key = self.encryption_ctx.encrypt(key.as_bytes())?;
+            *key = base58::encode(&encrypted_key);
+        }
+        Ok(row)
+    }
+
+    fn decrypt_contact_row(&self, mut row: NostrContactRow) -> Result<NostrContact> {
+        if let Some(key) = row.contact_private_key.as_mut() {
+            let decoded_key = base58::decode(key)?;
+            let decrypted_key = self.encryption_ctx.decrypt(&decoded_key)?;
+            *key = String::from_utf8(decrypted_key)
+                .map_err(|e| Error::InvalidData(format!("Invalid contact private key: {e}")))?;
+        }
+        row.try_into()
+    }
+
+    fn encrypt_pending_share_row(
+        &self,
+        mut row: PendingContactShareRow,
+    ) -> Result<PendingContactShareRow> {
+        let encrypted_key = self
+            .encryption_ctx
+            .encrypt(row.contact_private_key.as_bytes())?;
+        row.contact_private_key = base58::encode(&encrypted_key);
+        Ok(row)
+    }
+
+    fn decrypt_pending_share_row(
+        &self,
+        mut row: PendingContactShareRow,
+    ) -> Result<PendingContactShare> {
+        let decoded_key = base58::decode(&row.contact_private_key)?;
+        let decrypted_key = self.encryption_ctx.decrypt(&decoded_key)?;
+        row.contact_private_key = String::from_utf8(decrypted_key)
+            .map_err(|e| Error::InvalidData(format!("Invalid contact private key: {e}")))?;
+        row.try_into()
     }
 }
 
@@ -63,14 +110,18 @@ impl NostrStoreApi for PostgresNostrStore {
         }
         query.push(")");
         let rows: Vec<NostrContactRow> = query.build_query_as().fetch_all(&self.pool).await?;
-        rows.into_iter().map(TryInto::try_into).collect()
+        rows.into_iter()
+            .map(|row| self.decrypt_contact_row(row))
+            .collect()
     }
 
     async fn get_all(&self) -> Result<Vec<NostrContact>> {
         let rows: Vec<NostrContactRow> = sqlx::query_as(CONTACT_SELECT_BASE)
             .fetch_all(&self.pool)
             .await?;
-        rows.into_iter().map(TryInto::try_into).collect()
+        rows.into_iter()
+            .map(|row| self.decrypt_contact_row(row))
+            .collect()
     }
 
     async fn by_npub(&self, npub: &NostrPublicKey) -> Result<Option<NostrContact>> {
@@ -78,11 +129,11 @@ impl NostrStoreApi for PostgresNostrStore {
             .bind(npub.to_hex())
             .fetch_optional(&self.pool)
             .await?;
-        row.map(TryInto::try_into).transpose()
+        row.map(|row| self.decrypt_contact_row(row)).transpose()
     }
 
     async fn upsert(&self, data: &NostrContact) -> Result<()> {
-        let row = nostr_contact_to_row(data)?;
+        let row = self.encrypt_contact_row(nostr_contact_to_row(data)?)?;
         sqlx::query(UPSERT_CONTACT)
             .bind(row.id)
             .bind(row.node_id)
@@ -91,10 +142,7 @@ impl NostrStoreApi for PostgresNostrStore {
             .bind(row.blossom_servers)
             .bind(row.trust_level)
             .bind(row.handshake_status)
-            .bind(
-                row.contact_private_key
-                    .map(|pk| pk.display_secret().to_string()),
-            )
+            .bind(row.contact_private_key)
             .bind(row.mint_url)
             .execute(&self.pool)
             .await?;
@@ -166,17 +214,21 @@ impl NostrStoreApi for PostgresNostrStore {
         query.push_bind(format!("%{}%", escape_like(search_term)));
         query.push(") ESCAPE '\\'");
         let rows: Vec<NostrContactRow> = query.build_query_as().fetch_all(&self.pool).await?;
-        rows.into_iter().map(TryInto::try_into).collect()
+        rows.into_iter()
+            .map(|row| self.decrypt_contact_row(row))
+            .collect()
     }
 
+    // Pending contact shares
     async fn add_pending_share(&self, pending_share: PendingContactShare) -> Result<()> {
-        let row = PendingContactShareRow::try_from(pending_share)?;
+        let row =
+            self.encrypt_pending_share_row(PendingContactShareRow::try_from(pending_share)?)?;
         sqlx::query(UPSERT_PENDING_SHARE)
             .bind(row.id)
             .bind(row.node_id)
             .bind(row.contact)
             .bind(row.sender_node_id)
-            .bind(row.contact_private_key.display_secret().to_string())
+            .bind(row.contact_private_key)
             .bind(row.receiver_node_id)
             .bind(row.received_at)
             .bind(row.direction)
@@ -191,19 +243,8 @@ impl NostrStoreApi for PostgresNostrStore {
             .bind(id)
             .fetch_optional(&self.pool)
             .await?;
-        row.map(TryInto::try_into).transpose()
-    }
-
-    async fn get_pending_share_by_private_key(
-        &self,
-        private_key: &SecretKey,
-    ) -> Result<Option<PendingContactShare>> {
-        let row: Option<PendingContactShareRow> =
-            sqlx::query_as(SELECT_PENDING_SHARE_BY_PRIVATE_KEY)
-                .bind(private_key.display_secret().to_string())
-                .fetch_optional(&self.pool)
-                .await?;
-        row.map(TryInto::try_into).transpose()
+        row.map(|row| self.decrypt_pending_share_row(row))
+            .transpose()
     }
 
     async fn list_pending_shares_by_receiver(
@@ -214,7 +255,9 @@ impl NostrStoreApi for PostgresNostrStore {
             .bind(receiver_node_id.to_string())
             .fetch_all(&self.pool)
             .await?;
-        rows.into_iter().map(TryInto::try_into).collect()
+        rows.into_iter()
+            .map(|row| self.decrypt_pending_share_row(row))
+            .collect()
     }
 
     async fn list_pending_shares_by_receiver_and_direction(
@@ -228,7 +271,9 @@ impl NostrStoreApi for PostgresNostrStore {
                 .bind(share_direction_to_db(&direction))
                 .fetch_all(&self.pool)
                 .await?;
-        rows.into_iter().map(TryInto::try_into).collect()
+        rows.into_iter()
+            .map(|row| self.decrypt_pending_share_row(row))
+            .collect()
     }
 
     async fn delete_pending_share(&self, id: &str) -> Result<()> {
@@ -398,14 +443,18 @@ impl NostrStoreApi for PostgresNostrStore {
 #[cfg(test)]
 mod tests {
     use super::PostgresNostrStore;
+    use crate::EncryptionContext;
     use crate::tests::nostr_contact_store;
+    use bcr_ebill_core::protocol::crypto::BcrKeys;
     use sqlx::PgPool;
+    use std::sync::Arc;
 
     macro_rules! contract_test {
         ($name:ident, $contract:ident) => {
             #[sqlx::test(migrations = "migrations/postgres")]
             async fn $name(pool: PgPool) {
-                let store = PostgresNostrStore::new(pool);
+                let store =
+                    PostgresNostrStore::new(pool, Arc::new(EncryptionContext::new(BcrKeys::new())));
                 nostr_contact_store::$contract(&store).await;
             }
         };

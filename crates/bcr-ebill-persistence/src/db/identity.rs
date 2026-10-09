@@ -130,7 +130,8 @@ impl IdentityStoreApi for SurrealIdentityStore {
         }
     }
 
-    async fn get_or_create_key_pair(&self) -> Result<BcrKeys> {
+    // WARN: NOT ADAPTED TO ENCRYPTION
+    async fn get_or_create_key_pair(&self, _keys: &BcrKeys, _seed: &str) -> Result<BcrKeys> {
         let keys = match self.get_key_pair().await {
             Ok(keys) => keys,
             _ => {

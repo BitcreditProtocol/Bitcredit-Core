@@ -11,7 +11,7 @@ use crate::sql::identity::{
 };
 use crate::sql::{escape_like, unit_enum_from_db, unit_enum_to_db};
 use crate::traits::company::CompanyStoreApi;
-use crate::{Error, Result};
+use crate::{EncryptionContext, Error, Result};
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
 use bcr_ebill_core::application::company::{
@@ -20,18 +20,23 @@ use bcr_ebill_core::application::company::{
 use bcr_ebill_core::application::{ServiceTraitBounds, company::Company};
 use bcr_ebill_core::protocol::crypto::BcrKeys;
 use bcr_ebill_core::protocol::{EmailIdentityProofData, SignedIdentityProof};
-use bitcoin::secp256k1::SecretKey;
+use bitcoin::base58;
 use sqlx::{SqlitePool, types::Text};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct SqliteCompanyStore {
     pool: SqlitePool,
+    encryption_ctx: Arc<EncryptionContext>,
 }
 
 impl SqliteCompanyStore {
-    pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+    pub fn new(pool: SqlitePool, encryption_ctx: Arc<EncryptionContext>) -> Self {
+        Self {
+            pool,
+            encryption_ctx,
+        }
     }
 }
 
@@ -62,7 +67,7 @@ impl SqliteCompanyStore {
         #[derive(sqlx::FromRow)]
         struct Row {
             id: Text<NodeId>,
-            private_key: Text<SecretKey>,
+            private_key: String,
         }
         let status = unit_enum_to_db(&status)?;
         let rows: Vec<Row> = sqlx::query_as(SELECT_COMPANIES_WITH_KEYS_BY_STATUS)
@@ -73,8 +78,15 @@ impl SqliteCompanyStore {
         for row in rows {
             let id = row.id.into_inner();
             let company = self.load_company(&id).await?;
-            let private_key = row.private_key.into_inner();
-            result.insert(id, (company, BcrKeys::from_private_key(&private_key)));
+            let encoded_private_key = row.private_key;
+            let decoded_private_key = base58::decode(&encoded_private_key)?;
+            let decrypted_private_key = self.encryption_ctx.decrypt(&decoded_private_key)?;
+            let private_key = String::from_utf8(decrypted_private_key)
+                .map_err(|e| Error::InvalidData(format!("Invalid private key: {e}")))?;
+            result.insert(
+                id,
+                (company, BcrKeys::from_private_key_string(&private_key)?),
+            );
         }
         Ok(result)
     }
@@ -177,9 +189,13 @@ impl CompanyStoreApi for SqliteCompanyStore {
     }
 
     async fn save_key_pair(&self, id: &NodeId, key_pair: &BcrKeys) -> Result<()> {
+        let plaintext_key = key_pair.get_private_key_string();
+        let encrypted_key = self.encryption_ctx.encrypt(plaintext_key.as_bytes())?;
+        let encoded_key = base58::encode(&encrypted_key);
+
         sqlx::query(INSERT_KEY)
             .bind(Text(id.clone()))
-            .bind(Text(key_pair.get_private_key_string()))
+            .bind(encoded_key)
             .execute(&self.pool)
             .await?;
 
@@ -187,13 +203,18 @@ impl CompanyStoreApi for SqliteCompanyStore {
     }
 
     async fn get_key_pair(&self, id: &NodeId) -> Result<BcrKeys> {
-        let private_key: Option<Text<SecretKey>> = sqlx::query_scalar(SELECT_KEY)
+        let private_key: Option<String> = sqlx::query_scalar(SELECT_KEY)
             .bind(Text(id.clone()))
             .fetch_optional(&self.pool)
             .await?;
-        let private_key =
+        let row_private_key =
             private_key.ok_or_else(|| Error::NoSuchEntity("company".to_owned(), id.to_string()))?;
-        Ok(BcrKeys::from_private_key(&private_key.into_inner()))
+        let encoded_private_key = row_private_key;
+        let decoded_private_key = base58::decode(&encoded_private_key)?;
+        let decrypted_private_key = self.encryption_ctx.decrypt(&decoded_private_key)?;
+        let private_key = String::from_utf8(decrypted_private_key)
+            .map_err(|e| Error::InvalidData(format!("Invalid private key: {e}")))?;
+        Ok(BcrKeys::from_private_key_string(&private_key)?)
     }
 
     async fn get_email_confirmations(
@@ -286,13 +307,16 @@ impl CompanyStoreApi for SqliteCompanyStore {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::SqliteCompanyStore;
-    use crate::tests::company::test_company_store;
+    use crate::{EncryptionContext, tests::company::test_company_store};
+    use bcr_ebill_core::protocol::crypto::BcrKeys;
     use sqlx::SqlitePool;
 
     #[sqlx::test(migrations = "migrations/sqlite")]
     async fn company_store(pool: SqlitePool) {
-        let store = SqliteCompanyStore::new(pool);
+        let store = SqliteCompanyStore::new(pool, Arc::new(EncryptionContext::new(BcrKeys::new())));
         test_company_store(&store).await;
     }
 }

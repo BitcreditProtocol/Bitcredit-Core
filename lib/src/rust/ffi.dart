@@ -38,6 +38,7 @@ class EbillConfig {
   final bool devMode;
   final bool mandatoryEmailConfirmations;
   final String defaultCourtUrl;
+  final String mnemonic;
 
   const EbillConfig({
     required this.sqliteDbPath,
@@ -59,6 +60,7 @@ class EbillConfig {
     required this.devMode,
     required this.mandatoryEmailConfirmations,
     required this.defaultCourtUrl,
+    required this.mnemonic,
   });
 
   @override
@@ -81,7 +83,8 @@ class EbillConfig {
       numConfirmationsForPayment.hashCode ^
       devMode.hashCode ^
       mandatoryEmailConfirmations.hashCode ^
-      defaultCourtUrl.hashCode;
+      defaultCourtUrl.hashCode ^
+      mnemonic.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -108,5 +111,6 @@ class EbillConfig {
           numConfirmationsForPayment == other.numConfirmationsForPayment &&
           devMode == other.devMode &&
           mandatoryEmailConfirmations == other.mandatoryEmailConfirmations &&
-          defaultCourtUrl == other.defaultCourtUrl;
+          defaultCourtUrl == other.defaultCourtUrl &&
+          mnemonic == other.mnemonic;
 }

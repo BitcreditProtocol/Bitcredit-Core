@@ -117,11 +117,6 @@ pub trait NostrStoreApi: ServiceTraitBounds {
     async fn add_pending_share(&self, pending_share: PendingContactShare) -> Result<()>;
     /// Get a pending contact share by its unique id
     async fn get_pending_share(&self, id: &str) -> Result<Option<PendingContactShare>>;
-    /// Get a pending contact share by the contact's private key (for auto-accept matching)
-    async fn get_pending_share_by_private_key(
-        &self,
-        private_key: &SecretKey,
-    ) -> Result<Option<PendingContactShare>>;
     /// List all pending contact shares for a given receiver node id
     async fn list_pending_shares_by_receiver(
         &self,

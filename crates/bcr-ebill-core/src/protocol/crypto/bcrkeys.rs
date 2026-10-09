@@ -1,7 +1,7 @@
 use super::Result;
 use std::str::FromStr;
 
-use crate::protocol::blockchain::BlockchainType;
+use crate::protocol::{blockchain::BlockchainType, crypto::BIP39_WORD_COUNT};
 
 use bip39::Mnemonic;
 use bitcoin::{
@@ -9,9 +9,6 @@ use bitcoin::{
     hashes::{Hash, HashEngine, Hmac, HmacEngine, sha256, sha512},
     secp256k1::{Keypair, PublicKey, SECP256K1, SecretKey, rand},
 };
-
-/// Number of words to use when generating BIP39 seed phrases
-const BIP39_WORD_COUNT: usize = 12;
 
 /// A wrapper around the secp256k1 keypair that can be used for
 /// Bitcoin and Nostr keys.

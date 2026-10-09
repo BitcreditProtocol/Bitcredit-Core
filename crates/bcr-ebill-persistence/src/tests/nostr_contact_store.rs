@@ -242,18 +242,11 @@ where
     let sender = node_id();
     let receiver = node_id();
     let share = get_test_pending_share("share", &sender, &receiver, ShareDirection::Incoming);
-    let private_key = share.contact_private_key;
     store.add_pending_share(share.clone()).await.unwrap();
     let loaded = store.get_pending_share("share").await.unwrap().unwrap();
     assert_eq!(loaded.id, share.id);
     assert_eq!(loaded.contact.node_id, share.contact.node_id);
     assert_eq!(loaded.receiver_node_id, receiver);
-    let by_key = store
-        .get_pending_share_by_private_key(&private_key)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(by_key.id, "share");
     let by_receiver = store
         .list_pending_shares_by_receiver(&receiver)
         .await

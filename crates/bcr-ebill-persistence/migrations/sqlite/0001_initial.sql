@@ -150,11 +150,11 @@ CREATE TABLE mint_offers (
     ),
     discounted_sum_reference_exchange_rate TEXT NOT NULL,
 
-    proofs TEXT,
+    proofs BLOB,
     proofs_spent INTEGER NOT NULL DEFAULT 0
     CHECK (proofs_spent IN (0, 1)),
 
-    recovery_data TEXT,
+    recovery_data BLOB,
 
     FOREIGN KEY (mint_request_id)
         REFERENCES mint_requests(mint_request_id)
@@ -697,7 +697,7 @@ CREATE TABLE nostr_send_queue (
     id TEXT PRIMARY KEY NOT NULL,
     sender_id TEXT NOT NULL,
     recipient TEXT,
-    payload TEXT NOT NULL,
+    payload BLOB NOT NULL, -- encrypted JSON string
     created INTEGER NOT NULL
     CHECK (created >= 0),
     last_try INTEGER NOT NULL DEFAULT 0

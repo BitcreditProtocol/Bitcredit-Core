@@ -1,5 +1,5 @@
 use crate::{
-    Error, Result,
+    EncryptionContext, Error, Result,
     postgres::{
         bill::PostgresBillStore, bill_chain::PostgresBillChainStore, company::PostgresCompanyStore,
         company_chain::PostgresCompanyChainStore, contact::PostgresContactStore,
@@ -12,7 +12,7 @@ use crate::{
     },
 };
 use sqlx::{PgPool, postgres::PgPoolOptions};
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 pub mod bill;
 pub mod bill_chain;
@@ -83,32 +83,32 @@ impl PostgresPersistence {
         PostgresEmailNotificationStore::new(self.pool.clone())
     }
 
-    pub fn mint_store(&self) -> PostgresMintStore {
-        PostgresMintStore::new(self.pool.clone())
+    pub fn mint_store(&self, encryption_ctx: Arc<EncryptionContext>) -> PostgresMintStore {
+        PostgresMintStore::new(self.pool.clone(), encryption_ctx)
     }
 
     pub fn bill_chain_store(&self) -> PostgresBillChainStore {
         PostgresBillChainStore::new(self.pool.clone())
     }
 
-    pub fn bill_store(&self) -> PostgresBillStore {
-        PostgresBillStore::new(self.pool.clone())
+    pub fn bill_store(&self, encryption_ctx: Arc<EncryptionContext>) -> PostgresBillStore {
+        PostgresBillStore::new(self.pool.clone(), encryption_ctx)
     }
 
     pub fn company_chain_store(&self) -> PostgresCompanyChainStore {
         PostgresCompanyChainStore::new(self.pool.clone())
     }
 
-    pub fn company_store(&self) -> PostgresCompanyStore {
-        PostgresCompanyStore::new(self.pool.clone())
+    pub fn company_store(&self, encryption_ctx: Arc<EncryptionContext>) -> PostgresCompanyStore {
+        PostgresCompanyStore::new(self.pool.clone(), encryption_ctx)
     }
 
     pub fn identity_chain_store(&self) -> PostgresIdentityChainStore {
         PostgresIdentityChainStore::new(self.pool.clone())
     }
 
-    pub fn identity_store(&self) -> PostgresIdentityStore {
-        PostgresIdentityStore::new(self.pool.clone())
+    pub fn identity_store(&self, encryption_ctx: Arc<EncryptionContext>) -> PostgresIdentityStore {
+        PostgresIdentityStore::new(self.pool.clone(), encryption_ctx)
     }
 
     pub fn file_reference_store(&self) -> PostgresFileReferenceStore {
@@ -119,16 +119,22 @@ impl PostgresPersistence {
         PostgresNostrEventOffsetStore::new(self.pool.clone())
     }
 
-    pub fn nostr_event_queue_store(&self) -> PostgresNostrEventQueueStore {
-        PostgresNostrEventQueueStore::new(self.pool.clone())
+    pub fn nostr_event_queue_store(
+        &self,
+        encryption_ctx: Arc<EncryptionContext>,
+    ) -> PostgresNostrEventQueueStore {
+        PostgresNostrEventQueueStore::new(self.pool.clone(), encryption_ctx)
     }
 
     pub fn nostr_chain_event_store(&self) -> PostgresNostrChainEventStore {
         PostgresNostrChainEventStore::new(self.pool.clone())
     }
 
-    pub fn nostr_contact_store(&self) -> PostgresNostrStore {
-        PostgresNostrStore::new(self.pool.clone())
+    pub fn nostr_contact_store(
+        &self,
+        encryption_ctx: Arc<EncryptionContext>,
+    ) -> PostgresNostrStore {
+        PostgresNostrStore::new(self.pool.clone(), encryption_ctx)
     }
 
     pub fn notification_store(&self) -> PostgresNotificationStore {

@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use crate::{
     Error, Result,
     sql::{timestamp_from_db, timestamp_to_db},
@@ -127,22 +129,6 @@ pub(crate) const SELECT_PENDING_SHARE: &str = r#"
         initial_share_id
     FROM pending_contact_share
     WHERE id = $1
-"#;
-
-pub(crate) const SELECT_PENDING_SHARE_BY_PRIVATE_KEY: &str = r#"
-    SELECT
-        id,
-        node_id,
-        contact,
-        sender_node_id,
-        contact_private_key,
-        receiver_node_id,
-        received_at,
-        direction,
-        initial_share_id
-    FROM pending_contact_share
-    WHERE contact_private_key = $1
-    LIMIT 1
 "#;
 
 pub(crate) const SELECT_PENDING_SHARES_BY_RECEIVER: &str = r#"
@@ -335,7 +321,7 @@ pub(crate) struct NostrContactRow {
     pub blossom_servers: String,
     pub trust_level: String,
     pub handshake_status: String,
-    pub contact_private_key: Option<Text<SecretKey>>,
+    pub contact_private_key: Option<String>,
     pub mint_url: Option<String>,
 }
 
@@ -345,7 +331,7 @@ pub(crate) struct PendingContactShareRow {
     pub node_id: Text<NodeId>,
     pub contact: String,
     pub sender_node_id: Text<NodeId>,
-    pub contact_private_key: Text<SecretKey>,
+    pub contact_private_key: String,
     pub receiver_node_id: Text<NodeId>,
     pub received_at: i64,
     pub direction: String,
@@ -396,7 +382,9 @@ pub(crate) fn nostr_contact_to_row(contact: &NostrContact) -> Result<NostrContac
         blossom_servers,
         trust_level: trust_level_to_db(&contact.trust_level).to_owned(),
         handshake_status: handshake_status_to_db(&contact.handshake_status).to_owned(),
-        contact_private_key: contact.contact_private_key.map(Text),
+        contact_private_key: contact
+            .contact_private_key
+            .map(|v| v.display_secret().to_string()),
         mint_url: contact.mint_url.as_ref().map(url::Url::to_string),
     })
 }
@@ -421,7 +409,11 @@ impl TryFrom<NostrContactRow> for NostrContact {
             blossom_servers,
             trust_level: trust_level_from_db(&row.trust_level)?,
             handshake_status: handshake_status_from_db(&row.handshake_status)?,
-            contact_private_key: row.contact_private_key.map(Text::into_inner),
+            contact_private_key: row
+                .contact_private_key
+                .map(|v| SecretKey::from_str(&v))
+                .transpose()
+                .map_err(|e| Error::InvalidData(format!("invalid contact private key: {e}")))?,
             mint_url: row
                 .mint_url
                 .map(|value| {
@@ -446,7 +438,7 @@ impl TryFrom<PendingContactShare> for PendingContactShareRow {
             node_id: Text(share.node_id),
             contact,
             sender_node_id: Text(share.sender_node_id),
-            contact_private_key: Text(share.contact_private_key),
+            contact_private_key: share.contact_private_key.display_secret().to_string(),
             receiver_node_id: Text(share.receiver_node_id),
             received_at: timestamp_to_db(share.received_at)?,
             direction: share_direction_to_db(&share.direction).to_owned(),
@@ -466,7 +458,8 @@ impl TryFrom<PendingContactShareRow> for PendingContactShare {
             node_id: row.node_id.into_inner(),
             contact,
             sender_node_id: row.sender_node_id.into_inner(),
-            contact_private_key: row.contact_private_key.into_inner(),
+            contact_private_key: SecretKey::from_str(&row.contact_private_key)
+                .map_err(|e| Error::InvalidData(format!("invalid contact private key: {e}")))?,
             receiver_node_id: row.receiver_node_id.into_inner(),
             received_at: timestamp_from_db(row.received_at)?,
             direction: share_direction_from_db(&row.direction)?,

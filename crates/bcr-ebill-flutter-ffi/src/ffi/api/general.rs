@@ -4,10 +4,10 @@ use crate::ffi::{
     data::{
         BalanceResponse, BinaryFileResponse, BtcAddressAndSumPayload, BtcAddressPayload,
         CurrenciesResponse, CurrencyResponse, GeneralSearchFilterPayload, GeneralSearchResponse,
-        LinkToPayResponse, MempoolLinkResponse, OverviewBalanceResponse, OverviewResponse,
-        RequeueFailedResendMessagePayload, ResendQueueEntry, StatusResponse,
+        LinkToPayResponse, MempoolLinkResponse, MnemonicResponse, OverviewBalanceResponse,
+        OverviewResponse, RequeueFailedResendMessagePayload, ResendQueueEntry, StatusResponse,
     },
-    error::EbillFfiError,
+    error::{EbillFfiError, EbillFfiErrorCode, EbillFfiErrorKind},
 };
 use bcr_common::core::BillId;
 use bcr_ebill_api::service::{Error, file_upload_service::detect_content_type_for_bytes};
@@ -15,6 +15,7 @@ use bcr_ebill_core::{
     application::GeneralSearchFilterItemType,
     protocol::{
         BitcoinAddress, Currency, ProtocolValidationError, Sum, constants::VALID_CURRENCIES,
+        crypto::BIP39_WORD_COUNT,
     },
 };
 use flutter_rust_bridge::frb;
@@ -182,4 +183,18 @@ pub async fn requeue_failed_resend_queue_entry(
         .requeue_resend_queue_entry(&pl.id)
         .await?;
     Ok(())
+}
+
+#[frb]
+pub async fn generate_random_mnemonic() -> Result<MnemonicResponse, EbillFfiError> {
+    let mnemonic = bip39::Mnemonic::generate_in(bip39::Language::English, BIP39_WORD_COUNT)
+        .map_err(|e| EbillFfiError {
+            kind: EbillFfiErrorKind::Initialization,
+            code: EbillFfiErrorCode::Init,
+            msg: format!("Could not generate mnemonic: {e}"),
+        })?;
+
+    Ok(MnemonicResponse {
+        mnemonic: mnemonic.to_string(),
+    })
 }
