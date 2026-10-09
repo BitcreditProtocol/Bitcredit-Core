@@ -7,16 +7,28 @@ import 'ffi/error.dart';
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `build_api_config`, `init_logging`, `init_panic_hook`, `new`, `reset_runtime`
-// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `EbillRuntime`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `fmt`
-// These functions are ignored (category: IgnoreBecauseExplicitAttribute): `get_last_contact_publish_check`, `is_transport_connected`, `set_last_contact_publish_check`, `set_transport_connected`
+// These functions are ignored because they are not marked as `pub`: `build_api_config`, `create_runtime`, `get_active_ctx`, `get_active_instance_snapshot`, `get_last_contact_publish_check`, `init_crypto_provider`, `init_logging`, `init_panic_hook`, `initialize_process_globals`, `is_transport_connected`, `new`, `new`, `set_last_contact_publish_check`, `set_transport_connected`, `shutdown_runtime`, `validate_instance_network`
+// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `EbillRuntime`, `InstanceManager`, `InstanceRuntimeState`, `InstanceSnapshot`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `clone`, `clone`, `eq`, `fmt`, `fmt`, `hash`
 
-Future<void> initEbillFfi({required EbillConfig conf}) =>
-    RustLib.instance.api.crateFfiInitEbillFfi(conf: conf);
+/// Sets the active instance (e.g. testnet, or mainnet)
+Future<void> setActiveInstance({required InstanceId instanceId}) =>
+    RustLib.instance.api.crateFfiSetActiveInstance(instanceId: instanceId);
 
-Future<void> initCryptoProvider() =>
-    RustLib.instance.api.crateFfiInitCryptoProvider();
+/// Returns the active instance (e.g. testnet, or mainnet)
+Future<InstanceId?> getActiveInstance() =>
+    RustLib.instance.api.crateFfiGetActiveInstance();
+
+Future<void> initEbillInstance({
+  required InstanceId instanceId,
+  required EbillConfig conf,
+}) => RustLib.instance.api.crateFfiInitEbillInstance(
+  instanceId: instanceId,
+  conf: conf,
+);
+
+Future<void> resetEbillInstance({required InstanceId instanceId}) =>
+    RustLib.instance.api.crateFfiResetEbillInstance(instanceId: instanceId);
 
 class EbillConfig {
   final String sqliteDbPath;
@@ -114,3 +126,5 @@ class EbillConfig {
           defaultCourtUrl == other.defaultCourtUrl &&
           mnemonic == other.mnemonic;
 }
+
+enum InstanceId { mainnet, testnet }
