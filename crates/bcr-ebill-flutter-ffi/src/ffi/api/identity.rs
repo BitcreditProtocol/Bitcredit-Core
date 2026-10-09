@@ -1,5 +1,4 @@
 use crate::ffi::{
-    context::get_ctx,
     data::{
         Base64FileResponse, BinaryFileResponse, OptionalPostalAddressFfi, UploadFile,
         UploadFileResponse,
@@ -10,6 +9,7 @@ use crate::ffi::{
         },
     },
     error::EbillFfiError,
+    get_active_ctx,
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use bcr_common::core::NodeId;
@@ -42,12 +42,16 @@ pub struct SwitchIdentityState {
 }
 
 async fn get_file(file_name: &Name) -> Result<(Vec<u8>, String), EbillFfiError> {
-    let identity = get_ctx().await.identity_service.get_full_identity().await?;
+    let identity = get_active_ctx()
+        .await?
+        .identity_service
+        .get_full_identity()
+        .await?;
     let private_key = identity.key_pair.get_private_key();
     let id = identity.identity.node_id.clone();
 
-    let file_bytes = get_ctx()
-        .await
+    let file_bytes = get_active_ctx()
+        .await?
         .identity_service
         .open_and_decrypt_file(identity.identity, &id, file_name, &private_key)
         .await?;
@@ -85,14 +89,14 @@ pub async fn file_base64(file_name: &str) -> Result<Base64FileResponse, EbillFfi
 pub async fn upload(upload_file: UploadFile) -> Result<UploadFileResponse, EbillFfiError> {
     let upload_file_handler: &dyn UploadFileHandler = &upload_file as &dyn UploadFileHandler;
 
-    get_ctx()
-        .await
+    get_active_ctx()
+        .await?
         .file_upload_service
         .validate_attached_file(upload_file_handler)
         .await?;
 
-    let file_upload_response = get_ctx()
-        .await
+    let file_upload_response = get_active_ctx()
+        .await?
         .file_upload_service
         .upload_file(upload_file_handler)
         .await?;
@@ -102,10 +106,19 @@ pub async fn upload(upload_file: UploadFile) -> Result<UploadFileResponse, Ebill
 
 #[frb]
 pub async fn detail() -> Result<IdentityFfi, EbillFfiError> {
-    let my_identity = if !get_ctx().await.identity_service.identity_exists().await {
+    let my_identity = if !get_active_ctx()
+        .await?
+        .identity_service
+        .identity_exists()
+        .await
+    {
         return Err(bcr_ebill_api::service::Error::NotFound.into());
     } else {
-        let full_identity = get_ctx().await.identity_service.get_full_identity().await?;
+        let full_identity = get_active_ctx()
+            .await?
+            .identity_service
+            .get_full_identity()
+            .await?;
         IdentityFfi::from_identity(full_identity.identity)
     };
     Ok(my_identity)
@@ -115,8 +128,8 @@ pub async fn detail() -> Result<IdentityFfi, EbillFfiError> {
 pub async fn deanonymize(identity: NewIdentityPayload) -> Result<IdentityFfi, EbillFfiError> {
     let timestamp = Timestamp::now();
 
-    get_ctx()
-        .await
+    get_active_ctx()
+        .await?
         .identity_service
         .deanonymize_identity(
             IdentityType::from(IdentityTypeFfi::try_from(identity.t)?),
@@ -152,7 +165,11 @@ pub async fn deanonymize(identity: NewIdentityPayload) -> Result<IdentityFfi, Eb
         )
         .await?;
 
-    let full_identity = get_ctx().await.identity_service.get_full_identity().await?;
+    let full_identity = get_active_ctx()
+        .await?
+        .identity_service
+        .get_full_identity()
+        .await?;
     let identity = IdentityFfi::from_identity(full_identity.identity);
     Ok(identity)
 }
@@ -161,8 +178,8 @@ pub async fn deanonymize(identity: NewIdentityPayload) -> Result<IdentityFfi, Eb
 pub async fn create(identity: NewIdentityPayload) -> Result<IdentityFfi, EbillFfiError> {
     let timestamp = Timestamp::now();
 
-    get_ctx()
-        .await
+    get_active_ctx()
+        .await?
         .identity_service
         .create_identity(
             IdentityType::from(IdentityTypeFfi::try_from(identity.t)?),
@@ -198,7 +215,11 @@ pub async fn create(identity: NewIdentityPayload) -> Result<IdentityFfi, EbillFf
         )
         .await?;
 
-    let full_identity = get_ctx().await.identity_service.get_full_identity().await?;
+    let full_identity = get_active_ctx()
+        .await?
+        .identity_service
+        .get_full_identity()
+        .await?;
     let identity = IdentityFfi::from_identity(full_identity.identity);
 
     Ok(identity)
@@ -235,8 +256,8 @@ pub async fn change(identity_payload: ChangeIdentityPayload) -> Result<(), Ebill
         .try_map(|z| Zip::from_str(&z))?;
 
     let timestamp = Timestamp::now();
-    get_ctx()
-        .await
+    get_active_ctx()
+        .await?
         .identity_service
         .update_identity(
             identity_payload.name.map(Name::new).transpose()?,
@@ -270,8 +291,8 @@ pub async fn change_email(
     identity_email_payload: ChangeIdentityEmailPayload,
 ) -> Result<(), EbillFfiError> {
     let timestamp = Timestamp::now();
-    get_ctx()
-        .await
+    get_active_ctx()
+        .await?
         .identity_service
         .update_email(&Email::new(identity_email_payload.email)?, timestamp)
         .await?;
@@ -295,8 +316,8 @@ pub async fn active() -> Result<SwitchIdentity, EbillFfiError> {
 #[frb]
 pub async fn switch(payload: SwitchIdentity) -> Result<(), EbillFfiError> {
     let node_id = NodeId::from_str(&payload.node_id).map_err(ProtocolValidationError::from)?;
-    let personal_node_id = get_ctx()
-        .await
+    let personal_node_id = get_active_ctx()
+        .await?
         .identity_service
         .get_identity()
         .await?
@@ -304,8 +325,8 @@ pub async fn switch(payload: SwitchIdentity) -> Result<(), EbillFfiError> {
 
     // if it's the personal node id, set it
     if node_id == personal_node_id {
-        get_ctx()
-            .await
+        get_active_ctx()
+            .await?
             .identity_service
             .set_current_personal_identity(&node_id)
             .await?;
@@ -313,16 +334,16 @@ pub async fn switch(payload: SwitchIdentity) -> Result<(), EbillFfiError> {
     }
 
     // if it's one of our companies, set it
-    if get_ctx()
-        .await
+    if get_active_ctx()
+        .await?
         .company_service
         .get_list_of_companies()
         .await?
         .iter()
         .any(|c| c.id == node_id)
     {
-        get_ctx()
-            .await
+        get_active_ctx()
+            .await?
             .identity_service
             .set_current_company_identity(&node_id)
             .await?;
@@ -335,13 +356,17 @@ pub async fn switch(payload: SwitchIdentity) -> Result<(), EbillFfiError> {
 
 #[frb]
 pub async fn seed_backup() -> Result<SeedPhrase, EbillFfiError> {
-    let seed_phrase = get_ctx().await.identity_service.get_seedphrase().await?;
+    let seed_phrase = get_active_ctx()
+        .await?
+        .identity_service
+        .get_seedphrase()
+        .await?;
     Ok(SeedPhrase { seed_phrase })
 }
 
 #[frb]
 pub async fn seed_recover(seed_phrase_payload: SeedPhrase) -> Result<(), EbillFfiError> {
-    let context = get_ctx().await;
+    let context = get_active_ctx().await?;
     context
         .identity_service
         .recover_from_seedphrase(&seed_phrase_payload.seed_phrase)
@@ -365,8 +390,8 @@ pub async fn seed_recover(seed_phrase_payload: SeedPhrase) -> Result<(), EbillFf
 pub async fn share_contact_details(share_contact_to: ShareContactTo) -> Result<(), EbillFfiError> {
     let node_id =
         NodeId::from_str(&share_contact_to.recipient).map_err(ProtocolValidationError::from)?;
-    get_ctx()
-        .await
+    get_active_ctx()
+        .await?
         .identity_service
         .share_contact_details(&node_id)
         .await?;
@@ -375,8 +400,8 @@ pub async fn share_contact_details(share_contact_to: ShareContactTo) -> Result<(
 
 #[frb]
 pub async fn dev_mode_get_full_identity_chain() -> Result<Vec<String>, EbillFfiError> {
-    let plaintext_chain = get_ctx()
-        .await
+    let plaintext_chain = get_active_ctx()
+        .await?
         .identity_service
         .dev_mode_get_full_identity_chain()
         .await?;
@@ -394,8 +419,8 @@ pub async fn dev_mode_get_full_identity_chain() -> Result<Vec<String>, EbillFfiE
 
 #[frb]
 pub async fn sync_identity_chain() -> Result<(), EbillFfiError> {
-    get_ctx()
-        .await
+    get_active_ctx()
+        .await?
         .transport_service
         .block_transport()
         .resync_identity_chain(ResyncMode::Normal)
@@ -406,8 +431,8 @@ pub async fn sync_identity_chain() -> Result<(), EbillFfiError> {
 #[frb]
 /// Override the identity chain with the state from nostr
 pub async fn dev_mode_override_identity_chain_from_nostr() -> Result<(), EbillFfiError> {
-    get_ctx()
-        .await
+    get_active_ctx()
+        .await?
         .transport_service
         .block_transport()
         .resync_identity_chain(ResyncMode::NostrAuthoritative)
@@ -418,8 +443,8 @@ pub async fn dev_mode_override_identity_chain_from_nostr() -> Result<(), EbillFf
 #[frb]
 pub async fn confirm_email(payload: ConfirmEmailPayload) -> Result<(), EbillFfiError> {
     let parsed_email = Email::new(payload.email)?;
-    get_ctx()
-        .await
+    get_active_ctx()
+        .await?
         .identity_service
         .confirm_email(&parsed_email)
         .await?;
@@ -428,8 +453,8 @@ pub async fn confirm_email(payload: ConfirmEmailPayload) -> Result<(), EbillFfiE
 
 #[frb]
 pub async fn verify_email(payload: VerifyEmailPayload) -> Result<(), EbillFfiError> {
-    get_ctx()
-        .await
+    get_active_ctx()
+        .await?
         .identity_service
         .verify_email(&payload.confirmation_code)
         .await?;
@@ -438,8 +463,8 @@ pub async fn verify_email(payload: VerifyEmailPayload) -> Result<(), EbillFfiErr
 
 #[frb]
 pub async fn get_email_confirmations() -> Result<Vec<IdentityEmailConfirmationFfi>, EbillFfiError> {
-    let email_confirmations = get_ctx()
-        .await
+    let email_confirmations = get_active_ctx()
+        .await?
         .identity_service
         .get_email_confirmations()
         .await?;
@@ -451,8 +476,8 @@ pub async fn get_email_confirmations() -> Result<Vec<IdentityEmailConfirmationFf
 
 #[frb(ignore)]
 pub async fn get_current_identity() -> Result<ActiveIdentityState, EbillFfiError> {
-    let active_identity = get_ctx()
-        .await
+    let active_identity = get_active_ctx()
+        .await?
         .identity_service
         .get_current_identity()
         .await?;

@@ -32,7 +32,6 @@ use bcr_ebill_api::service::{
 
 use crate::ffi::{
     api::identity::{get_current_identity, get_current_identity_node_id},
-    context::get_ctx,
     data::{
         Base64FileResponse, BinaryFileResponse, UploadFile, UploadFileResponse,
         bill::{
@@ -51,6 +50,7 @@ use crate::ffi::{
         parse_deadline_string,
     },
     error::EbillFfiError,
+    get_active_ctx,
 };
 
 async fn get_attachment(
@@ -59,11 +59,15 @@ async fn get_attachment(
 ) -> Result<(Vec<u8>, String), EbillFfiError> {
     let parsed_bill_id = BillId::from_str(bill_id).map_err(ProtocolValidationError::from)?;
     let current_timestamp = Timestamp::now();
-    let identity = get_ctx().await.identity_service.get_identity().await?;
+    let identity = get_active_ctx()
+        .await?
+        .identity_service
+        .get_identity()
+        .await?;
     let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
     // get bill
-    let bill = get_ctx()
-        .await
+    let bill = get_active_ctx()
+        .await?
         .bill_service
         .get_detail(
             &parsed_bill_id,
@@ -83,13 +87,13 @@ async fn get_attachment(
     };
 
     // fetch the attachment
-    let keys = get_ctx()
-        .await
+    let keys = get_active_ctx()
+        .await?
         .bill_service
         .get_bill_keys(&parsed_bill_id)
         .await?;
-    let file_bytes = get_ctx()
-        .await
+    let file_bytes = get_active_ctx()
+        .await?
         .bill_service
         .open_and_decrypt_attached_file(&parsed_bill_id, file, &keys.get_private_key())
         .await?;
@@ -104,10 +108,14 @@ async fn get_attachment(
 pub async fn endorsements(id: &str) -> Result<EndorsementsResponse, EbillFfiError> {
     let bill_id = BillId::from_str(id).map_err(ProtocolValidationError::from)?;
     let current_timestamp = Timestamp::now();
-    let identity = get_ctx().await.identity_service.get_identity().await?;
+    let identity = get_active_ctx()
+        .await?
+        .identity_service
+        .get_identity()
+        .await?;
     let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
-    let result = get_ctx()
-        .await
+    let result = get_active_ctx()
+        .await?
         .bill_service
         .get_endorsements(
             &bill_id,
@@ -126,8 +134,8 @@ pub async fn endorsements(id: &str) -> Result<EndorsementsResponse, EbillFfiErro
 pub async fn past_payments(id: &str) -> Result<PastPaymentsResponse, EbillFfiError> {
     let bill_id = BillId::from_str(id).map_err(ProtocolValidationError::from)?;
     let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
-    let result = get_ctx()
-        .await
+    let result = get_active_ctx()
+        .await?
         .bill_service
         .get_past_payments(
             &bill_id,
@@ -144,8 +152,8 @@ pub async fn past_payments(id: &str) -> Result<PastPaymentsResponse, EbillFfiErr
 #[frb]
 pub async fn past_endorsees(id: &str) -> Result<PastEndorseesResponse, EbillFfiError> {
     let bill_id = BillId::from_str(id).map_err(ProtocolValidationError::from)?;
-    let result = get_ctx()
-        .await
+    let result = get_active_ctx()
+        .await?
         .bill_service
         .get_past_endorsees(&bill_id, &get_current_identity_node_id().await?)
         .await?;
@@ -158,8 +166,8 @@ pub async fn past_endorsees(id: &str) -> Result<PastEndorseesResponse, EbillFfiE
 pub async fn bitcoin_keys(id: &str) -> Result<Vec<BillCombinedBitcoinKeyFfi>, EbillFfiError> {
     let bill_id = BillId::from_str(id).map_err(ProtocolValidationError::from)?;
     let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
-    let combined_keys = get_ctx()
-        .await
+    let combined_keys = get_active_ctx()
+        .await?
         .bill_service
         .get_combined_bitcoin_keys_for_bill(&bill_id, &caller_public_data, &caller_keys)
         .await?;
@@ -198,14 +206,14 @@ pub async fn attachment_base64(
 pub async fn upload(upload_file: UploadFile) -> Result<UploadFileResponse, EbillFfiError> {
     let upload_file_handler: &dyn UploadFileHandler = &upload_file as &dyn UploadFileHandler;
 
-    get_ctx()
-        .await
+    get_active_ctx()
+        .await?
         .file_upload_service
         .validate_attached_file(upload_file_handler)
         .await?;
 
-    let file_upload_response = get_ctx()
-        .await
+    let file_upload_response = get_active_ctx()
+        .await?
         .file_upload_service
         .upload_file(upload_file_handler)
         .await?;
@@ -237,8 +245,8 @@ pub async fn search(
         .map(|n| NodeId::from_str(&n))
         .collect::<Result<_, _>>()
         .map_err(ProtocolValidationError::from)?;
-    let bills = get_ctx()
-        .await
+    let bills = get_active_ctx()
+        .await?
         .bill_service
         .search_bills(
             &Currency::sat(),
@@ -260,8 +268,8 @@ pub async fn search(
 #[frb]
 pub async fn list_light() -> Result<LightBillsResponse, EbillFfiError> {
     let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
-    let bills: Vec<LightBitcreditBillResult> = get_ctx()
-        .await
+    let bills: Vec<LightBitcreditBillResult> = get_active_ctx()
+        .await?
         .bill_service
         .get_bills(&caller_public_data, &caller_keys)
         .await?
@@ -276,8 +284,8 @@ pub async fn list_light() -> Result<LightBillsResponse, EbillFfiError> {
 #[frb]
 pub async fn list() -> Result<BillsResponse, EbillFfiError> {
     let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
-    let bills = get_ctx()
-        .await
+    let bills = get_active_ctx()
+        .await?
         .bill_service
         .get_bills(&caller_public_data, &caller_keys)
         .await?;
@@ -290,11 +298,15 @@ pub async fn list() -> Result<BillsResponse, EbillFfiError> {
 pub async fn detail(id: &str) -> Result<BitcreditBillFfi, EbillFfiError> {
     let bill_id = BillId::from_str(id).map_err(ProtocolValidationError::from)?;
     let current_timestamp = Timestamp::now();
-    let identity = get_ctx().await.identity_service.get_identity().await?;
+    let identity = get_active_ctx()
+        .await?
+        .identity_service
+        .get_identity()
+        .await?;
 
     let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
-    let bill_detail = get_ctx()
-        .await
+    let bill_detail = get_active_ctx()
+        .await?
         .bill_service
         .get_detail(
             &bill_id,
@@ -311,9 +323,13 @@ pub async fn detail(id: &str) -> Result<BitcreditBillFfi, EbillFfiError> {
 #[frb]
 pub async fn check_payment_for_bill(id: &str) -> Result<(), EbillFfiError> {
     let bill_id = BillId::from_str(id).map_err(ProtocolValidationError::from)?;
-    let identity = get_ctx().await.identity_service.get_full_identity().await?;
-    if let Err(e) = get_ctx()
-        .await
+    let identity = get_active_ctx()
+        .await?
+        .identity_service
+        .get_full_identity()
+        .await?;
+    if let Err(e) = get_active_ctx()
+        .await?
         .bill_service
         .check_payment_for_bill(&bill_id, &identity.identity)
         .await
@@ -321,8 +337,8 @@ pub async fn check_payment_for_bill(id: &str) -> Result<(), EbillFfiError> {
         error!("Error while checking bill payment for {id}: {e}");
     }
 
-    if let Err(e) = get_ctx()
-        .await
+    if let Err(e) = get_active_ctx()
+        .await?
         .bill_service
         .check_offer_to_sell_payment_for_bill(&bill_id, &identity)
         .await
@@ -330,8 +346,8 @@ pub async fn check_payment_for_bill(id: &str) -> Result<(), EbillFfiError> {
         error!("Error while checking bill offer to sell payment for {id}: {e}");
     }
 
-    if let Err(e) = get_ctx()
-        .await
+    if let Err(e) = get_active_ctx()
+        .await?
         .bill_service
         .check_recourse_payment_for_bill(&bill_id, &identity)
         .await
@@ -343,12 +359,17 @@ pub async fn check_payment_for_bill(id: &str) -> Result<(), EbillFfiError> {
 
 #[frb]
 pub async fn check_payment() -> Result<(), EbillFfiError> {
-    if let Err(e) = get_ctx().await.bill_service.check_bills_payment().await {
+    if let Err(e) = get_active_ctx()
+        .await?
+        .bill_service
+        .check_bills_payment()
+        .await
+    {
         error!("Error while checking bills payment: {e}");
     }
 
-    if let Err(e) = get_ctx()
-        .await
+    if let Err(e) = get_active_ctx()
+        .await?
         .bill_service
         .check_bills_offer_to_sell_payment()
         .await
@@ -356,8 +377,8 @@ pub async fn check_payment() -> Result<(), EbillFfiError> {
         error!("Error while checking bills offer to sell payment: {e}");
     }
 
-    if let Err(e) = get_ctx()
-        .await
+    if let Err(e) = get_active_ctx()
+        .await?
         .bill_service
         .check_bills_in_recourse_payment()
         .await
@@ -404,8 +425,8 @@ async fn issue_bill(
         );
     }
 
-    let bill = get_ctx()
-        .await
+    let bill = get_active_ctx()
+        .await?
         .bill_service
         .issue_new_bill(BillIssueData {
             t: bill_payload.t,
@@ -439,8 +460,8 @@ async fn offer_to_sell_bill(
 ) -> Result<(), EbillFfiError> {
     let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
 
-    get_ctx()
-        .await
+    get_active_ctx()
+        .await?
         .bill_service
         .execute_bill_action(
             &BillId::from_str(&payload.bill_id).map_err(ProtocolValidationError::from)?,
@@ -458,8 +479,8 @@ async fn offer_to_sell_bill(
 pub async fn offer_to_sell(
     offer_to_sell_payload: OfferToSellBitcreditBillPayload,
 ) -> Result<(), EbillFfiError> {
-    let public_data_buyer = match get_ctx()
-        .await
+    let public_data_buyer = match get_active_ctx()
+        .await?
         .contact_service
         .get_identity_by_node_id(
             &NodeId::from_str(&offer_to_sell_payload.buyer)
@@ -490,8 +511,8 @@ pub async fn offer_to_sell(
 pub async fn offer_to_sell_blank(
     offer_to_sell_payload: OfferToSellBitcreditBillPayload,
 ) -> Result<(), EbillFfiError> {
-    let public_data_buyer: BillAnonParticipant = match get_ctx()
-        .await
+    let public_data_buyer: BillAnonParticipant = match get_active_ctx()
+        .await?
         .contact_service
         .get_identity_by_node_id(
             &NodeId::from_str(&offer_to_sell_payload.buyer)
@@ -524,8 +545,8 @@ async fn endorse(
     timestamp: Timestamp,
 ) -> Result<(), EbillFfiError> {
     let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
-    get_ctx()
-        .await
+    get_active_ctx()
+        .await?
         .bill_service
         .execute_bill_action(
             &BillId::from_str(&payload.bill_id).map_err(ProtocolValidationError::from)?,
@@ -542,8 +563,8 @@ async fn endorse(
 pub async fn endorse_bill(
     endorse_bill_payload: EndorseBitcreditBillPayload,
 ) -> Result<(), EbillFfiError> {
-    let public_data_endorsee = match get_ctx()
-        .await
+    let public_data_endorsee = match get_active_ctx()
+        .await?
         .contact_service
         .get_identity_by_node_id(
             &NodeId::from_str(&endorse_bill_payload.endorsee)
@@ -566,8 +587,8 @@ pub async fn endorse_bill(
 pub async fn endorse_bill_blank(
     endorse_bill_payload: EndorseBitcreditBillPayload,
 ) -> Result<(), EbillFfiError> {
-    let public_data_endorsee_blank: BillAnonParticipant = match get_ctx()
-        .await
+    let public_data_endorsee_blank: BillAnonParticipant = match get_active_ctx()
+        .await?
         .contact_service
         .get_identity_by_node_id(
             &NodeId::from_str(&endorse_bill_payload.endorsee)
@@ -598,8 +619,8 @@ pub async fn request_to_pay(
     let timestamp = Timestamp::now();
     let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
 
-    get_ctx()
-        .await
+    get_active_ctx()
+        .await?
         .bill_service
         .execute_bill_action(
             &BillId::from_str(&request_to_pay_bill_payload.bill_id)
@@ -625,8 +646,8 @@ pub async fn request_to_pay_as_mint(
     let timestamp = Timestamp::now();
     let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
 
-    get_ctx()
-        .await
+    get_active_ctx()
+        .await?
         .bill_service
         .execute_bill_action(
             &BillId::from_str(&request_to_pay_bill_payload.bill_id)
@@ -655,8 +676,8 @@ pub async fn request_to_accept(
     let timestamp = Timestamp::now();
     let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
 
-    get_ctx()
-        .await
+    get_active_ctx()
+        .await?
         .bill_service
         .execute_bill_action(
             &BillId::from_str(&request_to_accept_bill_payload.bill_id)
@@ -678,8 +699,8 @@ pub async fn accept(accept_bill_payload: AcceptBitcreditBillPayload) -> Result<(
     let timestamp = Timestamp::now();
     let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
 
-    get_ctx()
-        .await
+    get_active_ctx()
+        .await?
         .bill_service
         .execute_bill_action(
             &BillId::from_str(&accept_bill_payload.bill_id)
@@ -700,8 +721,8 @@ pub async fn request_to_mint(
 ) -> Result<(), EbillFfiError> {
     let timestamp = Timestamp::now();
     let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
-    get_ctx()
-        .await
+    get_active_ctx()
+        .await?
         .bill_service
         .request_to_mint(
             &BillId::from_str(&request_to_mint_bill_payload.bill_id)
@@ -720,8 +741,8 @@ pub async fn request_to_mint(
 #[frb]
 pub async fn mint_state(id: &str) -> Result<MintRequestStateResponse, EbillFfiError> {
     let bill_id = BillId::from_str(id).map_err(ProtocolValidationError::from)?;
-    let result = get_ctx()
-        .await
+    let result = get_active_ctx()
+        .await?
         .bill_service
         .get_mint_state(&bill_id, &get_current_identity_node_id().await?)
         .await?;
@@ -733,8 +754,8 @@ pub async fn mint_state(id: &str) -> Result<MintRequestStateResponse, EbillFfiEr
 #[frb]
 pub async fn check_mint_state(id: &str) -> Result<(), EbillFfiError> {
     let bill_id = BillId::from_str(id).map_err(ProtocolValidationError::from)?;
-    get_ctx()
-        .await
+    get_active_ctx()
+        .await?
         .bill_service
         .check_mint_state(&bill_id, &get_current_identity_node_id().await?)
         .await?;
@@ -745,8 +766,8 @@ pub async fn check_mint_state(id: &str) -> Result<(), EbillFfiError> {
 pub async fn cancel_request_to_mint(mint_request_id: &str) -> Result<(), EbillFfiError> {
     let parsed_id = Uuid::from_str(mint_request_id)
         .map_err(|_| ProtocolValidationError::InvalidMintRequestId)?;
-    get_ctx()
-        .await
+    get_active_ctx()
+        .await?
         .bill_service
         .cancel_request_to_mint(&parsed_id, &get_current_identity_node_id().await?)
         .await?;
@@ -759,8 +780,8 @@ pub async fn accept_mint_offer(mint_request_id: &str) -> Result<(), EbillFfiErro
     let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
     let parsed_id = Uuid::from_str(mint_request_id)
         .map_err(|_| ProtocolValidationError::InvalidMintRequestId)?;
-    get_ctx()
-        .await
+    get_active_ctx()
+        .await?
         .bill_service
         .accept_mint_offer(&parsed_id, &signer_public_data, &signer_keys, timestamp)
         .await?;
@@ -771,8 +792,8 @@ pub async fn accept_mint_offer(mint_request_id: &str) -> Result<(), EbillFfiErro
 pub async fn reject_mint_offer(mint_request_id: &str) -> Result<(), EbillFfiError> {
     let parsed_id = Uuid::from_str(mint_request_id)
         .map_err(|_| ProtocolValidationError::InvalidMintRequestId)?;
-    get_ctx()
-        .await
+    get_active_ctx()
+        .await?
         .bill_service
         .reject_mint_offer(&parsed_id, &get_current_identity_node_id().await?)
         .await?;
@@ -786,8 +807,8 @@ pub async fn reject_to_accept(
     let timestamp = Timestamp::now();
     let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
 
-    get_ctx()
-        .await
+    get_active_ctx()
+        .await?
         .bill_service
         .execute_bill_action(
             &BillId::from_str(&reject_payload.bill_id).map_err(ProtocolValidationError::from)?,
@@ -806,8 +827,8 @@ pub async fn reject_to_pay(reject_payload: RejectActionBillPayload) -> Result<()
     let timestamp = Timestamp::now();
     let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
 
-    get_ctx()
-        .await
+    get_active_ctx()
+        .await?
         .bill_service
         .execute_bill_action(
             &BillId::from_str(&reject_payload.bill_id).map_err(ProtocolValidationError::from)?,
@@ -826,8 +847,8 @@ pub async fn reject_to_buy(reject_payload: RejectActionBillPayload) -> Result<()
     let timestamp = Timestamp::now();
     let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
 
-    get_ctx()
-        .await
+    get_active_ctx()
+        .await?
         .bill_service
         .execute_bill_action(
             &BillId::from_str(&reject_payload.bill_id).map_err(ProtocolValidationError::from)?,
@@ -848,8 +869,8 @@ pub async fn reject_to_pay_recourse(
     let timestamp = Timestamp::now();
     let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
 
-    get_ctx()
-        .await
+    get_active_ctx()
+        .await?
         .bill_service
         .execute_bill_action(
             &BillId::from_str(&reject_payload.bill_id).map_err(ProtocolValidationError::from)?,
@@ -897,15 +918,19 @@ pub async fn request_to_recourse_bill_acceptance(
 
 #[frb]
 pub async fn clear_bill_cache() -> Result<(), EbillFfiError> {
-    get_ctx().await.bill_service.clear_bill_cache().await?;
+    get_active_ctx()
+        .await?
+        .bill_service
+        .clear_bill_cache()
+        .await?;
     Ok(())
 }
 
 #[frb]
 pub async fn sync_bill_chain(payload: ResyncBillPayload) -> Result<(), EbillFfiError> {
     let bill_id = BillId::from_str(&payload.bill_id).map_err(ProtocolValidationError::from)?;
-    get_ctx()
-        .await
+    get_active_ctx()
+        .await?
         .transport_service
         .block_transport()
         .resync_bill_chain(
@@ -923,8 +948,8 @@ pub async fn dev_mode_override_bill_chain_from_nostr(
     payload: OverrideBillFromNostrPayload,
 ) -> Result<(), EbillFfiError> {
     let bill_id = BillId::from_str(&payload.bill_id).map_err(ProtocolValidationError::from)?;
-    get_ctx()
-        .await
+    get_active_ctx()
+        .await?
         .transport_service
         .block_transport()
         .resync_bill_chain(&bill_id, true, ResyncMode::NostrAuthoritative)
@@ -938,8 +963,8 @@ pub async fn dev_mode_reset_bill_mint_quote_state(
     payload: BillResetMintQuoteState,
 ) -> Result<(), EbillFfiError> {
     let bill_id = BillId::from_str(&payload.bill_id).map_err(ProtocolValidationError::from)?;
-    get_ctx()
-        .await
+    get_active_ctx()
+        .await?
         .bill_service
         .dev_mode_reset_bill_mint_quote_state(&bill_id)
         .await?;
@@ -949,8 +974,8 @@ pub async fn dev_mode_reset_bill_mint_quote_state(
 #[frb]
 pub async fn dev_mode_get_full_bill_chain(bill_id: &str) -> Result<Vec<String>, EbillFfiError> {
     let parsed_bill_id = BillId::from_str(bill_id).map_err(ProtocolValidationError::from)?;
-    let plaintext_chain = get_ctx()
-        .await
+    let plaintext_chain = get_active_ctx()
+        .await?
         .bill_service
         .dev_mode_get_full_bill_chain(&parsed_bill_id, &get_current_identity_node_id().await?)
         .await?;
@@ -975,8 +1000,8 @@ pub async fn share_bill_with_court(
     let parsed_node_id =
         NodeId::from_str(&payload.court_node_id).map_err(ProtocolValidationError::from)?;
     let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
-    get_ctx()
-        .await
+    get_active_ctx()
+        .await?
         .bill_service
         .share_bill_with_court(
             &parsed_bill_id,
@@ -992,10 +1017,14 @@ pub async fn share_bill_with_court(
 pub async fn bill_history(bill_id: &str) -> Result<BillHistoryResponse, EbillFfiError> {
     let parsed_bill_id = BillId::from_str(bill_id).map_err(ProtocolValidationError::from)?;
     let current_timestamp = Timestamp::now();
-    let identity = get_ctx().await.identity_service.get_identity().await?;
+    let identity = get_active_ctx()
+        .await?
+        .identity_service
+        .get_identity()
+        .await?;
     let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
-    let res: BillHistoryResponse = get_ctx()
-        .await
+    let res: BillHistoryResponse = get_active_ctx()
+        .await?
         .bill_service
         .get_bill_history(
             &parsed_bill_id,
@@ -1016,8 +1045,8 @@ pub async fn check_and_estimate_btc_sweep(
     let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
     let parsed_bill_id =
         BillId::from_str(&payload.bill_id).map_err(ProtocolValidationError::from)?;
-    let estimate = get_ctx()
-        .await
+    let estimate = get_active_ctx()
+        .await?
         .bill_service
         .check_and_estimate_btc_sweep(
             &parsed_bill_id,
@@ -1039,8 +1068,8 @@ pub async fn sweep_btc_funds(
     let parsed_bill_id =
         BillId::from_str(&payload.bill_id).map_err(ProtocolValidationError::from)?;
     let (caller_public_data, caller_keys) = get_signer_public_data_and_keys().await?;
-    let res = get_ctx()
-        .await
+    let res = get_active_ctx()
+        .await?
         .bill_service
         .btc_sweep(
             &parsed_bill_id,
@@ -1061,7 +1090,11 @@ pub(super) async fn get_signer_public_data_and_keys()
 -> Result<(BillParticipant, BcrKeys), EbillFfiError> {
     let current_identity = get_current_identity().await?;
     let local_node_id = current_identity.personal;
-    let identity = get_ctx().await.identity_service.get_full_identity().await?;
+    let identity = get_active_ctx()
+        .await?
+        .identity_service
+        .get_full_identity()
+        .await?;
     let (signer_public_data, signer_keys) = match current_identity.company {
         None => {
             match identity.identity.t {
@@ -1087,8 +1120,8 @@ pub(super) async fn get_signer_public_data_and_keys()
             }
         }
         Some(company_node_id) => {
-            let (company, keys) = get_ctx()
-                .await
+            let (company, keys) = get_active_ctx()
+                .await?
                 .company_service
                 .get_company_and_keys_by_id(&company_node_id)
                 .await?;
@@ -1124,8 +1157,8 @@ async fn request_recourse(
     let (signer_public_data, signer_keys) = get_signer_public_data_and_keys().await?;
 
     // we fetch the nostr contact first to know where we have to send
-    let nostr_contact = match get_ctx()
-        .await
+    let nostr_contact = match get_active_ctx()
+        .await?
         .contact_service
         .get_nostr_contact_by_node_id(recoursee_node_id)
         .await
@@ -1139,8 +1172,8 @@ async fn request_recourse(
     };
 
     // fetch past endorsees to validate the recoursee is in there and to get their data
-    let past_endorsees = get_ctx()
-        .await
+    let past_endorsees = get_active_ctx()
+        .await?
         .bill_service
         .get_past_endorsees(bill_id, &get_current_identity_node_id().await?)
         .await?;
@@ -1160,8 +1193,8 @@ async fn request_recourse(
     };
     public_data_recoursee.nostr_relays = nostr_contact.relays;
 
-    get_ctx()
-        .await
+    get_active_ctx()
+        .await?
         .bill_service
         .execute_bill_action(
             bill_id,

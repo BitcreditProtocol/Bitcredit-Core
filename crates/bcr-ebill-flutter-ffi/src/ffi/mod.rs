@@ -1,3 +1,8 @@
+use crate::ffi::{
+    api::general,
+    context::Context,
+    error::{EbillFfiError, err_init},
+};
 use ::nostr::nips::nip19::ToBech32;
 use anyhow::anyhow;
 use bcr_common::core::NodeId;
@@ -15,18 +20,11 @@ use std::{
     path::PathBuf,
     str::FromStr,
     sync::{
-        Arc,
+        Arc, Once,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
-use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
-
-use crate::ffi::{
-    api::general,
-    context::Context,
-    error::{EbillFfiError, err_init},
-};
 
 pub mod api;
 /// flutter_rust_bridge:ignore
@@ -44,116 +42,76 @@ pub fn init_app() {
     flutter_rust_bridge::setup_default_user_utils();
 }
 
-/// Minimum time between contact data publish checks to avoid excessive network calls
-/// in flaky network conditions. Set to 5 minutes.
-const CONTACT_PUBLISH_CHECK_INTERVAL_SEC: u64 = 3600;
-
-static EBILL_RUNTIME: Lazy<Mutex<EbillRuntime>> = Lazy::new(|| Mutex::new(EbillRuntime::new()));
-
-struct EbillRuntime {
-    ctx: Option<Arc<Context>>,
-    jobs_cancel: Option<CancellationToken>,
-    jobs_handle: Option<JoinHandle<()>>,
-    nostr_subscription_cancel: Option<CancellationToken>,
-    nostr_subscription_handle: Option<JoinHandle<()>>,
-    logging_initialized: bool,
-    panic_hook_initialized: bool,
-    transport_connected: AtomicBool,
-    last_contact_publish_check: AtomicU64,
+static PROCESS_INIT: Once = Once::new();
+fn initialize_process_globals(log_level: &str) {
+    PROCESS_INIT.call_once(|| {
+        init_crypto_provider();
+        init_logging(log_level);
+        init_panic_hook();
+    });
 }
 
-impl EbillRuntime {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[frb]
+pub enum InstanceId {
+    Mainnet,
+    Testnet,
+}
+
+use std::collections::HashMap;
+use tokio::sync::RwLock;
+
+struct InstanceManager {
+    instances: HashMap<InstanceId, Arc<EbillRuntime>>,
+    active: Option<InstanceId>,
+}
+
+impl InstanceManager {
     fn new() -> Self {
         Self {
-            ctx: None,
-            jobs_cancel: None,
-            jobs_handle: None,
-            nostr_subscription_cancel: None,
-            nostr_subscription_handle: None,
-            logging_initialized: false,
-            panic_hook_initialized: false,
-            transport_connected: AtomicBool::new(false),
-            last_contact_publish_check: AtomicU64::new(0),
+            instances: HashMap::new(),
+            active: None,
         }
     }
-
-    #[frb(ignore)]
-    pub fn set_transport_connected(&self, connected: bool) {
-        self.transport_connected.store(connected, Ordering::Relaxed);
-    }
-
-    #[frb(ignore)]
-    pub fn is_transport_connected(&self) -> bool {
-        self.transport_connected.load(Ordering::Relaxed)
-    }
-
-    #[frb(ignore)]
-    pub fn set_last_contact_publish_check(&self, last: u64) {
-        self.last_contact_publish_check
-            .store(last, Ordering::Relaxed);
-    }
-
-    #[frb(ignore)]
-    pub fn get_last_contact_publish_check(&self) -> u64 {
-        self.last_contact_publish_check.load(Ordering::Relaxed)
-    }
 }
 
-async fn reset_runtime(rt: &mut EbillRuntime) {
-    info!("Resetting Rust E-Bill FFI Runtime");
-    if let Some(ref token) = rt.jobs_cancel {
-        token.cancel();
-    }
+static INSTANCE_MANAGER: Lazy<RwLock<InstanceManager>> =
+    Lazy::new(|| RwLock::new(InstanceManager::new()));
 
-    if let Some(ref handle) = rt.jobs_handle {
-        handle.abort();
-    }
-
-    if let Some(ref token) = rt.nostr_subscription_cancel {
-        token.cancel();
-    }
-
-    if let Some(ref handle) = rt.nostr_subscription_handle {
-        handle.abort();
-    }
-
-    rt.ctx.take(); // drop context
-
-    rt.set_transport_connected(false);
-    rt.set_last_contact_publish_check(0);
-
-    info!("Rust E-Bill FFI Runtime Reset Done");
+async fn get_active_ctx() -> Result<Arc<Context>, EbillFfiError> {
+    let manager = INSTANCE_MANAGER.read().await;
+    let active = manager
+        .active
+        .ok_or_else(|| err_init("No active E-Bill instance"))?;
+    let runtime = manager
+        .instances
+        .get(&active)
+        .ok_or_else(|| err_init("Active E-Bill instance is not initialized"))?;
+    Ok(runtime.ctx.clone())
 }
 
-#[derive(Debug, Clone)]
-pub struct EbillConfig {
-    pub sqlite_db_path: String,
-    pub temp_files_path: String,
-    pub log_level: Option<String>,
-    pub bitcoin_network: String,
-    pub esplora_base_urls: Vec<String>,
-    pub nostr_relays: Vec<String>,
-    pub blossom_servers: Option<Vec<String>>,
-    pub nostr_only_known_contacts: Option<bool>,
-    pub nostr_max_relays: Option<usize>,
-    pub nostr_relay_ack_threshold: Option<usize>,
-    pub job_runner_initial_delay_seconds: u64,
-    pub job_runner_check_interval_seconds: u64,
-    pub transport_initial_subscription_delay_seconds: Option<u32>,
-    pub default_mint_url: String,
-    pub default_mint_node_id: String,
-    pub num_confirmations_for_payment: usize,
-    pub dev_mode: bool,
-    pub mandatory_email_confirmations: bool,
-    pub default_court_url: String,
-    // The mnemonic for the main identity, used for persistence encryption
-    pub mnemonic: String,
+/// Sets the active instance (e.g. testnet, or mainnet)
+#[frb]
+pub async fn set_active_instance(instance_id: InstanceId) -> Result<(), EbillFfiError> {
+    let mut manager = INSTANCE_MANAGER.write().await;
+    if !manager.instances.contains_key(&instance_id) {
+        return Err(err_init("E-Bill instance is not initialized"));
+    }
+    manager.active = Some(instance_id);
+    Ok(())
+}
+
+/// Returns the active instance (e.g. testnet, or mainnet)
+#[frb]
+pub async fn get_active_instance() -> Option<InstanceId> {
+    INSTANCE_MANAGER.read().await.active
 }
 
 #[frb]
-pub async fn init_ebill_ffi(conf: EbillConfig) -> Result<(), EbillFfiError> {
-    init_crypto_provider();
-    info!("Initializing Rust Ebill FFI");
+pub async fn init_ebill_instance(
+    instance_id: InstanceId,
+    conf: EbillConfig,
+) -> Result<(), EbillFfiError> {
     let log_level = match conf.log_level {
         Some(ref log_level) => match log_level.as_str() {
             "info" => log::LevelFilter::Info,
@@ -164,28 +122,66 @@ pub async fn init_ebill_ffi(conf: EbillConfig) -> Result<(), EbillFfiError> {
         },
         None => log::LevelFilter::Info,
     };
+    initialize_process_globals(&log_level.to_string());
+    validate_instance_network(instance_id, &conf)?;
+
+    // check if the instance has been initialized already before init to avoid races
+    {
+        let manager = INSTANCE_MANAGER.read().await;
+
+        if manager.instances.contains_key(&instance_id) {
+            return Err(err_init("Instance is already initialized"));
+        }
+    }
+
+    let runtime = Arc::new(create_runtime(conf).await?);
+    let mut manager = INSTANCE_MANAGER.write().await;
+    if manager.instances.contains_key(&instance_id) {
+        return Err(err_init("Instance is already initialized"));
+    }
+    manager.instances.insert(instance_id, runtime);
+    if manager.active.is_none() {
+        manager.active = Some(instance_id);
+    }
+    Ok(())
+}
+
+#[frb]
+pub async fn reset_ebill_instance(instance_id: InstanceId) -> Result<(), EbillFfiError> {
+    info!("Resetting Rust E-Bill FFI instance {instance_id:?}");
+    let runtime = {
+        let mut manager = INSTANCE_MANAGER.write().await;
+        let runtime = manager
+            .instances
+            .remove(&instance_id)
+            .ok_or_else(|| err_init("Instance not initialized"))?;
+        if manager.active == Some(instance_id) {
+            manager.active = manager.instances.keys().next().copied();
+        }
+        runtime
+    };
+    shutdown_runtime(runtime).await;
+    info!("Rust E-Bill FFI Runtime Reset of {instance_id:?} Done");
+    Ok(())
+}
+
+struct EbillRuntime {
+    ctx: Arc<Context>,
+    state: Arc<InstanceRuntimeState>,
+    jobs_cancel: CancellationToken,
+    jobs_handle: JoinHandle<()>,
+    nostr_subscription_cancel: CancellationToken,
+    nostr_subscription_handle: JoinHandle<()>,
+}
+
+async fn create_runtime(conf: EbillConfig) -> Result<EbillRuntime, EbillFfiError> {
+    init_crypto_provider();
+    info!("Initializing Rust Ebill FFI");
 
     let api_config = Arc::new(build_api_config(&conf)?);
 
     // parse mnemonic to keys
     let parsed_mnemonic_keys = BcrKeys::from_seedphrase(&conf.mnemonic)?;
-
-    let mut rt = EBILL_RUNTIME.lock().await;
-
-    // reset on initialization
-    reset_runtime(&mut rt).await;
-
-    // only initialize logging once
-    if !rt.logging_initialized {
-        init_logging(&log_level.to_string());
-        rt.logging_initialized = true;
-    }
-
-    // only initialize panic hook once
-    if !rt.panic_hook_initialized {
-        init_panic_hook();
-        rt.panic_hook_initialized = true;
-    }
 
     // make sure the configured default mint node id is valid for the configured network
     validate_node_id_network(
@@ -215,34 +211,93 @@ pub async fn init_ebill_ffi(conf: EbillConfig) -> Result<(), EbillFfiError> {
     info!("Local npub as hex: {}", node_id.npub().to_hex());
 
     // init context
-    let ctx = Context::new(api_config.clone(), db).await?;
-
-    rt.ctx = Some(Arc::new(ctx));
-
+    let ctx = Arc::new(Context::new(api_config.clone(), db).await?);
     let cancel = CancellationToken::new();
     let handle = job::start_jobs(
+        ctx.clone(),
         conf.job_runner_check_interval_seconds,
         conf.job_runner_initial_delay_seconds,
         cancel.clone(),
     );
 
-    rt.jobs_cancel = Some(cancel);
-    rt.jobs_handle = Some(handle);
+    let state = Arc::new(InstanceRuntimeState::new());
 
     let default_mint_node_id = api_config.mint_config.default_mint_node_id.clone();
     let nostr_cancel = CancellationToken::new();
     let nostr_handle = nostr::start_subscription(
+        ctx.clone(),
+        state.clone(),
         default_mint_node_id,
         conf.job_runner_check_interval_seconds,
         conf.transport_initial_subscription_delay_seconds,
         nostr_cancel.clone(),
     );
 
-    rt.nostr_subscription_cancel = Some(nostr_cancel);
-    rt.nostr_subscription_handle = Some(nostr_handle);
-
     info!("Initialized Rust Ebill FFI");
-    Ok(())
+    Ok(EbillRuntime {
+        ctx,
+        state,
+        jobs_cancel: cancel,
+        jobs_handle: handle,
+        nostr_subscription_cancel: nostr_cancel,
+        nostr_subscription_handle: nostr_handle,
+    })
+}
+
+struct InstanceRuntimeState {
+    transport_connected: AtomicBool,
+    last_contact_publish_check: AtomicU64,
+}
+
+impl InstanceRuntimeState {
+    fn new() -> Self {
+        Self {
+            transport_connected: AtomicBool::new(false),
+            last_contact_publish_check: AtomicU64::new(0),
+        }
+    }
+
+    fn set_transport_connected(&self, connected: bool) {
+        self.transport_connected.store(connected, Ordering::Relaxed);
+    }
+
+    fn is_transport_connected(&self) -> bool {
+        self.transport_connected.load(Ordering::Relaxed)
+    }
+
+    fn set_last_contact_publish_check(&self, last: u64) {
+        self.last_contact_publish_check
+            .store(last, Ordering::Relaxed);
+    }
+
+    fn get_last_contact_publish_check(&self) -> u64 {
+        self.last_contact_publish_check.load(Ordering::Relaxed)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct EbillConfig {
+    pub sqlite_db_path: String,
+    pub temp_files_path: String,
+    pub log_level: Option<String>,
+    pub bitcoin_network: String,
+    pub esplora_base_urls: Vec<String>,
+    pub nostr_relays: Vec<String>,
+    pub blossom_servers: Option<Vec<String>>,
+    pub nostr_only_known_contacts: Option<bool>,
+    pub nostr_max_relays: Option<usize>,
+    pub nostr_relay_ack_threshold: Option<usize>,
+    pub job_runner_initial_delay_seconds: u64,
+    pub job_runner_check_interval_seconds: u64,
+    pub transport_initial_subscription_delay_seconds: Option<u32>,
+    pub default_mint_url: String,
+    pub default_mint_node_id: String,
+    pub num_confirmations_for_payment: usize,
+    pub dev_mode: bool,
+    pub mandatory_email_confirmations: bool,
+    pub default_court_url: String,
+    // The mnemonic for the main identity, used for persistence encryption
+    pub mnemonic: String,
 }
 
 fn build_api_config(conf: &EbillConfig) -> Result<ApiConfig, EbillFfiError> {
@@ -302,7 +357,7 @@ fn build_api_config(conf: &EbillConfig) -> Result<ApiConfig, EbillFfiError> {
     Ok(api_config)
 }
 
-pub fn init_crypto_provider() {
+fn init_crypto_provider() {
     if rustls::crypto::CryptoProvider::get_default().is_none() {
         let _ = rustls::crypto::ring::default_provider().install_default();
     }
@@ -355,4 +410,46 @@ fn init_panic_hook() {
         error!("Rust panic: {info}");
     }));
     info!("Rust panic hook initialized");
+}
+
+fn validate_instance_network(id: InstanceId, conf: &EbillConfig) -> Result<(), EbillFfiError> {
+    let valid = match id {
+        InstanceId::Mainnet => {
+            conf.bitcoin_network == "mainnet" || conf.bitcoin_network == "bitcoin"
+        }
+        InstanceId::Testnet => conf.bitcoin_network == "testnet",
+    };
+    if !valid {
+        return Err(err_init(
+            "Instance ID does not match configured Bitcoin network",
+        ));
+    }
+    Ok(())
+}
+
+async fn shutdown_runtime(runtime: Arc<EbillRuntime>) {
+    runtime.jobs_cancel.cancel();
+    runtime.nostr_subscription_cancel.cancel();
+    runtime.jobs_handle.abort();
+    runtime.nostr_subscription_handle.abort();
+}
+
+struct InstanceSnapshot {
+    ctx: Arc<Context>,
+    state: Arc<InstanceRuntimeState>,
+}
+
+async fn get_active_instance_snapshot() -> Result<InstanceSnapshot, EbillFfiError> {
+    let manager = INSTANCE_MANAGER.read().await;
+    let active = manager
+        .active
+        .ok_or_else(|| err_init("No active E-Bill instance"))?;
+    let runtime = manager
+        .instances
+        .get(&active)
+        .ok_or_else(|| err_init("Active instance not initialized"))?;
+    Ok(InstanceSnapshot {
+        ctx: runtime.ctx.clone(),
+        state: runtime.state.clone(),
+    })
 }

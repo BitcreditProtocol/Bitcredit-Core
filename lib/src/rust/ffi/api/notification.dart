@@ -3,6 +3,7 @@
 
 // ignore_for_file: invalid_use_of_internal_member, unused_import, unnecessary_import
 
+import '../../ffi.dart';
 import '../../frb_generated.dart';
 import '../data.dart';
 import '../data/notification.dart';
@@ -18,8 +19,12 @@ Future<List<NotificationStatusFfi>> activeNotificationsForNodeIds({
 );
 
 Future<void> subscribe({
+  required InstanceId instanceId,
   required FutureOr<void> Function(NotificationSubscriptionResponse) callback,
-}) => RustLib.instance.api.crateFfiApiNotificationSubscribe(callback: callback);
+}) => RustLib.instance.api.crateFfiApiNotificationSubscribe(
+  instanceId: instanceId,
+  callback: callback,
+);
 
 Future<List<NotificationFfi>> list({required NotificationFiltersFfi filters}) =>
     RustLib.instance.api.crateFfiApiNotificationList(filters: filters);
@@ -34,17 +39,22 @@ Future<String> getEmailNotificationsPreferencesLink() => RustLib.instance.api
     .crateFfiApiNotificationGetEmailNotificationsPreferencesLink();
 
 class NotificationSubscriptionResponse {
+  final InstanceId instanceId;
   final String value;
 
-  const NotificationSubscriptionResponse({required this.value});
+  const NotificationSubscriptionResponse({
+    required this.instanceId,
+    required this.value,
+  });
 
   @override
-  int get hashCode => value.hashCode;
+  int get hashCode => instanceId.hashCode ^ value.hashCode;
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is NotificationSubscriptionResponse &&
           runtimeType == other.runtimeType &&
+          instanceId == other.instanceId &&
           value == other.value;
 }

@@ -386,6 +386,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   dco_decode_box_autoadd_identity_email_confirmation_ffi(dynamic raw);
 
   @protected
+  InstanceId dco_decode_box_autoadd_instance_id(dynamic raw);
+
+  @protected
   InviteSignatoryPayload dco_decode_box_autoadd_invite_signatory_payload(
     dynamic raw,
   );
@@ -713,6 +716,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   IdentityTypeFfi dco_decode_identity_type_ffi(dynamic raw);
 
   @protected
+  InstanceId dco_decode_instance_id(dynamic raw);
+
+  @protected
   InviteSignatoryPayload dco_decode_invite_signatory_payload(dynamic raw);
 
   @protected
@@ -927,6 +933,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PlatformInt64? dco_decode_opt_box_autoadd_i_64(dynamic raw);
+
+  @protected
+  InstanceId? dco_decode_opt_box_autoadd_instance_id(dynamic raw);
 
   @protected
   LightBillParticipantFfi?
@@ -1566,6 +1575,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  InstanceId sse_decode_box_autoadd_instance_id(SseDeserializer deserializer);
+
+  @protected
   InviteSignatoryPayload sse_decode_box_autoadd_invite_signatory_payload(
     SseDeserializer deserializer,
   );
@@ -1971,6 +1983,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   IdentityTypeFfi sse_decode_identity_type_ffi(SseDeserializer deserializer);
 
   @protected
+  InstanceId sse_decode_instance_id(SseDeserializer deserializer);
+
+  @protected
   InviteSignatoryPayload sse_decode_invite_signatory_payload(
     SseDeserializer deserializer,
   );
@@ -2249,6 +2264,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PlatformInt64? sse_decode_opt_box_autoadd_i_64(SseDeserializer deserializer);
+
+  @protected
+  InstanceId? sse_decode_opt_box_autoadd_instance_id(
+    SseDeserializer deserializer,
+  );
 
   @protected
   LightBillParticipantFfi?
@@ -3033,6 +3053,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_box_autoadd_instance_id(
+    InstanceId self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_invite_signatory_payload(
     InviteSignatoryPayload self,
     SseSerializer serializer,
@@ -3516,6 +3542,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_instance_id(InstanceId self, SseSerializer serializer);
+
+  @protected
   void sse_encode_invite_signatory_payload(
     InviteSignatoryPayload self,
     SseSerializer serializer,
@@ -3866,6 +3895,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_opt_box_autoadd_i_64(
     PlatformInt64? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_instance_id(
+    InstanceId? self,
     SseSerializer serializer,
   );
 

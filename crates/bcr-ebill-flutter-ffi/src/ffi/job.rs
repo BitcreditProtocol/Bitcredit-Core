@@ -1,4 +1,4 @@
-use crate::ffi::context::get_ctx;
+use crate::ffi::context::Context;
 use bcr_ebill_core::protocol::Timestamp;
 use log::{error, info, warn};
 use std::{
@@ -21,7 +21,7 @@ const MINT_STATE_CHECK_INTERVAL_SECS: u64 = 300;
 const RELAY_SYNC_INTERVAL_SECS: u64 = 300;
 
 type JobFuture = Pin<Box<dyn Future<Output = bool> + Send + 'static>>;
-type JobFn = fn() -> JobFuture;
+type JobFn = fn(Arc<Context>) -> JobFuture;
 
 struct Job {
     name: &'static str,
@@ -42,7 +42,7 @@ impl Job {
         }
     }
 
-    fn try_spawn(&mut self, now: Instant) {
+    fn try_spawn(&mut self, now: Instant, ctx: Arc<Context>, cancel: CancellationToken) {
         if self.is_running.load(Ordering::Acquire) {
             warn!(
                 "Skipping {} because the previous run is still active",
@@ -67,9 +67,15 @@ impl Job {
         flutter_rust_bridge::spawn(async move {
             info!("Running {name}");
 
-            let did_run = run().await;
+            let result = tokio::select! {
+                _ = cancel.cancelled() => {
+                    info!("Cancelled {name}");
+                    None
+                }
+                result = run(ctx) => Some(result),
+            };
 
-            if did_run {
+            if result == Some(true) {
                 info!("Finished running {name}");
             }
 
@@ -79,6 +85,7 @@ impl Job {
 }
 
 pub fn start_jobs(
+    ctx: Arc<Context>,
     job_interval_secs: u64,
     job_initial_delay_secs: u64,
     cancel: CancellationToken,
@@ -103,7 +110,7 @@ pub fn start_jobs(
 
         // Before the first run, ensure we have a connection to the
         // transports, since some jobs depend on it.
-        get_ctx().await.transport_service.connect().await;
+        ctx.transport_service.connect().await;
 
         let mut jobs = create_jobs();
 
@@ -114,10 +121,9 @@ pub fn start_jobs(
                     info!("Stopping job runner");
                     break;
                 }
-
                 now = ticker.tick() => {
                     for job in &mut jobs {
-                        job.try_spawn(now);
+                        job.try_spawn(now, ctx.clone(), cancel.clone());
                     }
                 }
             }
@@ -132,129 +138,104 @@ fn create_jobs() -> Vec<Job> {
         Job::new(
             "Check Mint State Job",
             MINT_STATE_CHECK_INTERVAL_SECS,
-            || Box::pin(run_check_mint_state_job()),
+            |ctx| Box::pin(run_check_mint_state_job(ctx)),
         ),
         Job::new(
             "Check Bill Payment Job",
             BILL_PAYMENT_CHECK_INTERVAL_SECS,
-            || Box::pin(run_check_bill_payment_job()),
+            |ctx| Box::pin(run_check_bill_payment_job(ctx)),
         ),
         Job::new(
             "Check Bill Offer To Sell Payment Job",
             BILL_PAYMENT_CHECK_INTERVAL_SECS,
-            || Box::pin(run_check_bill_offer_to_sell_payment_job()),
+            |ctx| Box::pin(run_check_bill_offer_to_sell_payment_job(ctx)),
         ),
         Job::new(
             "Check Bill Recourse Payment Job",
             BILL_PAYMENT_CHECK_INTERVAL_SECS,
-            || Box::pin(run_check_bill_recourse_payment_job()),
+            |ctx| Box::pin(run_check_bill_recourse_payment_job(ctx)),
         ),
         Job::new(
             "Process Nostr Message Queue Job",
             NOSTR_MESSAGE_QUEUE_INTERVAL_SECS,
-            || Box::pin(run_process_nostr_message_queue_job()),
+            |ctx| Box::pin(run_process_nostr_message_queue_job(ctx)),
         ),
-        Job::new("Relay Sync Job", RELAY_SYNC_INTERVAL_SECS, || {
-            Box::pin(run_relay_sync_job())
+        Job::new("Relay Sync Job", RELAY_SYNC_INTERVAL_SECS, |ctx| {
+            Box::pin(run_relay_sync_job(ctx))
         }),
         Job::new(
             "Relay Retry Sync Job",
             RELAY_RETRY_SYNC_INTERVAL_SECS,
-            || Box::pin(run_relay_retry_sync_job()),
+            |ctx| Box::pin(run_relay_retry_sync_job(ctx)),
         ),
         Job::new(
             "Check Bill Timeouts Job",
             BILL_TIMEOUT_CHECK_INTERVAL_SECS,
-            || Box::pin(run_check_bill_timeouts()),
+            |ctx| Box::pin(run_check_bill_timeouts(ctx)),
         ),
     ]
 }
 
-async fn run_check_mint_state_job() -> bool {
-    if let Err(e) = get_ctx()
-        .await
-        .bill_service
-        .check_mint_state_for_all_bills()
-        .await
-    {
+async fn run_check_mint_state_job(ctx: Arc<Context>) -> bool {
+    if let Err(e) = ctx.bill_service.check_mint_state_for_all_bills().await {
         error!("Error while running Check Mint State Job: {e}");
     }
 
     true
 }
 
-async fn run_check_bill_payment_job() -> bool {
-    if let Err(e) = get_ctx().await.bill_service.check_bills_payment().await {
+async fn run_check_bill_payment_job(ctx: Arc<Context>) -> bool {
+    if let Err(e) = ctx.bill_service.check_bills_payment().await {
         error!("Error while running Check Bill Payment Job: {e}");
     }
 
     true
 }
 
-async fn run_check_bill_offer_to_sell_payment_job() -> bool {
-    if let Err(e) = get_ctx()
-        .await
-        .bill_service
-        .check_bills_offer_to_sell_payment()
-        .await
-    {
+async fn run_check_bill_offer_to_sell_payment_job(ctx: Arc<Context>) -> bool {
+    if let Err(e) = ctx.bill_service.check_bills_offer_to_sell_payment().await {
         error!("Error while running Check Bill Offer to Sell Payment Job: {e}");
     }
 
     true
 }
 
-async fn run_check_bill_recourse_payment_job() -> bool {
-    if let Err(e) = get_ctx()
-        .await
-        .bill_service
-        .check_bills_in_recourse_payment()
-        .await
-    {
+async fn run_check_bill_recourse_payment_job(ctx: Arc<Context>) -> bool {
+    if let Err(e) = ctx.bill_service.check_bills_in_recourse_payment().await {
         error!("Error while running Check Bill Recourse Payment Job: {e}");
     }
 
     true
 }
 
-async fn run_check_bill_timeouts() -> bool {
+async fn run_check_bill_timeouts(ctx: Arc<Context>) -> bool {
     let current_time = Timestamp::now();
 
-    if let Err(e) = get_ctx()
-        .await
-        .bill_service
-        .check_bills_timeouts(current_time)
-        .await
-    {
+    if let Err(e) = ctx.bill_service.check_bills_timeouts(current_time).await {
         error!("Error while running Check Bill Timeouts Job: {e}");
     }
 
     true
 }
 
-async fn run_process_nostr_message_queue_job() -> bool {
-    if let Err(e) = get_ctx()
-        .await
-        .transport_service
-        .send_retry_messages()
-        .await
-    {
+async fn run_process_nostr_message_queue_job(ctx: Arc<Context>) -> bool {
+    if let Err(e) = ctx.transport_service.send_retry_messages().await {
         error!("Error while running Process Nostr Message Queue Job: {e}");
     }
 
     true
 }
 
-async fn run_relay_sync_job() -> bool {
-    if let Err(e) = get_ctx().await.transport_service.sync_relays().await {
+async fn run_relay_sync_job(ctx: Arc<Context>) -> bool {
+    if let Err(e) = ctx.transport_service.sync_relays().await {
         error!("Error while running Relay Sync Job: {e}");
     }
 
     true
 }
 
-async fn run_relay_retry_sync_job() -> bool {
-    if let Err(e) = get_ctx().await.transport_service.retry_failed_syncs().await {
+async fn run_relay_retry_sync_job(ctx: Arc<Context>) -> bool {
+    if let Err(e) = ctx.transport_service.retry_failed_syncs().await {
         error!("Error while running Relay Retry Sync Job: {e}");
     }
 
@@ -265,7 +246,7 @@ async fn run_relay_retry_sync_job() -> bool {
 mod tests {
     use super::*;
 
-    fn test_job() -> JobFuture {
+    fn test_job(_ctx: Arc<Context>) -> JobFuture {
         Box::pin(async { true })
     }
 

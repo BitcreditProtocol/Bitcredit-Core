@@ -26,7 +26,10 @@ use bcr_ebill_transport::{
 };
 use std::sync::Arc;
 
-use crate::ffi::error::EbillFfiError;
+use crate::ffi::{
+    INSTANCE_MANAGER, InstanceId,
+    error::{EbillFfiError, err_init},
+};
 
 #[derive(Clone)]
 pub struct Context {
@@ -177,7 +180,11 @@ impl Context {
     }
 }
 
-pub async fn get_ctx() -> Arc<Context> {
-    let rt = super::EBILL_RUNTIME.lock().await;
-    rt.ctx.clone().expect("Context not initialized")
+pub async fn get_ctx(instance_id: InstanceId) -> Result<Arc<Context>, EbillFfiError> {
+    let manager = INSTANCE_MANAGER.read().await;
+    manager
+        .instances
+        .get(&instance_id)
+        .map(|runtime| runtime.ctx.clone())
+        .ok_or_else(|| err_init("E-Bill instance is not initialized"))
 }

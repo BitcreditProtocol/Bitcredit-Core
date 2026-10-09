@@ -1,6 +1,7 @@
 use std::{str::FromStr, sync::Arc};
 
 use crate::ffi::{
+    InstanceId,
     api::identity::get_current_identity_node_id,
     context::get_ctx,
     data::{
@@ -8,6 +9,7 @@ use crate::ffi::{
         notification::{NotificationFfi, NotificationStatusFfi},
     },
     error::EbillFfiError,
+    get_active_ctx,
 };
 use async_broadcast::RecvError;
 use bcr_common::core::NodeId;
@@ -25,8 +27,8 @@ pub async fn active_notifications_for_node_ids(
         .map(|n| NodeId::from_str(&n))
         .collect::<Result<_, _>>()
         .map_err(ProtocolValidationError::from)?;
-    let notification_status = get_ctx()
-        .await
+    let notification_status = get_active_ctx()
+        .await?
         .transport_service
         .notification_transport()
         .get_active_notification_status_for_node_ids(&node_ids_parsed)
@@ -43,6 +45,7 @@ pub async fn active_notifications_for_node_ids(
 
 #[derive(Debug, Clone)]
 pub struct NotificationSubscriptionResponse {
+    pub instance_id: InstanceId,
     pub value: String,
 }
 
@@ -50,17 +53,20 @@ pub type NotificationSubscriptionCb = Arc<dyn Fn(String) + Send + Sync + 'static
 
 #[frb]
 pub async fn subscribe(
+    instance_id: InstanceId,
     callback: impl Fn(NotificationSubscriptionResponse) -> DartFnFuture<()> + Send + Sync + 'static,
-) {
+) -> Result<(), EbillFfiError> {
+    let ctx = get_ctx(instance_id).await?;
+    let mut receiver = ctx.push_service.subscribe().await;
     let dart_callback = Arc::new(callback);
 
     flutter_rust_bridge::spawn(async move {
         info!("Subscribed to notifications");
-        let mut receiver = get_ctx().await.push_service.subscribe().await;
         loop {
             match receiver.recv().await {
                 Ok(msg) => {
                     let _ = dart_callback(NotificationSubscriptionResponse {
+                        instance_id,
                         value: msg.to_string(),
                     })
                     .await;
@@ -78,14 +84,15 @@ pub async fn subscribe(
             }
         }
     });
+    Ok(())
 }
 
 #[frb]
 pub async fn list(filters: NotificationFiltersFfi) -> Result<Vec<NotificationFfi>, EbillFfiError> {
     let filter = NotificationFilter::try_from(filters)?;
 
-    let notifications = get_ctx()
-        .await
+    let notifications = get_active_ctx()
+        .await?
         .transport_service
         .notification_transport()
         .get_client_notifications(filter)
@@ -97,8 +104,8 @@ pub async fn list(filters: NotificationFiltersFfi) -> Result<Vec<NotificationFfi
 
 #[frb]
 pub async fn mark_as_done(notification_id: &str) -> Result<(), EbillFfiError> {
-    get_ctx()
-        .await
+    get_active_ctx()
+        .await?
         .transport_service
         .notification_transport()
         .mark_notification_as_done(notification_id)
@@ -109,8 +116,8 @@ pub async fn mark_as_done(notification_id: &str) -> Result<(), EbillFfiError> {
 #[frb]
 /// Fetch email notifications preferences link for the currently selected identity
 pub async fn get_email_notifications_preferences_link() -> Result<String, EbillFfiError> {
-    let preferences_link = get_ctx()
-        .await
+    let preferences_link = get_active_ctx()
+        .await?
         .transport_service
         .notification_transport()
         .get_email_notifications_preferences_link(&get_current_identity_node_id().await?)
