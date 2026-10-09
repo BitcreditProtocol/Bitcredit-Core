@@ -30,7 +30,6 @@ use crate::service::file_reference_helper::{contact_file_context, encrypt_upload
 use crate::{
     Config,
     external::file_storage::FileStorageClientApi,
-    get_config,
     service::{
         Result,
         file_server_service::{
@@ -178,7 +177,7 @@ pub struct ContactService {
     company_store: Arc<dyn CompanyStoreApi>,
     nostr_contact_store: Arc<dyn NostrContactStoreApi>,
     transport_service: Arc<dyn TransportServiceApi>,
-    config: Config,
+    config: Arc<Config>,
 }
 
 impl ContactService {
@@ -191,7 +190,7 @@ impl ContactService {
         company_store: Arc<dyn CompanyStoreApi>,
         nostr_contact_store: Arc<dyn NostrContactStoreApi>,
         transport_service: Arc<dyn TransportServiceApi>,
-        config: &Config,
+        config: Arc<Config>,
     ) -> Self {
         Self {
             store,
@@ -202,7 +201,7 @@ impl ContactService {
             company_store,
             nostr_contact_store,
             transport_service,
-            config: config.clone(),
+            config,
         }
     }
 
@@ -254,12 +253,12 @@ impl ContactService {
         signer: &BcrKeys,
         field_name: &str,
     ) -> Result<File> {
-        let publisher_node_id = NodeId::new(signer.pub_key(), get_config().bitcoin_network());
+        let publisher_node_id = NodeId::new(signer.pub_key(), self.config.bitcoin_network());
         encrypt_upload_and_track_file(
             &self.file_reference_store,
             &self.file_upload_client,
             &self.transport_service,
-            &configured_blossom_servers(&get_config().nostr_config),
+            &configured_blossom_servers(&self.config.nostr_config),
             file_name,
             file_bytes,
             public_key,
@@ -351,7 +350,7 @@ impl ContactServiceApi for ContactService {
     }
 
     async fn get_contact(&self, node_id: &NodeId) -> Result<Contact> {
-        validate_node_id_network(node_id)?;
+        validate_node_id_network(node_id, self.config.bitcoin_network())?;
         debug!("getting contact for {node_id}");
         let res = self.store.get(node_id).await?;
         match res {
@@ -361,14 +360,14 @@ impl ContactServiceApi for ContactService {
     }
 
     async fn get_identity_by_node_id(&self, node_id: &NodeId) -> Result<Option<BillParticipant>> {
-        validate_node_id_network(node_id)?;
+        validate_node_id_network(node_id, self.config.bitcoin_network())?;
         let res = self.store.get(node_id).await?;
         res.map(|c| c.try_into().map_err(super::Error::Validation))
             .transpose()
     }
 
     async fn delete(&self, node_id: &NodeId) -> Result<()> {
-        validate_node_id_network(node_id)?;
+        validate_node_id_network(node_id, self.config.bitcoin_network())?;
         self.store.delete(node_id).await?;
         self.nostr_contact_store.delete(node_id).await?;
         Ok(())
@@ -391,7 +390,7 @@ impl ContactServiceApi for ContactService {
         proof_document_file_upload_id: EditOptionalFieldMode<Uuid>,
     ) -> Result<()> {
         debug!("updating contact with node_id: {node_id}");
-        validate_node_id_network(node_id)?;
+        validate_node_id_network(node_id, self.config.bitcoin_network())?;
         let mut contact = match self.store.get(node_id).await? {
             Some(contact) => contact,
             None => {
@@ -552,16 +551,16 @@ impl ContactServiceApi for ContactService {
         proof_document_file_upload_id: Option<Uuid>,
     ) -> Result<Contact> {
         debug!("creating {t:?} contact with node_id {node_id}");
-        validate_node_id_network(node_id)?;
+        validate_node_id_network(node_id, self.config.bitcoin_network())?;
         validate_create_contact(
             t.clone(),
             node_id,
             &email,
             &postal_address,
-            get_config().bitcoin_network(),
+            self.config.bitcoin_network(),
         )?;
 
-        let nostr_relays = get_config().nostr_config.relays.clone();
+        let nostr_relays = self.config.nostr_config.relays.clone();
         let identity = self.identity_store.get_full().await?;
 
         let contact = match t {
@@ -618,7 +617,7 @@ impl ContactServiceApi for ContactService {
                     identification_number: None,
                     avatar_file: None,
                     proof_document_file: None,
-                    nostr_relays: get_config().nostr_config.relays.clone(), // Use the configured relays for now
+                    nostr_relays: self.config.nostr_config.relays.clone(), // Use the configured relays for now
                     is_logical: false,
                     mint_url: None,
                 }
@@ -646,13 +645,13 @@ impl ContactServiceApi for ContactService {
         proof_document_file_upload_id: Option<Uuid>,
     ) -> Result<Contact> {
         debug!("de-anonymizing {t:?} contact with node_id {node_id}");
-        validate_node_id_network(node_id)?;
+        validate_node_id_network(node_id, self.config.bitcoin_network())?;
         validate_create_contact(
             t.clone(),
             node_id,
             &email,
             &postal_address,
-            get_config().bitcoin_network(),
+            self.config.bitcoin_network(),
         )?;
 
         // can't de-anonymize to an anonymous contact
@@ -745,7 +744,7 @@ impl ContactServiceApi for ContactService {
 
     /// Returns a Nostr contact by node id if we have a trusted or participant one.
     async fn get_nostr_contact_by_node_id(&self, node_id: &NodeId) -> Result<Option<NostrContact>> {
-        validate_node_id_network(node_id)?;
+        validate_node_id_network(node_id, self.config.bitcoin_network())?;
         match self.nostr_contact_store.by_node_id(node_id).await {
             Ok(Some(c)) if c.trust_level != TrustLevel::None => Ok(Some(c)),
             _ => Ok(None),
@@ -760,7 +759,7 @@ impl ContactServiceApi for ContactService {
         private_key: &SecretKey,
     ) -> Result<Vec<u8>> {
         debug!("getting file {file_name} for contact with id: {node_id}",);
-        validate_node_id_network(node_id)?;
+        validate_node_id_network(node_id, self.config.bitcoin_network())?;
         let mut file = None;
         if let Some(avatar_file) = contact.avatar_file
             && &avatar_file.name == file_name
@@ -803,7 +802,7 @@ impl ContactServiceApi for ContactService {
         &self,
         receiver_node_id: &NodeId,
     ) -> Result<Vec<bcr_ebill_persistence::PendingContactShare>> {
-        validate_node_id_network(receiver_node_id)?;
+        validate_node_id_network(receiver_node_id, self.config.bitcoin_network())?;
         // By default, only return incoming shares (not the ones we created when sharing)
         Ok(self
             .nostr_contact_store
@@ -930,7 +929,6 @@ pub mod tests {
     use super::*;
     use crate::{
         external::file_storage::MockFileStorageClientApi,
-        get_config,
         service::{
             Error, bill_service::test_utils::get_baseline_identity,
             transport_service::MockTransportServiceApi,
@@ -938,7 +936,7 @@ pub mod tests {
         tests::tests::{
             MockCompanyStoreApiMock, MockContactStoreApiMock, MockFileReferenceStoreApiMock,
             MockFileUploadStoreApiMock, MockIdentityStoreApiMock, MockNostrContactStore,
-            NODE_ID_TEST_STR, empty_address, init_test_cfg, node_id_test, node_id_test_other,
+            NODE_ID_TEST_STR, empty_address, node_id_test, node_id_test_other, test_cfg,
         },
     };
     use bcr_ebill_core::{
@@ -1001,7 +999,7 @@ pub mod tests {
             Arc::new(mock_company_storage),
             Arc::new(mock_nostr_contact_store),
             Arc::new(mock_transport_service),
-            get_config().as_ref(),
+            Arc::new(test_cfg()),
         )
     }
 
@@ -1289,7 +1287,6 @@ pub mod tests {
 
     #[tokio::test]
     async fn update_contact_upload_avatar_uses_identity_node_id_for_publish() {
-        init_test_cfg();
         let (
             mut store,
             mut file_upload_store,
@@ -1303,7 +1300,7 @@ pub mod tests {
 
         let identity = get_baseline_identity();
         let expected_publisher_node_id =
-            NodeId::new(identity.key_pair.pub_key(), get_config().bitcoin_network());
+            NodeId::new(identity.key_pair.pub_key(), test_cfg().bitcoin_network());
 
         identity_store
             .expect_get_full()
@@ -1388,7 +1385,6 @@ pub mod tests {
 
     #[tokio::test]
     async fn add_contact_calls_store() {
-        init_test_cfg();
         let (
             mut store,
             file_upload_store,
@@ -1440,7 +1436,6 @@ pub mod tests {
 
     #[tokio::test]
     async fn add_anon_contact_calls_store() {
-        init_test_cfg();
         let (
             mut store,
             file_upload_store,
@@ -1497,7 +1492,6 @@ pub mod tests {
 
     #[tokio::test]
     async fn deanonymize_contact_calls_store() {
-        init_test_cfg();
         let (
             mut store,
             file_upload_store,
@@ -1550,7 +1544,6 @@ pub mod tests {
 
     #[tokio::test]
     async fn deanonymize_contact_of_non_anon_fails() {
-        init_test_cfg();
         let (
             mut store,
             file_upload_store,
@@ -1603,7 +1596,6 @@ pub mod tests {
 
     #[tokio::test]
     async fn deanonymize_contact_with_new_anon_fails() {
-        init_test_cfg();
         let (
             mut store,
             file_upload_store,
@@ -1716,7 +1708,6 @@ pub mod tests {
 
     #[tokio::test]
     async fn approve_contact_share_adds_contact_without_share_back() {
-        init_test_cfg();
         let (
             mut store,
             file_upload_store,
@@ -1779,7 +1770,6 @@ pub mod tests {
 
     #[tokio::test]
     async fn approve_contact_share_adds_contact_with_share_back() {
-        init_test_cfg();
         let (
             mut store,
             file_upload_store,
@@ -1865,7 +1855,6 @@ pub mod tests {
 
     #[tokio::test]
     async fn approve_contact_share_shares_back_without_adding_contact() {
-        init_test_cfg();
         let (
             store,
             file_upload_store,
@@ -1935,7 +1924,6 @@ pub mod tests {
 
     #[tokio::test]
     async fn approve_contact_share_does_nothing_when_both_false() {
-        init_test_cfg();
         let (
             store,
             file_upload_store,

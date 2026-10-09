@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use bcr_common::core::NodeId;
+use bcr_ebill_api::Config;
 use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
 use bcr_ebill_api::util::validate_node_id_network;
 use bcr_ebill_core::application::ServiceTraitBounds;
@@ -53,6 +54,7 @@ pub struct NostrTransportService {
     queued_message_store: Arc<dyn NostrQueuedMessageStoreApi>,
     chain_event_store: Arc<dyn NostrChainEventStoreApi>,
     nostr_relays: Vec<url::Url>,
+    config: Arc<Config>,
 }
 
 impl ServiceTraitBounds for NostrTransportService {}
@@ -68,6 +70,7 @@ impl NostrTransportService {
         queued_message_store: Arc<dyn NostrQueuedMessageStoreApi>,
         chain_event_store: Arc<dyn NostrChainEventStoreApi>,
         nostr_relays: Vec<url::Url>,
+        config: Arc<Config>,
     ) -> Self {
         Self {
             nostr_client,
@@ -76,6 +79,7 @@ impl NostrTransportService {
             queued_message_store,
             chain_event_store,
             nostr_relays,
+            config,
         }
     }
 
@@ -135,7 +139,7 @@ impl NostrTransportService {
     }
 
     pub(crate) async fn resolve_node_contact(&self, node_id: &NodeId) -> Option<BillParticipant> {
-        if validate_node_id_network(node_id).is_err() {
+        if validate_node_id_network(node_id, self.config.bitcoin_network()).is_err() {
             return None;
         }
         if let Ok(Some(identity)) = self.contact_store.get(node_id).await {

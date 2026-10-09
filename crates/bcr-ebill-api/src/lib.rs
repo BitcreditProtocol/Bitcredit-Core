@@ -20,7 +20,7 @@ use bcr_ebill_persistence::{
 use bcr_ebill_persistence::{DbConfig, EncryptionContext};
 use bitcoin::Network;
 use log::error;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 #[cfg(not(any(feature = "sqlite", feature = "postgres")))]
 compile_error!("Either feature `sqlite` or `postgres` must be enabled.");
@@ -47,8 +47,6 @@ pub struct Config {
     pub dev_mode_config: DevModeConfig,
     pub court_config: CourtConfig,
 }
-
-static CONFIG: RwLock<Option<Arc<Config>>> = RwLock::new(None);
 
 impl Config {
     pub fn bitcoin_network(&self) -> Network {
@@ -141,21 +139,6 @@ impl MintConfig {
     }
 }
 
-pub fn init(conf: Config) -> Result<()> {
-    if conf.esplora_base_urls.is_empty() {
-        return Err(anyhow!("esplora_base_urls must contain at least one URL"));
-    }
-
-    let mut cfg_lock = CONFIG.write().expect("can get write lock on config");
-    *cfg_lock = Some(Arc::new(conf));
-    Ok(())
-}
-
-pub fn get_config() -> Arc<Config> {
-    let config = CONFIG.read().expect("Can get E-Bill config lock");
-    config.clone().expect("E-Bill API is not initialized")
-}
-
 /// A container for all persistence related dependencies.
 #[derive(Clone)]
 pub struct DbContext {
@@ -179,7 +162,7 @@ pub struct DbContext {
 
 /// Creates a new instance of the DbContext with the given configuration
 pub async fn get_db_context(
-    conf: &Config,
+    conf: Arc<Config>,
     encryption_keys: &BcrKeys,
 ) -> bcr_ebill_persistence::Result<DbContext> {
     let encryption_context = Arc::new(EncryptionContext::new(encryption_keys.to_owned()));

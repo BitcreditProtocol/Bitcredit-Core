@@ -1,3 +1,4 @@
+use crate::Config;
 use crate::util::validate_node_id_network;
 
 use super::Result;
@@ -36,6 +37,7 @@ pub struct SearchService {
     bill_service: Arc<dyn BillServiceApi>,
     contact_service: Arc<dyn ContactServiceApi>,
     company_service: Arc<dyn CompanyServiceApi>,
+    config: Arc<Config>,
 }
 
 impl SearchService {
@@ -43,11 +45,13 @@ impl SearchService {
         bill_service: Arc<dyn BillServiceApi>,
         contact_service: Arc<dyn ContactServiceApi>,
         company_service: Arc<dyn CompanyServiceApi>,
+        config: Arc<Config>,
     ) -> Self {
         Self {
             bill_service,
             contact_service,
             company_service,
+            config,
         }
     }
 }
@@ -64,7 +68,7 @@ impl SearchServiceApi for SearchService {
         caller_public_data: &BillParticipant,
         caller_keys: &BcrKeys,
     ) -> Result<GeneralSearchResult> {
-        validate_node_id_network(&caller_public_data.node_id())?;
+        validate_node_id_network(&caller_public_data.node_id(), self.config.bitcoin_network())?;
         debug!("search for {search_term}, with {currency} and {item_types:?}");
         let search_term_lc = search_term.to_lowercase();
         let bills = if item_types.contains(&GeneralSearchFilterItemType::Bill) {

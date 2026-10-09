@@ -36,7 +36,7 @@ use bcr_ebill_core::{
 };
 use log::error;
 
-use crate::{get_config, util::validate_node_id_network};
+use crate::util::validate_node_id_network;
 
 use super::{BillAction, Result, error::Error, service::BillService};
 
@@ -70,7 +70,7 @@ impl BillService {
             .get_signer_identity_proof(
                 signer_public_data,
                 identity,
-                &get_config().mint_config.default_mint_node_id,
+                &self.config.mint_config.default_mint_node_id,
             )
             .await?;
 
@@ -156,8 +156,7 @@ impl BillService {
                 {
                     // Holder is Mint - use a custom payment address
                     if let Some(mint_payment_address) = optional_mint_payment_address {
-                        if !mint_payment_address
-                            .is_valid_for_network(get_config().bitcoin_network())
+                        if !mint_payment_address.is_valid_for_network(self.config.bitcoin_network())
                         {
                             return Err(Error::Protocol(
                                 ProtocolValidationError::InvalidBitcoinAddress.into(),
@@ -166,7 +165,7 @@ impl BillService {
 
                         self.mint_client
                             .validate_payment_address_from_mint(
-                                &get_config().mint_config.default_mint_url,
+                                &self.config.mint_config.default_mint_url,
                                 mint_payment_address,
                                 &bill.id,
                                 BlockId::next_from_previous_block_id(&previous_block.id()),
@@ -194,7 +193,7 @@ impl BillService {
                             previous_block.hash(),
                         )
                         .map_err(|e| Error::Protocol(e.into()))?,
-                        get_config().bitcoin_network(),
+                        self.config.bitcoin_network(),
                     )?
                 };
                 // calculate payment address with unique tweak
@@ -244,7 +243,7 @@ impl BillService {
                 recourse_reason,
                 recourse_deadline_timestamp,
             ) => {
-                validate_node_id_network(&recoursee.node_id)?;
+                validate_node_id_network(&recoursee.node_id, self.config.bitcoin_network())?;
                 let (sum, reason) = match *recourse_reason {
                     RecourseReason::Accept => {
                         (bill.sum.clone(), BillRecourseReasonBlockData::Accept)
@@ -263,7 +262,7 @@ impl BillService {
                         previous_block.hash(),
                     )
                     .map_err(|e| Error::Protocol(e.into()))?,
-                    get_config().bitcoin_network(),
+                    self.config.bitcoin_network(),
                 )?;
 
                 let block_data = BillRequestRecourseBlockData {
@@ -310,7 +309,7 @@ impl BillService {
             }
             // can be anon to recourse
             BillAction::Recourse(recoursee) => {
-                validate_node_id_network(&recoursee.node_id)?;
+                validate_node_id_network(&recoursee.node_id, self.config.bitcoin_network())?;
                 let block_data = BillRecourseBlockData {
                     recourser: if holder_is_anon {
                         // if holder is anon, we need to continue as anon
@@ -349,7 +348,7 @@ impl BillService {
             }
             // can be anon to mint
             BillAction::Mint(mint, sum) => {
-                validate_node_id_network(&mint.node_id())?;
+                validate_node_id_network(&mint.node_id(), self.config.bitcoin_network())?;
                 let block_data = BillMintBlockData {
                     endorser: if holder_is_anon {
                         // if holder is anon, we need to continue as anon
@@ -389,7 +388,7 @@ impl BillService {
             }
             // can be anon to offer to sell
             BillAction::OfferToSell(buyer, sum, buying_deadline_timestamp) => {
-                validate_node_id_network(&buyer.node_id())?;
+                validate_node_id_network(&buyer.node_id(), self.config.bitcoin_network())?;
                 // calculate payment address with unique tweak
                 let address_to_pay = get_address_to_pay(
                     &bill_keys.pub_key(),
@@ -400,7 +399,7 @@ impl BillService {
                         previous_block.hash(),
                     )
                     .map_err(|e| Error::Protocol(e.into()))?,
-                    get_config().bitcoin_network(),
+                    self.config.bitcoin_network(),
                 )?;
                 let block_data = BillOfferToSellBlockData {
                     seller: if holder_is_anon {
@@ -445,7 +444,7 @@ impl BillService {
             }
             // can be anon to sell
             BillAction::Sell(buyer) => {
-                validate_node_id_network(&buyer.node_id())?;
+                validate_node_id_network(&buyer.node_id(), self.config.bitcoin_network())?;
                 let block_data = BillSellBlockData {
                     seller: if holder_is_anon {
                         // if holder is anon, we need to continue as anon
@@ -484,7 +483,7 @@ impl BillService {
             }
             // can be anon to endorse
             BillAction::Endorse(endorsee) => {
-                validate_node_id_network(&endorsee.node_id())?;
+                validate_node_id_network(&endorsee.node_id(), self.config.bitcoin_network())?;
                 let block_data = BillEndorseBlockData {
                     endorser: if holder_is_anon {
                         // if holder is anon, we need to continue as anon

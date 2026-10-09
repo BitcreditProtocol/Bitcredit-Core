@@ -7,7 +7,7 @@ use bcr_ebill_api::service::transport_service::{Error, Result, TransportServiceA
 use bcr_ebill_api::{
     Config, DbContext,
     external::email::EmailClientApi,
-    get_config, get_db_context,
+    get_db_context,
     service::{
         contact_service::ContactServiceApi,
         transport_service::{NostrConfig, transport_client::TransportClientApi},
@@ -56,7 +56,7 @@ use crate::transport_service::TransportService;
 
 /// Creates a single multi-identity nostr client configured with the current identity user and all local companies.
 pub async fn create_nostr_clients(
-    config: &Config,
+    config: Arc<Config>,
     identity_store: Arc<dyn IdentityStoreApi>,
     company_store: Arc<dyn CompanyStoreApi>,
     nostr_contact_store: Arc<dyn bcr_ebill_persistence::traits::nostr::NostrContactStoreApi>,
@@ -67,7 +67,7 @@ pub async fn create_nostr_clients(
         Error::Crypto("Failed to get nostr key pair".to_string())
     })?;
 
-    let primary_node_id = NodeId::new(keys.pub_key(), get_config().bitcoin_network());
+    let primary_node_id = NodeId::new(keys.pub_key(), config.bitcoin_network());
     let mut identities = vec![(primary_node_id.clone(), keys.clone())];
 
     debug!("Adding primary identity: {}", primary_node_id);
@@ -93,7 +93,7 @@ pub async fn create_nostr_clients(
 
     // Add all company identities
     for (_company, company_keys) in companies.values() {
-        let company_node_id = NodeId::new(company_keys.pub_key(), get_config().bitcoin_network());
+        let company_node_id = NodeId::new(company_keys.pub_key(), config.bitcoin_network());
         debug!("Adding company identity: {}", company_node_id);
         identities.push((company_node_id, company_keys.clone()));
     }
@@ -131,13 +131,14 @@ pub async fn create_transport_service(
     nostr_relays: Vec<url::Url>,
     push_service: Arc<dyn PushApi>,
     mint_client: Arc<dyn MintClientApi>,
+    config: Arc<Config>,
 ) -> Result<Arc<dyn TransportServiceApi>> {
     let transport = client.clone();
 
     let nostr_contact_processor = Arc::new(NostrContactProcessor::new(
         transport.clone(),
         db_context.nostr_contact_store.clone(),
-        get_config().bitcoin_network(),
+        config.bitcoin_network(),
         Some(client.clone()),
     ));
     let bill_processor = Arc::new(BillChainEventProcessor::new(
@@ -148,7 +149,8 @@ pub async fn create_transport_service(
         db_context.nostr_chain_event_store.clone(),
         transport.clone(),
         mint_client,
-        get_config().bitcoin_network(),
+        config.bitcoin_network(),
+        config.clone(),
     ));
     let bill_invite_handler = Arc::new(BillInviteEventHandler::new(
         bill_processor.clone(),
@@ -166,7 +168,8 @@ pub async fn create_transport_service(
         db_context.nostr_chain_event_store.clone(),
         transport.clone(),
         db_context.contact_store.clone(),
-        get_config().bitcoin_network(),
+        config.bitcoin_network(),
+        config.clone(),
     ));
     let company_invite_handler = CompanyInviteEventHandler::new(
         transport.clone(),
@@ -183,7 +186,8 @@ pub async fn create_transport_service(
         db_context.nostr_chain_event_store.clone(),
         transport.clone(),
         db_context.contact_store.clone(),
-        get_config().bitcoin_network(),
+        config.bitcoin_network(),
+        config.clone(),
     ));
 
     let nostr_transport = Arc::new(NostrTransportService::new(
@@ -193,6 +197,7 @@ pub async fn create_transport_service(
         db_context.queued_message_store.clone(),
         db_context.nostr_chain_event_store.clone(),
         nostr_relays,
+        config.clone(),
     ));
 
     let block_transport = Arc::new(BlockTransportService::new(
@@ -200,12 +205,14 @@ pub async fn create_transport_service(
         bill_processor.clone(),
         company_processor.clone(),
         identity_processor.clone(),
+        config.clone(),
     ));
 
     let contact_transport = Arc::new(ContactTransportService::new(
         nostr_transport.clone(),
         db_context.nostr_contact_store.clone(),
         nostr_contact_processor.clone(),
+        config.clone(),
     ));
 
     let notification_transport = Arc::new(NotificationTransportService::new(
@@ -213,6 +220,7 @@ pub async fn create_transport_service(
         db_context.email_notification_store.clone(),
         email_client,
         push_service.clone(),
+        config.clone(),
     ));
 
     #[allow(clippy::arc_with_non_send_sync)]
@@ -235,6 +243,7 @@ pub async fn create_nostr_consumer(
     chain_key_service: Arc<dyn ChainKeyServiceApi>,
     db_context: DbContext,
     mint_client: Arc<dyn MintClientApi>,
+    config: Arc<Config>,
 ) -> Result<NostrConsumer> {
     // we need one nostr client for nostr interactions
     let transport = client.clone();
@@ -242,7 +251,7 @@ pub async fn create_nostr_consumer(
     let nostr_contact_processor = Arc::new(NostrContactProcessor::new(
         transport.clone(),
         db_context.nostr_contact_store.clone(),
-        get_config().bitcoin_network(),
+        config.bitcoin_network(),
         Some(client.clone()),
     ));
 
@@ -254,7 +263,8 @@ pub async fn create_nostr_consumer(
         db_context.nostr_chain_event_store.clone(),
         transport.clone(),
         mint_client,
-        get_config().bitcoin_network(),
+        config.bitcoin_network(),
+        config.clone(),
     ));
 
     let bill_invite_handler = Arc::new(BillInviteEventHandler::new(
@@ -274,7 +284,8 @@ pub async fn create_nostr_consumer(
         db_context.nostr_chain_event_store.clone(),
         transport.clone(),
         db_context.contact_store.clone(),
-        get_config().bitcoin_network(),
+        config.bitcoin_network(),
+        config.clone(),
     ));
 
     let company_invite_handler = CompanyInviteEventHandler::new(
@@ -293,7 +304,8 @@ pub async fn create_nostr_consumer(
         db_context.nostr_chain_event_store.clone(),
         transport.clone(),
         db_context.contact_store.clone(),
-        get_config().bitcoin_network(),
+        config.bitcoin_network(),
+        config.clone(),
     ));
 
     // register the logging event handler for all events for now. Later we will probably
@@ -349,14 +361,14 @@ pub async fn create_nostr_consumer(
 }
 
 pub async fn create_restore_account_service(
-    config: &Config,
+    config: Arc<Config>,
     keys: &BcrKeys,
     chain_key_service: Arc<dyn ChainKeyServiceApi>,
     contact_service: Arc<dyn ContactServiceApi>,
     push_service: Arc<dyn PushApi>,
     mint_client: Arc<dyn MintClientApi>,
 ) -> Result<RestoreAccountService> {
-    let db_context = get_db_context(config, keys)
+    let db_context = get_db_context(config.clone(), keys)
         .await
         .expect("could not create db context");
 
@@ -386,7 +398,8 @@ pub async fn create_restore_account_service(
         db_context.nostr_chain_event_store.clone(),
         nostr_client.clone(),
         mint_client,
-        get_config().bitcoin_network(),
+        config.bitcoin_network(),
+        config.clone(),
     ));
 
     let bill_invite_handler = Arc::new(BillInviteEventHandler::new(
@@ -407,6 +420,7 @@ pub async fn create_restore_account_service(
         nostr_client.clone(),
         db_context.contact_store.clone(),
         config.bitcoin_network(),
+        config.clone(),
     ));
 
     let company_invite_handler = Arc::new(CompanyInviteEventHandler::new(
@@ -435,6 +449,7 @@ pub async fn create_restore_account_service(
         nostr_client.clone(),
         db_context.contact_store.clone(),
         config.bitcoin_network(),
+        config.clone(),
     ));
 
     let dm_processor = Arc::new(

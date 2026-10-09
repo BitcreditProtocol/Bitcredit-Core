@@ -2,7 +2,6 @@ use super::{BillAction, BillServiceApi, Result, error::Error, service::BillServi
 use crate::service::file_reference_helper::{bill_file_context, encrypt_upload_and_track_file};
 use crate::{
     constants::MAX_BILL_ATTACHMENTS,
-    get_config,
     service::{
         file_server_service::configured_blossom_servers, file_upload_service::UploadFileType,
     },
@@ -45,12 +44,12 @@ impl BillService {
                 ProtocolValidationError::FileIsTooBig(upload_file_type.max_file_size()).into(),
             ));
         }
-        let node_id = NodeId::new(signer.pub_key(), get_config().bitcoin_network());
+        let node_id = NodeId::new(signer.pub_key(), self.config.bitcoin_network());
         encrypt_upload_and_track_file(
             &self.file_reference_store,
             &self.file_upload_client,
             &self.transport_service,
-            &configured_blossom_servers(&get_config().nostr_config),
+            &configured_blossom_servers(&self.config.nostr_config),
             file_name,
             file_bytes,
             public_key,
@@ -69,9 +68,12 @@ impl BillService {
             "issuing bill with type {}, blank: {}",
             data.t, data.blank_issue
         );
-        validate_node_id_network(&data.drawee)?;
-        validate_node_id_network(&data.payee)?;
-        validate_node_id_network(&data.drawer_public_data.node_id())?;
+        validate_node_id_network(&data.drawee, self.config.bitcoin_network())?;
+        validate_node_id_network(&data.payee, self.config.bitcoin_network())?;
+        validate_node_id_network(
+            &data.drawer_public_data.node_id(),
+            self.config.bitcoin_network(),
+        )?;
         let bill_type = match data.t {
             0 => BillType::PromissoryNote,
             1 => BillType::SelfDrafted,
@@ -169,7 +171,7 @@ impl BillService {
         let bill_keys = BcrKeys::new();
         let public_key = bill_keys.pub_key();
 
-        let bill_id = BillId::new(public_key, get_config().bitcoin_network());
+        let bill_id = BillId::new(public_key, self.config.bitcoin_network());
 
         if data.file_upload_ids.len() > MAX_BILL_ATTACHMENTS {
             return Err(Error::Validation(
@@ -222,7 +224,7 @@ impl BillService {
             .get_signer_identity_proof(
                 &data.drawer_public_data,
                 &identity,
-                &get_config().mint_config.default_mint_node_id,
+                &self.config.mint_config.default_mint_node_id,
             )
             .await?
         else {

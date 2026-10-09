@@ -10,10 +10,9 @@ use crate::{
     tests::tests::{
         bill_id_test, bill_id_test_other, bill_id_test_other2,
         bill_identified_participant_only_node_id, bill_participant_only_node_id, empty_address,
-        empty_bill_identified_participant, empty_identity, init_test_cfg, node_id_test,
-        node_id_test_another, node_id_test_other, private_key_test, private_key_test_another,
-        signed_identity_proof_test, signed_other_identity_proof_test, test_ts,
-        valid_payment_address_testnet,
+        empty_bill_identified_participant, empty_identity, node_id_test, node_id_test_another,
+        node_id_test_other, private_key_test, private_key_test_another, signed_identity_proof_test,
+        signed_other_identity_proof_test, test_ts, valid_payment_address_testnet,
     },
     util::get_uuid_v4,
 };
@@ -3893,7 +3892,6 @@ async fn endorse_bitcredit_bill_fails_if_payee_not_caller() {
 
 #[tokio::test]
 async fn get_combined_bitcoin_keys_for_bill_baseline() {
-    init_test_cfg();
     let mut ctx = get_ctx();
     let identity = get_baseline_identity();
     let mut bill = get_baseline_bill(&bill_id_test());
@@ -6897,7 +6895,6 @@ fn check_req_for_expiration_baseline() {
 
 #[tokio::test]
 async fn req_to_mint_baseline() {
-    init_test_cfg();
     let mut ctx = get_ctx();
     let identity = get_baseline_identity();
     let mut bill = get_baseline_bill(&bill_id_test());
@@ -7021,7 +7018,6 @@ async fn get_mint_state_baseline() {
 
 #[tokio::test]
 async fn cancel_mint_state_baseline() {
-    init_test_cfg();
     let mut ctx = get_ctx();
     let identity = get_baseline_identity();
 
@@ -7052,7 +7048,6 @@ async fn cancel_mint_state_baseline() {
 
 #[tokio::test]
 async fn accept_mint_offer_baseline() {
-    init_test_cfg();
     let mut ctx = get_ctx();
     let mut identity = IdentityWithAll {
         identity: empty_identity(),
@@ -7137,7 +7132,6 @@ async fn accept_mint_offer_baseline() {
 
 #[tokio::test]
 async fn reject_mint_offer_baseline() {
-    init_test_cfg();
     let mut ctx = get_ctx();
     let identity = get_baseline_identity();
 
@@ -7168,7 +7162,6 @@ async fn reject_mint_offer_baseline() {
 
 #[tokio::test]
 async fn check_mint_state_for_all_bills_baseline() {
-    init_test_cfg();
     let mut ctx = get_ctx();
     let identity = get_baseline_identity();
 
@@ -7203,7 +7196,6 @@ async fn check_mint_state_for_all_bills_baseline() {
 
 #[tokio::test]
 async fn check_mint_state_baseline() {
-    init_test_cfg();
     let mut ctx = get_ctx();
     let identity = get_baseline_identity();
 
@@ -7240,7 +7232,6 @@ async fn check_mint_state_baseline() {
 
 #[tokio::test]
 async fn check_mint_state_pending_accepted() {
-    init_test_cfg();
     let mut ctx = get_ctx();
     let identity = get_baseline_identity();
 
@@ -7277,7 +7268,6 @@ async fn check_mint_state_pending_accepted() {
 
 #[tokio::test]
 async fn check_mint_state_pending_offered() {
-    init_test_cfg();
     let mut ctx = get_ctx();
     let identity = get_baseline_identity();
 
@@ -7319,7 +7309,6 @@ async fn check_mint_state_pending_offered() {
 
 #[tokio::test]
 async fn check_mint_state_offered_accepted() {
-    init_test_cfg();
     let mut ctx = get_ctx();
     let identity = get_baseline_identity();
 
@@ -7356,7 +7345,6 @@ async fn check_mint_state_offered_accepted() {
 
 #[tokio::test]
 async fn check_mint_state_minting_enabled_proofs() {
-    init_test_cfg();
     let mut ctx = get_ctx();
     let identity = get_baseline_identity();
 
@@ -7422,7 +7410,6 @@ async fn check_mint_state_minting_enabled_proofs() {
 
 #[tokio::test]
 async fn check_mint_state_minting_enabled_check_spent() {
-    init_test_cfg();
     let mut ctx = get_ctx();
     let identity = get_baseline_identity();
 

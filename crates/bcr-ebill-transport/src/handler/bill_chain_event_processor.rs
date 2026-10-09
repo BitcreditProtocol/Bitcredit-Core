@@ -5,8 +5,8 @@ use crate::handler::public_chain_helpers::{
 use crate::{Error, Result};
 use async_trait::async_trait;
 use bcr_common::core::BillId;
+use bcr_ebill_api::Config;
 use bcr_ebill_api::external::mint::MintClientApi;
-use bcr_ebill_api::get_config;
 use bcr_ebill_api::service::transport_service::ResyncMode;
 use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
 use bcr_ebill_core::application::ServiceTraitBounds;
@@ -410,6 +410,7 @@ pub struct BillChainEventProcessor {
     transport: Arc<dyn TransportClientApi>,
     mint_client: Arc<dyn MintClientApi>,
     bitcoin_network: bitcoin::Network,
+    config: Arc<Config>,
 }
 
 impl BillChainEventProcessor {
@@ -422,6 +423,7 @@ impl BillChainEventProcessor {
         transport: Arc<dyn TransportClientApi>,
         mint_client: Arc<dyn MintClientApi>,
         bitcoin_network: bitcoin::Network,
+        config: Arc<Config>,
     ) -> Self {
         Self {
             bill_blockchain_store,
@@ -432,6 +434,7 @@ impl BillChainEventProcessor {
             transport,
             mint_client,
             bitcoin_network,
+            config,
         }
     }
 
@@ -626,7 +629,7 @@ impl BillChainEventProcessor {
                     latest_block_before_add.hash(),
                     &bill_keys.pub_key(),
                     &signer.pub_key(),
-                    get_config().bitcoin_network(),
+                    self.config.bitcoin_network(),
                     &data.payment_data.payment_address,
                     &holder_is_mint_for_validation,
                 )
@@ -644,7 +647,7 @@ impl BillChainEventProcessor {
                     latest_block_before_add.hash(),
                     &bill_keys.pub_key(),
                     &signer.pub_key(),
-                    get_config().bitcoin_network(),
+                    self.config.bitcoin_network(),
                     &data.payment_data.payment_address,
                     &None,
                 )
@@ -662,7 +665,7 @@ impl BillChainEventProcessor {
                     latest_block_before_add.hash(),
                     &bill_keys.pub_key(),
                     &signer.pub_key(),
-                    get_config().bitcoin_network(),
+                    self.config.bitcoin_network(),
                     &data.payment_data.payment_address,
                     &None,
                 )
@@ -738,7 +741,7 @@ impl BillChainEventProcessor {
 
             self.mint_client
                 .validate_payment_address_from_mint(
-                    &get_config().mint_config.default_mint_url,
+                    &self.config.mint_config.default_mint_url,
                     address_to_check,
                     bill_id,
                     *block_id,
@@ -995,8 +998,8 @@ mod tests {
             },
         },
         test_utils::{
-            MockFileReferenceStore, MockNotificationJsonTransport, init_test_cfg,
-            signed_identity_proof_test, valid_payment_address_testnet,
+            MockFileReferenceStore, MockNotificationJsonTransport, signed_identity_proof_test,
+            test_cfg, valid_payment_address_testnet,
         },
         transport::create_public_chain_event,
     };
@@ -1015,6 +1018,7 @@ mod tests {
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
     }
 
@@ -1052,6 +1056,7 @@ mod tests {
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         let valid = handler
@@ -1091,6 +1096,7 @@ mod tests {
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         let valid = handler
@@ -1147,6 +1153,7 @@ mod tests {
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         handler
@@ -1219,6 +1226,7 @@ mod tests {
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         handler
@@ -1366,6 +1374,7 @@ mod tests {
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         handler
@@ -1466,6 +1475,7 @@ mod tests {
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         let result = handler
@@ -1517,6 +1527,7 @@ mod tests {
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         let result = handler
@@ -1576,6 +1587,7 @@ mod tests {
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         let result = handler
@@ -1640,6 +1652,7 @@ mod tests {
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         let result = handler
@@ -1703,6 +1716,7 @@ mod tests {
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         let result = handler
@@ -1724,6 +1738,7 @@ mod tests {
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
         let mainnet_bill_id = BillId::new(BcrKeys::new().pub_key(), bitcoin::Network::Bitcoin);
 
@@ -1803,6 +1818,7 @@ mod tests {
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         // Call add_bill_blocks with from_resync=true
@@ -1897,6 +1913,7 @@ mod tests {
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         // Call add_bill_blocks with from_resync=true and a gapped block
@@ -1955,6 +1972,7 @@ mod tests {
             Arc::new(MockNotificationJsonTransport::new()),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         let mut test_chain = chain.clone();
@@ -2020,6 +2038,7 @@ mod tests {
             Arc::new(MockNotificationJsonTransport::new()),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         let mut test_chain = chain.clone();
@@ -2151,6 +2170,7 @@ mod tests {
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         // This should process the valid chain and exit
@@ -2293,6 +2313,7 @@ mod tests {
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         handler
@@ -2409,6 +2430,7 @@ mod tests {
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         let result = handler
@@ -2515,6 +2537,7 @@ mod tests {
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         handler
@@ -2593,6 +2616,7 @@ mod tests {
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         handler
@@ -2711,6 +2735,7 @@ mod tests {
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         handler
@@ -2854,6 +2879,7 @@ mod tests {
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         handler
@@ -2941,6 +2967,7 @@ mod tests {
             Arc::new(MockNotificationJsonTransport::new()),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         let result = handler.add_new_chain(vec![issue_block], &keys).await;
@@ -2992,6 +3019,7 @@ mod tests {
             Arc::new(MockNotificationJsonTransport::new()),
             Arc::new(MockMintClient::new()),
             network,
+            Arc::new(test_cfg()),
         );
 
         let block_id = BlockId::first().add(6);
@@ -3028,7 +3056,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_validate_payment_address_mint_case() {
-        init_test_cfg();
         let (bill_chain_store, _, _, _, _) = create_mocks();
         let network = bitcoin::Network::Testnet;
         let mut mock_mint_client = MockMintClient::new();
@@ -3045,6 +3072,7 @@ mod tests {
             Arc::new(MockNotificationJsonTransport::new()),
             Arc::new(mock_mint_client),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         let block_id = BlockId::first().add(6);
@@ -3086,6 +3114,7 @@ mod tests {
             Arc::new(MockNotificationJsonTransport::new()),
             Arc::new(MockMintClient::new()),
             network,
+            Arc::new(test_cfg()),
         );
 
         let block_id = BlockId::first().add(6);
@@ -3132,6 +3161,7 @@ mod tests {
             Arc::new(MockNotificationJsonTransport::new()),
             Arc::new(MockMintClient::new()),
             network,
+            Arc::new(test_cfg()),
         );
 
         let block_id = BlockId::first().add(6);
@@ -3300,6 +3330,7 @@ mod tests {
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         handler
@@ -3386,6 +3417,7 @@ mod tests {
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         handler
@@ -3498,6 +3530,7 @@ mod tests {
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         handler
@@ -3657,6 +3690,7 @@ mod tests {
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         handler
@@ -3822,6 +3856,7 @@ mod tests {
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         handler

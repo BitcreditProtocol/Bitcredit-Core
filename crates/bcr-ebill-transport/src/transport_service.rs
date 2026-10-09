@@ -432,7 +432,7 @@ mod tests {
     use crate::Error;
     use crate::test_utils::{
         MockBlockTransportService, MockContactTransportService, MockNotificationTransportService,
-        get_nostr_transport, signed_identity_proof_test,
+        get_nostr_transport, signed_identity_proof_test, test_cfg,
     };
     use bcr_ebill_core::application::contact::Contact;
     use bcr_ebill_core::protocol::Timestamp;
@@ -459,7 +459,7 @@ mod tests {
     use crate::test_utils::{
         MockContactStore, MockNostrChainEventStore, MockNostrContactStore,
         MockNostrQueuedMessageStore, MockNotificationJsonTransport, bill_id_test, empty_address,
-        get_baseline_identity, get_genesis_chain, init_test_cfg, node_id_test, node_id_test_other,
+        get_baseline_identity, get_genesis_chain, node_id_test, node_id_test_other,
         node_id_test_other2, private_key_test, valid_payment_address_testnet,
     };
 
@@ -612,7 +612,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_connect() {
-        init_test_cfg();
         let mut mock_transport = MockNotificationJsonTransport::new();
 
         // call connect on the inner transport
@@ -625,6 +624,7 @@ mod tests {
             Arc::new(MockNostrQueuedMessageStore::new()),
             Arc::new(MockNostrChainEventStore::new()),
             vec![url::Url::parse("ws://test.relay").unwrap()],
+            Arc::new(test_cfg()),
         );
 
         service.connect().await;
@@ -632,7 +632,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_request_to_action_rejected_event() {
-        init_test_cfg();
         let payer = get_identity_public_data(
             &node_id_test(),
             &Email::new("drawee@example.com").unwrap(),
@@ -771,7 +770,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_request_to_action_rejected_does_not_send_non_rejectable_action() {
-        init_test_cfg();
         let payer = get_identity_public_data(
             &node_id_test(),
             &Email::new("drawee@example.com").unwrap(),
@@ -866,7 +864,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_recourse_action_event() {
-        init_test_cfg();
         let payer = get_identity_public_data(
             &node_id_test(),
             &Email::new("drawee@example.com").unwrap(),
@@ -981,7 +978,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_recourse_action_event_does_not_send_non_recourse_action() {
-        init_test_cfg();
         let payer = get_identity_public_data(
             &node_id_test(),
             &Email::new("drawee@example.com").unwrap(),
@@ -1113,7 +1109,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_bill_is_signed_event() {
-        init_test_cfg();
         // given a payer and payee with a new bill
         let payer = get_identity_public_data(
             &node_id_test(),
@@ -1163,7 +1158,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_bill_is_accepted_event() {
-        init_test_cfg();
         let payer = get_identity_public_data(
             &node_id_test(),
             &Email::new("drawee@example.com").unwrap(),
@@ -1233,7 +1227,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_request_to_accept_event() {
-        init_test_cfg();
         let payer = get_identity_public_data(
             &node_id_test(),
             &Email::new("drawee@example.com").unwrap(),
@@ -1300,7 +1293,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_request_to_pay_event() {
-        init_test_cfg();
         let payer = get_identity_public_data(
             &node_id_test(),
             &Email::new("drawee@example.com").unwrap(),
@@ -1371,7 +1363,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_bill_is_endorsed_event() {
-        init_test_cfg();
         let payer = get_identity_public_data(
             &node_id_test(),
             &Email::new("drawee@example.com").unwrap(),
@@ -1424,7 +1415,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_offer_to_sell_event() {
-        init_test_cfg();
         let payer = get_identity_public_data(
             &node_id_test(),
             &Email::new("drawee@example.com").unwrap(),
@@ -1502,7 +1492,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_bill_is_sold_event() {
-        init_test_cfg();
         let payer = get_identity_public_data(
             &node_id_test(),
             &Email::new("drawee@example.com").unwrap(),
@@ -1582,7 +1571,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_bill_recourse_paid_event() {
-        init_test_cfg();
         let payer = get_identity_public_data(
             &node_id_test(),
             &Email::new("drawee@example.com").unwrap(),
@@ -1655,7 +1643,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_request_to_mint_event() {
-        init_test_cfg();
         let payer = get_identity_public_data(
             &node_id_test(),
             &Email::new("drawee@example.com").unwrap(),
@@ -1710,8 +1697,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_retry_messages_success() {
-        init_test_cfg();
-
         let (service, _) = expect_service(
             |mock_transport, mock_contact_store, _, mock_queue, _, _, _, _| {
                 let node_id = node_id_test_other();
@@ -1768,8 +1753,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_retry_messages_with_send_failure() {
-        init_test_cfg();
-
         let (service, _) = expect_service(
             |mock_transport, mock_contact_store, _, mock_queue, _, _, _, _| {
                 let node_id = node_id_test_other();
@@ -1827,8 +1810,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_retry_messages_with_multiple_messages() {
-        init_test_cfg();
-
         let (service, _) = expect_service(
             |mock_transport, mock_contact_store, _, mock_queue, _, _, _, _| {
                 let node_id1 = node_id_test_other();
@@ -1931,8 +1912,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_retry_messages_with_invalid_payload() {
-        init_test_cfg();
-
         let (service, _) = expect_service(|_, _, _, mock_queue, _, _, _, _| {
             let node_id = node_id_test_other();
             let message_id = "test_message_id";
@@ -1970,8 +1949,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_retry_messages_with_fail_retry_error() {
-        init_test_cfg();
-
         let (service, _) = expect_service(
             |mock_transport, mock_contact_store, _, mock_queue, _, _, _, _| {
                 let node_id = node_id_test_other();
@@ -2034,8 +2011,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_retry_messages_with_succeed_retry_error() {
-        init_test_cfg();
-
         let (service, _) = expect_service(
             |mock_transport, mock_contact_store, _, mock_queue, _, _, _, _| {
                 let node_id = node_id_test_other();
@@ -2099,8 +2074,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_retry_messages_with_no_messages() {
-        init_test_cfg();
-
         let (service, _) = expect_service(|_, _, _, mock_queue, _, _, _, _| {
             mock_queue
                 .expect_get_retry_messages()
@@ -2114,7 +2087,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_failed_to_send_is_added_to_retry_queue() {
-        init_test_cfg();
         // given a payer and payee with a new bill
         let payer = get_identity_public_data(
             &node_id_test(),
@@ -2198,7 +2170,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_failed_to_send_returns_error_when_retry_enqueue_fails() {
-        init_test_cfg();
         let payer = get_identity_public_data(
             &node_id_test(),
             &Email::new("drawee@example.com").unwrap(),
@@ -2281,8 +2252,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_retry_public_message_success() {
-        init_test_cfg();
-
         let (service, _) = expect_service(|mock_transport, _, _, mock_queue, _, _, _, _| {
             let message_id = "test_public_message_id";
             let sender = node_id_test();
@@ -2321,8 +2290,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_retry_public_message_invalid_payload() {
-        init_test_cfg();
-
         let (service, _) = expect_service(|_, _, _, mock_queue, _, _, _, _| {
             let message_id = "test_public_message_id";
             let sender = node_id_test();
@@ -2359,8 +2326,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_retry_public_message_broadcast_failure() {
-        init_test_cfg();
-
         let (service, _) = expect_service(|mock_transport, _, _, mock_queue, _, _, _, _| {
             let message_id = "test_public_message_id";
             let sender = node_id_test();
@@ -2399,8 +2364,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_retry_messages_mixed_private_and_public() {
-        init_test_cfg();
-
         let (service, _) = expect_service(
             |mock_transport, mock_contact_store, _, mock_queue, _, _, _, _| {
                 // Private message setup
@@ -2488,8 +2451,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_retry_private_message_with_legacy_payload_format() {
-        init_test_cfg();
-
         let (service, _) = expect_service(
             |mock_transport, mock_contact_store, _, mock_queue, _, _, _, _| {
                 let recipient = node_id_test_other();
@@ -2556,8 +2517,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_retry_private_message_with_invalid_base58() {
-        init_test_cfg();
-
         let (service, _) = expect_service(|_, _, _, mock_queue, _, _, _, _| {
             let node_id = node_id_test_other();
             let message_id = "test_bad_base58_id";
@@ -2594,7 +2553,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_process_company_historical_bill_invites_success() {
-        init_test_cfg();
         let company_id = node_id_test();
         let sender_npub = nostr::key::PublicKey::from_hex(
             "22886f449bec154764401cfb139b80f108a39a91c7e7609f9ffd8a4592b86d38",
@@ -2662,7 +2620,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_process_company_historical_bill_invites_skips_non_invite() {
-        init_test_cfg();
         let company_id = node_id_test();
         let sender_npub = nostr::key::PublicKey::from_hex(
             "22886f449bec154764401cfb139b80f108a39a91c7e7609f9ffd8a4592b86d38",
@@ -2721,7 +2678,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_process_company_historical_bill_invites_no_signer() {
-        init_test_cfg();
         let company_id = node_id_test();
 
         let mut mock_transport = MockNotificationJsonTransport::new();

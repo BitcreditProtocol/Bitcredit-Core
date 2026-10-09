@@ -15,6 +15,7 @@ use bitcoin::hashes::{Hash, sha256};
 use bitcoin::secp256k1::rand::{prelude::SliceRandom, thread_rng};
 use std::ops::Deref;
 use std::str::FromStr;
+use std::sync::Arc;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -89,7 +90,7 @@ pub enum Error {
 #[cfg(test)]
 use mockall::automock;
 
-use crate::get_config;
+use crate::Config;
 
 #[cfg_attr(test, automock)]
 #[async_trait]
@@ -148,8 +149,10 @@ pub trait MintClientApi: ServiceTraitBounds {
     ) -> Result<()>;
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct MintClient {}
+#[derive(Debug, Clone)]
+pub struct MintClient {
+    config: Arc<Config>,
+}
 
 impl ServiceTraitBounds for MintClient {}
 
@@ -157,8 +160,8 @@ impl ServiceTraitBounds for MintClient {}
 impl ServiceTraitBounds for MockMintClientApi {}
 
 impl MintClient {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(config: Arc<Config>) -> Self {
+        Self { config }
     }
 
     pub fn client(&self, mint_url: &url::Url) -> Result<ExternalMintClient> {
@@ -239,10 +242,8 @@ impl MintClientApi for MintClient {
                 Error::ClowderClient
             })?
             .node_id;
-        let clowder_node_id = NodeId::new(
-            clowder_id.deref().to_owned(),
-            get_config().bitcoin_network(),
-        );
+        let clowder_node_id =
+            NodeId::new(clowder_id.deref().to_owned(), self.config.bitcoin_network());
         let currency = self
             .client(mint_url)?
             .keyset_info(keyset.id.into())
