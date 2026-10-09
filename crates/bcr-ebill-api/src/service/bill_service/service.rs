@@ -1,16 +1,15 @@
 use super::error::Error;
 use super::{BillAction, BillServiceApi, Result};
-use crate::external;
 use crate::external::bitcoin::BitcoinClientApi;
 use crate::external::court::CourtClientApi;
 use crate::external::file_storage::{self, FileStorageClientApi};
 use crate::external::mint::{MintClientApi, QuoteStatusReply, ResolveMintOffer};
-use crate::get_config;
 use crate::service::file_server_service::{
     configured_blossom_servers, download_file_with_fallback, upload_to_blossom_servers_with_server,
 };
 use crate::service::transport_service::TransportServiceApi;
 use crate::util::{validate_bill_id_network, validate_node_id_network};
+use crate::{Config, external};
 use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::application::bill::{
@@ -63,6 +62,7 @@ use uuid::Uuid;
 /// network
 #[derive(Clone)]
 pub struct BillService {
+    pub config: Arc<Config>,
     pub store: Arc<dyn BillStoreApi>,
     pub blockchain_store: Arc<dyn BillChainStoreApi>,
     pub identity_store: Arc<dyn IdentityStoreApi>,
@@ -84,6 +84,7 @@ impl ServiceTraitBounds for BillService {}
 
 impl BillService {
     pub fn new(
+        config: Arc<Config>,
         store: Arc<dyn BillStoreApi>,
         blockchain_store: Arc<dyn BillChainStoreApi>,
         identity_store: Arc<dyn IdentityStoreApi>,
@@ -102,6 +103,7 @@ impl BillService {
         nostr_contact_store: Arc<dyn NostrContactStoreApi>,
     ) -> Self {
         Self {
+            config,
             store,
             blockchain_store,
             identity_store,
@@ -359,7 +361,7 @@ impl BillService {
             "Checking mint request for quote {}",
             mint_request.mint_request_id
         );
-        let mint_cfg = &get_config().mint_config;
+        let mint_cfg = &self.config.mint_config;
         // for now, we only support the default mint
         if mint_request.mint_node_id != mint_cfg.default_mint_node_id {
             return Ok(());
@@ -643,7 +645,7 @@ impl BillService {
             Ok(Some(req)) => {
                 // only if we're the requester
                 if req.requester_node_id == *current_identity_node_id {
-                    let mint_cfg = &get_config().mint_config;
+                    let mint_cfg = &self.config.mint_config;
                     // only for the default mint for now
                     if req.mint_node_id == mint_cfg.default_mint_node_id {
                         Ok(req.to_owned())
@@ -676,7 +678,7 @@ impl BillService {
                 && let Err(e) = self
                     .mint_client
                     .resolve_quote_for_mint(
-                        &get_config().mint_config.default_mint_url,
+                        &self.config.mint_config.default_mint_url,
                         &req.mint_request_id,
                         ResolveMintOffer::Reject,
                     )
@@ -729,7 +731,7 @@ impl BillService {
         if files.is_empty() {
             return Ok(vec![]);
         }
-        let blossom_servers = configured_blossom_servers(&get_config().nostr_config);
+        let blossom_servers = configured_blossom_servers(&self.config.nostr_config);
 
         let mut file_urls = Vec::with_capacity(files.len());
         for file in files {
@@ -768,7 +770,7 @@ impl BillServiceApi for BillService {
     ) -> Result<BillsBalanceOverview> {
         let current_identity_node_id = caller_public_data.node_id();
         // TODO (currency): convert between currencies based on given currency
-        validate_node_id_network(&current_identity_node_id)?;
+        validate_node_id_network(&current_identity_node_id, self.config.bitcoin_network())?;
         let bills = self.get_bills(caller_public_data, caller_keys).await?;
 
         let mut payer_sum = 0;
@@ -842,7 +844,7 @@ impl BillServiceApi for BillService {
             "searching bills with {search_term:?} from {date_range_from:?} to {date_range_to:?} and {role:?}"
         );
         let current_identity_node_id = caller_public_data.node_id();
-        validate_node_id_network(&current_identity_node_id)?;
+        validate_node_id_network(&current_identity_node_id, self.config.bitcoin_network())?;
         let bills = self.get_bills(caller_public_data, caller_keys).await?;
         let mut result = vec![];
 
@@ -922,7 +924,7 @@ impl BillServiceApi for BillService {
         caller_public_data: &BillParticipant,
         caller_keys: &BcrKeys,
     ) -> Result<Vec<BitcreditBillResult>> {
-        validate_node_id_network(&caller_public_data.node_id())?;
+        validate_node_id_network(&caller_public_data.node_id(), self.config.bitcoin_network())?;
         let bill_ids = self.store.get_ids().await?;
         let identity = self.identity_store.get().await?;
         let current_timestamp = Timestamp::now();
@@ -1003,8 +1005,8 @@ impl BillServiceApi for BillService {
         caller_public_data: &BillParticipant,
         caller_keys: &BcrKeys,
     ) -> Result<Vec<BillCombinedBitcoinKey>> {
-        validate_bill_id_network(bill_id)?;
-        validate_node_id_network(&caller_public_data.node_id())?;
+        validate_bill_id_network(bill_id, self.config.bitcoin_network())?;
+        validate_node_id_network(&caller_public_data.node_id(), self.config.bitcoin_network())?;
         let chain = self.blockchain_store.get_chain(bill_id).await?;
         let bill_keys = self.store.get_keys(bill_id).await?;
 
@@ -1029,7 +1031,7 @@ impl BillServiceApi for BillService {
             return Ok(vec![]);
         }
 
-        let btc_network = get_config().bitcoin_network();
+        let btc_network = self.config.bitcoin_network();
         let mut res: Vec<BillCombinedBitcoinKey> = Vec::new();
         // Iterate the chain and for each payment request block by the caller, create the descriptor and collect metadata
         for block in chain.blocks().iter() {
@@ -1100,8 +1102,8 @@ impl BillServiceApi for BillService {
         caller_keys: &BcrKeys,
         current_timestamp: Timestamp,
     ) -> Result<BitcreditBillResult> {
-        validate_bill_id_network(bill_id)?;
-        validate_node_id_network(&caller_public_data.node_id())?;
+        validate_bill_id_network(bill_id, self.config.bitcoin_network())?;
+        validate_node_id_network(&caller_public_data.node_id(), self.config.bitcoin_network())?;
         let res = self
             .get_full_bill(
                 bill_id,
@@ -1124,7 +1126,7 @@ impl BillServiceApi for BillService {
     }
 
     async fn get_bill_keys(&self, bill_id: &BillId) -> Result<BcrKeys> {
-        validate_bill_id_network(bill_id)?;
+        validate_bill_id_network(bill_id, self.config.bitcoin_network())?;
         match self.store.exists(bill_id).await {
             Ok(true) => (),
             _ => {
@@ -1142,12 +1144,12 @@ impl BillServiceApi for BillService {
         bill_private_key: &SecretKey,
     ) -> Result<Vec<u8>> {
         debug!("getting file {} for bill with id: {bill_id}", file.name);
-        validate_bill_id_network(bill_id)?;
+        validate_bill_id_network(bill_id, self.config.bitcoin_network())?;
         let file_bytes = download_file_with_fallback(
             self.file_upload_client.as_ref(),
             Some(&self.file_reference_store),
             Some(&self.transport_service),
-            &configured_blossom_servers(&get_config().nostr_config),
+            &configured_blossom_servers(&self.config.nostr_config),
             &file.hash,
             &file.nostr_hash,
         )
@@ -1178,8 +1180,8 @@ impl BillServiceApi for BillService {
         timestamp: Timestamp,
     ) -> Result<BillBlockchain> {
         debug!("Executing bill action {:?} for bill {bill_id}", bill_action);
-        validate_bill_id_network(bill_id)?;
-        validate_node_id_network(&signer_public_data.node_id())?;
+        validate_bill_id_network(bill_id, self.config.bitcoin_network())?;
+        validate_node_id_network(&signer_public_data.node_id(), self.config.bitcoin_network())?;
         // fetch data
         let identity = self.identity_store.get_full().await?;
         let contacts = self.contact_store.get_map().await?;
@@ -1259,7 +1261,7 @@ impl BillServiceApi for BillService {
     }
 
     async fn check_payment_for_bill(&self, bill_id: &BillId, identity: &Identity) -> Result<()> {
-        validate_bill_id_network(bill_id)?;
+        validate_bill_id_network(bill_id, self.config.bitcoin_network())?;
         let bill_ids_waiting_for_payment = self.store.get_bill_ids_waiting_for_payment().await?;
 
         if bill_ids_waiting_for_payment.iter().any(|id| id == bill_id) {
@@ -1294,7 +1296,7 @@ impl BillServiceApi for BillService {
         bill_id: &BillId,
         identity: &IdentityWithAll,
     ) -> Result<()> {
-        validate_bill_id_network(bill_id)?;
+        validate_bill_id_network(bill_id, self.config.bitcoin_network())?;
         let bill_ids_waiting_for_offer_to_sell_payment =
             self.store.get_bill_ids_waiting_for_sell_payment().await?;
         let now = Timestamp::now();
@@ -1341,7 +1343,7 @@ impl BillServiceApi for BillService {
         bill_id: &BillId,
         identity: &IdentityWithAll,
     ) -> Result<()> {
-        validate_bill_id_network(bill_id)?;
+        validate_bill_id_network(bill_id, self.config.bitcoin_network())?;
         let bill_ids_waiting_for_recourse_payment = self
             .store
             .get_bill_ids_waiting_for_recourse_payment()
@@ -1394,8 +1396,8 @@ impl BillServiceApi for BillService {
         bill_id: &BillId,
         current_identity_node_id: &NodeId,
     ) -> Result<Vec<PastEndorsee>> {
-        validate_bill_id_network(bill_id)?;
-        validate_node_id_network(current_identity_node_id)?;
+        validate_bill_id_network(bill_id, self.config.bitcoin_network())?;
+        validate_node_id_network(current_identity_node_id, self.config.bitcoin_network())?;
         match self.store.exists(bill_id).await {
             Ok(true) => (),
             _ => {
@@ -1431,8 +1433,8 @@ impl BillServiceApi for BillService {
         caller_keys: &BcrKeys,
         timestamp: Timestamp,
     ) -> Result<Vec<PastPaymentResult>> {
-        validate_bill_id_network(bill_id)?;
-        validate_node_id_network(&caller_public_data.node_id())?;
+        validate_bill_id_network(bill_id, self.config.bitcoin_network())?;
+        validate_node_id_network(&caller_public_data.node_id(), self.config.bitcoin_network())?;
         match self.store.exists(bill_id).await {
             Ok(true) => (),
             _ => {
@@ -1469,8 +1471,8 @@ impl BillServiceApi for BillService {
         caller_keys: &BcrKeys,
         current_timestamp: Timestamp,
     ) -> Result<Vec<Endorsement>> {
-        validate_bill_id_network(bill_id)?;
-        validate_node_id_network(&caller_public_data.node_id())?;
+        validate_bill_id_network(bill_id, self.config.bitcoin_network())?;
+        validate_node_id_network(&caller_public_data.node_id(), self.config.bitcoin_network())?;
         let bill = self
             .get_detail(
                 bill_id,
@@ -1497,11 +1499,11 @@ impl BillServiceApi for BillService {
         signer_keys: &BcrKeys,
         timestamp: Timestamp,
     ) -> Result<()> {
-        validate_bill_id_network(bill_id)?;
-        validate_node_id_network(&signer_public_data.node_id())?;
-        validate_node_id_network(mint_node_id)?;
+        validate_bill_id_network(bill_id, self.config.bitcoin_network())?;
+        validate_node_id_network(&signer_public_data.node_id(), self.config.bitcoin_network())?;
+        validate_node_id_network(mint_node_id, self.config.bitcoin_network())?;
         debug!("Executing request to mint with mint {mint_node_id} for bill {bill_id}");
-        let mint_cfg = &get_config().mint_config;
+        let mint_cfg = &self.config.mint_config;
         // make sure the mint is a valid one - currently just checks it against the default mint
         if mint_cfg.default_mint_node_id != *mint_node_id {
             return Err(Error::Validation(ValidationError::InvalidMint(
@@ -1627,8 +1629,8 @@ impl BillServiceApi for BillService {
         bill_id: &BillId,
         current_identity_node_id: &NodeId,
     ) -> Result<Vec<MintRequestState>> {
-        validate_bill_id_network(bill_id)?;
-        validate_node_id_network(current_identity_node_id)?;
+        validate_bill_id_network(bill_id, self.config.bitcoin_network())?;
+        validate_node_id_network(current_identity_node_id, self.config.bitcoin_network())?;
         let requests = self
             .mint_store
             .get_requests_for_bill(current_identity_node_id, bill_id)
@@ -1667,7 +1669,7 @@ impl BillServiceApi for BillService {
         current_identity_node_id: &NodeId,
     ) -> Result<()> {
         debug!("trying to cancel request to mint {mint_request_id}");
-        validate_node_id_network(current_identity_node_id)?;
+        validate_node_id_network(current_identity_node_id, self.config.bitcoin_network())?;
         let req = self
             .get_req_to_mint_for_node_id(mint_request_id, current_identity_node_id)
             .await?;
@@ -1675,7 +1677,7 @@ impl BillServiceApi for BillService {
         if matches!(req.status, MintRequestStatus::Pending) {
             self.mint_client
                 .cancel_quote_for_mint(
-                    &get_config().mint_config.default_mint_url,
+                    &self.config.mint_config.default_mint_url,
                     &req.mint_request_id,
                 )
                 .await?;
@@ -1701,8 +1703,8 @@ impl BillServiceApi for BillService {
         current_identity_node_id: &NodeId,
     ) -> Result<()> {
         debug!("checking mint requests for bill {bill_id}");
-        validate_bill_id_network(bill_id)?;
-        validate_node_id_network(current_identity_node_id)?;
+        validate_bill_id_network(bill_id, self.config.bitcoin_network())?;
+        validate_node_id_network(current_identity_node_id, self.config.bitcoin_network())?;
         let requests = self
             .mint_store
             .get_requests_for_bill(current_identity_node_id, bill_id)
@@ -1746,7 +1748,7 @@ impl BillServiceApi for BillService {
     ) -> Result<()> {
         let identity = self.identity_store.get().await?;
         debug!("trying to accept offer from request to mint {mint_request_id}");
-        validate_node_id_network(&signer_public_data.node_id())?;
+        validate_node_id_network(&signer_public_data.node_id(), self.config.bitcoin_network())?;
         let req = self
             .get_req_to_mint_for_node_id(mint_request_id, &signer_public_data.node_id())
             .await?;
@@ -1760,7 +1762,7 @@ impl BillServiceApi for BillService {
                 // accept the offer
                 self.mint_client
                     .resolve_quote_for_mint(
-                        &get_config().mint_config.default_mint_url,
+                        &self.config.mint_config.default_mint_url,
                         &req.mint_request_id,
                         ResolveMintOffer::Accept,
                     )
@@ -1815,7 +1817,7 @@ impl BillServiceApi for BillService {
         current_identity_node_id: &NodeId,
     ) -> Result<()> {
         debug!("trying to reject offer from request to mint {mint_request_id}");
-        validate_node_id_network(current_identity_node_id)?;
+        validate_node_id_network(current_identity_node_id, self.config.bitcoin_network())?;
         let req = self
             .get_req_to_mint_for_node_id(mint_request_id, current_identity_node_id)
             .await?;
@@ -1823,7 +1825,7 @@ impl BillServiceApi for BillService {
         if matches!(req.status, MintRequestStatus::Offered) {
             self.mint_client
                 .resolve_quote_for_mint(
-                    &get_config().mint_config.default_mint_url,
+                    &self.config.mint_config.default_mint_url,
                     &req.mint_request_id,
                     ResolveMintOffer::Reject,
                 )
@@ -1850,13 +1852,13 @@ impl BillServiceApi for BillService {
         current_identity_node_id: &NodeId,
     ) -> Result<Vec<BillBlockPlaintextWrapper>> {
         // if dev mode is off - we return an error
-        if !get_config().dev_mode_config.on {
+        if !self.config.dev_mode_config.on {
             error!("Called dev mode operation with dev mode disabled - please enable!");
             return Err(Error::Validation(ValidationError::InvalidOperation));
         }
 
-        validate_bill_id_network(bill_id)?;
-        validate_node_id_network(current_identity_node_id)?;
+        validate_bill_id_network(bill_id, self.config.bitcoin_network())?;
+        validate_node_id_network(current_identity_node_id, self.config.bitcoin_network())?;
 
         // if there is no such bill, we return an error
         match self.store.exists(bill_id).await {
@@ -1889,12 +1891,12 @@ impl BillServiceApi for BillService {
 
     async fn dev_mode_reset_bill_mint_quote_state(&self, bill_id: &BillId) -> Result<()> {
         // if dev mode is off - we return an error
-        if !get_config().dev_mode_config.on {
+        if !self.config.dev_mode_config.on {
             error!("Called dev mode operation with dev mode disabled - please enable!");
             return Err(Error::Validation(ValidationError::InvalidOperation));
         }
 
-        validate_bill_id_network(bill_id)?;
+        validate_bill_id_network(bill_id, self.config.bitcoin_network())?;
 
         self.mint_store.dev_mode_reset_for_bill(bill_id).await?;
         self.store.invalidate_bill_in_cache(bill_id).await?;
@@ -1909,9 +1911,9 @@ impl BillServiceApi for BillService {
         signer_keys: &BcrKeys,
         court_node_id: &NodeId,
     ) -> Result<()> {
-        validate_bill_id_network(bill_id)?;
-        validate_node_id_network(&signer_public_data.node_id())?;
-        let court_url = get_config().court_config.default_url.clone();
+        validate_bill_id_network(bill_id, self.config.bitcoin_network())?;
+        validate_node_id_network(&signer_public_data.node_id(), self.config.bitcoin_network())?;
+        let court_url = self.config.court_config.default_url.clone();
         debug!(
             "Executing share with court {court_node_id} with court {} for bill {bill_id}",
             court_url
@@ -1990,8 +1992,8 @@ impl BillServiceApi for BillService {
         bill_id: &BillId,
         caller_public_data: &BillParticipant,
     ) -> Result<BillBlockchain> {
-        validate_bill_id_network(bill_id)?;
-        validate_node_id_network(&caller_public_data.node_id())?;
+        validate_bill_id_network(bill_id, self.config.bitcoin_network())?;
+        validate_node_id_network(&caller_public_data.node_id(), self.config.bitcoin_network())?;
         let chain = self.blockchain_store.get_chain(bill_id).await?;
         let bill_keys = self.store.get_keys(bill_id).await?;
 
@@ -2029,8 +2031,8 @@ impl BillServiceApi for BillService {
         source_address: &BitcoinAddress,
         destination_address: &BitcoinAddress,
     ) -> Result<SweepEstimate> {
-        validate_bill_id_network(bill_id)?;
-        validate_node_id_network(&caller_public_data.node_id())?;
+        validate_bill_id_network(bill_id, self.config.bitcoin_network())?;
+        validate_node_id_network(&caller_public_data.node_id(), self.config.bitcoin_network())?;
         // fetch past payments, to check if this is a valid payment
         let past_payments = self
             .get_past_payments(bill_id, caller_public_data, caller_keys, Timestamp::now())
@@ -2074,8 +2076,8 @@ impl BillServiceApi for BillService {
         destination_address: &BitcoinAddress,
         fee: u64,
     ) -> Result<SweepResult> {
-        validate_bill_id_network(bill_id)?;
-        validate_node_id_network(&caller_public_data.node_id())?;
+        validate_bill_id_network(bill_id, self.config.bitcoin_network())?;
+        validate_node_id_network(&caller_public_data.node_id(), self.config.bitcoin_network())?;
         // fetch past payments, to check if this is a valid payment
         let past_payments = self
             .get_past_payments(bill_id, caller_public_data, caller_keys, Timestamp::now())
@@ -2114,7 +2116,7 @@ impl BillServiceApi for BillService {
         &self,
         bill_id: &BillId,
     ) -> Result<AddressDerivationMetadataForPaymentRequest> {
-        validate_bill_id_network(bill_id)?;
+        validate_bill_id_network(bill_id, self.config.bitcoin_network())?;
         let chain = self.blockchain_store.get_chain(bill_id).await?;
         let latest_block = chain.get_latest_block();
         Ok(AddressDerivationMetadataForPaymentRequest {

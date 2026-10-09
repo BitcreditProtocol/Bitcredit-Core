@@ -13,7 +13,7 @@ use crate::service::file_server_service::{
 use crate::service::file_upload_service::UploadFileType;
 use crate::service::transport_service::{BcrMetadata, NostrContactData, TransportServiceApi};
 use crate::util::validate_node_id_network;
-use crate::{get_config, util};
+use crate::{Config, util};
 use bcr_ebill_core::application::contact::Contact;
 use bcr_ebill_core::protocol::blockchain::bill::ContactType;
 use bcr_ebill_core::protocol::{Address, EditOptionalFieldMode, Zip};
@@ -163,6 +163,7 @@ pub struct IdentityService {
     email_client: Arc<dyn EmailClientApi>,
     email_notification_store: Arc<dyn EmailNotificationStoreApi>,
     contact_store: Arc<dyn ContactStoreApi>,
+    config: Arc<Config>,
 }
 
 impl IdentityService {
@@ -176,6 +177,7 @@ impl IdentityService {
         email_client: Arc<dyn EmailClientApi>,
         email_notification_store: Arc<dyn EmailNotificationStoreApi>,
         contact_store: Arc<dyn ContactStoreApi>,
+        config: Arc<Config>,
     ) -> Self {
         Self {
             store,
@@ -187,6 +189,7 @@ impl IdentityService {
             email_client,
             email_notification_store,
             contact_store,
+            config,
         }
     }
 
@@ -236,7 +239,7 @@ impl IdentityService {
             &self.file_reference_store,
             &self.file_upload_client,
             &self.block_transport,
-            &configured_blossom_servers(&get_config().nostr_config),
+            &configured_blossom_servers(&self.config.nostr_config),
             file_name,
             file_bytes,
             public_key,
@@ -319,7 +322,7 @@ impl IdentityService {
                     return Err(ProtocolValidationError::FieldEmpty(Field::Email).into());
                 };
 
-                if get_config().dev_mode_config.mandatory_email_confirmations {
+                if self.config.dev_mode_config.mandatory_email_confirmations {
                     // Make sure there is a confirmed email
                     let email_confirmations = self.store.get_email_confirmations().await?;
                     if email_confirmations.is_empty() {
@@ -665,7 +668,7 @@ impl IdentityServiceApi for IdentityService {
     ) -> Result<()> {
         debug!("creating identity");
         let keys = self.store.get_key_pair().await?;
-        let node_id = NodeId::new(keys.pub_key(), get_config().bitcoin_network());
+        let node_id = NodeId::new(keys.pub_key(), self.config.bitcoin_network());
         validate_create_identity(t.clone(), &email, &postal_address)?;
         let email_confirmation = self.check_confirmed_email(&email, &t, &node_id).await?;
 
@@ -705,7 +708,7 @@ impl IdentityServiceApi for IdentityService {
                     identification_number,
                     profile_picture_file,
                     identity_document_file,
-                    nostr_relays: get_config().nostr_config.relays.to_owned(),
+                    nostr_relays: self.config.nostr_config.relays.to_owned(),
                 }
             }
             IdentityType::Anon => Identity {
@@ -720,7 +723,7 @@ impl IdentityServiceApi for IdentityService {
                 identification_number: None,
                 profile_picture_file: None,
                 identity_document_file: None,
-                nostr_relays: get_config().nostr_config.relays.to_owned(),
+                nostr_relays: self.config.nostr_config.relays.to_owned(),
             },
         };
 
@@ -759,9 +762,9 @@ impl IdentityServiceApi for IdentityService {
                         identification_number: identity.identification_number.clone(),
                         avatar_file: None,
                         proof_document_file: None,
-                        nostr_relays: get_config().nostr_config.relays.clone(),
+                        nostr_relays: self.config.nostr_config.relays.clone(),
                         is_logical: false,
-                        mint_url: Some(get_config().mint_config.default_mint_url.clone()),
+                        mint_url: Some(self.config.mint_config.default_mint_url.clone()),
                     },
                 )
                 .await
@@ -872,7 +875,7 @@ impl IdentityServiceApi for IdentityService {
             identification_number: identification_number.clone(),
             profile_picture_file: profile_picture_file.clone(),
             identity_document_file: identity_document_file.clone(),
-            nostr_relays: get_config().nostr_config.relays.to_owned(),
+            nostr_relays: self.config.nostr_config.relays.to_owned(),
         };
 
         let mut identity_chain = self.blockchain_store.get_chain().await?;
@@ -943,7 +946,7 @@ impl IdentityServiceApi for IdentityService {
         file_name: &Name,
         private_key: &SecretKey,
     ) -> Result<Vec<u8>> {
-        validate_node_id_network(id)?;
+        validate_node_id_network(id, self.config.bitcoin_network())?;
         debug!("getting file {file_name} for identity with id: {id}");
         let mut file = None;
 
@@ -964,7 +967,7 @@ impl IdentityServiceApi for IdentityService {
                 self.file_upload_client.as_ref(),
                 Some(&self.file_reference_store),
                 Some(&self.block_transport),
-                &configured_blossom_servers(&get_config().nostr_config),
+                &configured_blossom_servers(&self.config.nostr_config),
                 &file.hash,
                 &file.nostr_hash,
             )
@@ -987,7 +990,7 @@ impl IdentityServiceApi for IdentityService {
     }
 
     async fn set_current_personal_identity(&self, node_id: &NodeId) -> Result<()> {
-        validate_node_id_network(node_id)?;
+        validate_node_id_network(node_id, self.config.bitcoin_network())?;
         debug!("setting current identity to personal identity: {node_id}");
         self.store
             .set_current_identity(&ActiveIdentityState {
@@ -999,7 +1002,7 @@ impl IdentityServiceApi for IdentityService {
     }
 
     async fn set_current_company_identity(&self, node_id: &NodeId) -> Result<()> {
-        validate_node_id_network(node_id)?;
+        validate_node_id_network(node_id, self.config.bitcoin_network())?;
         debug!("setting current identity to company identity: {node_id}");
         let active_identity = self.store.get_current_identity().await?;
         self.store
@@ -1028,7 +1031,7 @@ impl IdentityServiceApi for IdentityService {
 
     async fn dev_mode_get_full_identity_chain(&self) -> Result<Vec<IdentityBlockPlaintextWrapper>> {
         // if dev mode is off - we return an error
-        if !get_config().dev_mode_config.on {
+        if !self.config.dev_mode_config.on {
             error!("Called dev mode operation with dev mode disabled - please enable!");
             return Err(Error::Validation(ValidationError::InvalidOperation));
         }
@@ -1050,12 +1053,12 @@ impl IdentityServiceApi for IdentityService {
 
     async fn publish_contact(&self, identity: &Identity, keys: &BcrKeys) -> Result<()> {
         debug!("Publishing our identity contact to nostr profile");
-        let mint_url = Some(get_config().mint_config.default_mint_url.clone());
+        let mint_url = Some(self.config.mint_config.default_mint_url.clone());
         let bcr_data = get_bcr_data(identity, keys, mint_url)?;
         let contact_data = NostrContactData::new(
             &identity.name,
             identity.nostr_relays.clone(),
-            configured_blossom_servers(&get_config().nostr_config),
+            configured_blossom_servers(&self.config.nostr_config),
             bcr_data,
         );
         self.block_transport
@@ -1071,10 +1074,10 @@ impl IdentityServiceApi for IdentityService {
 
     async fn confirm_email(&self, email: &Email) -> Result<()> {
         let keys = self.store.get_key_pair().await?;
-        let node_id = NodeId::new(keys.pub_key(), get_config().bitcoin_network());
+        let node_id = NodeId::new(keys.pub_key(), self.config.bitcoin_network());
 
         // use default mint URL for now, until we support multiple mints
-        let mint_url = get_config().mint_config.default_mint_url.to_owned();
+        let mint_url = self.config.mint_config.default_mint_url.to_owned();
 
         self.email_client
             .register(&mint_url, &node_id, &None, email, &keys.get_private_key())
@@ -1085,11 +1088,11 @@ impl IdentityServiceApi for IdentityService {
 
     async fn verify_email(&self, confirmation_code: &str) -> Result<()> {
         let keys = self.store.get_key_pair().await?;
-        let node_id = NodeId::new(keys.pub_key(), get_config().bitcoin_network());
+        let node_id = NodeId::new(keys.pub_key(), self.config.bitcoin_network());
 
         // use default mint URL for now, until we support multiple mints
-        let mint_url = get_config().mint_config.default_mint_url.to_owned();
-        let mint_node_id = get_config().mint_config.default_mint_node_id.to_owned();
+        let mint_url = self.config.mint_config.default_mint_url.to_owned();
+        let mint_node_id = self.config.mint_config.default_mint_node_id.to_owned();
 
         let (signed_proof, signed_email_identity_data) = self
             .email_client
@@ -1138,8 +1141,8 @@ mod tests {
             MockContactStoreApiMock, MockEmailNotificationStoreApiMock,
             MockFileReferenceStoreApiMock, MockFileUploadStoreApiMock,
             MockIdentityChainStoreApiMock, MockIdentityStoreApiMock, empty_identity,
-            empty_optional_address, filled_optional_address, init_test_cfg, node_id_test,
-            private_key_test, signed_identity_proof_test, test_ts,
+            empty_optional_address, filled_optional_address, node_id_test, private_key_test,
+            signed_identity_proof_test, test_cfg, test_ts,
         },
     };
     use mockall::predicate::eq;
@@ -1155,6 +1158,7 @@ mod tests {
             Arc::new(MockEmailClientApi::new()),
             Arc::new(MockEmailNotificationStoreApiMock::new()),
             Arc::new(MockContactStoreApiMock::new()),
+            Arc::new(test_cfg()),
         )
     }
 
@@ -1177,6 +1181,7 @@ mod tests {
             Arc::new(MockEmailClientApi::new()),
             Arc::new(MockEmailNotificationStoreApiMock::new()),
             Arc::new(contact_store),
+            Arc::new(test_cfg()),
         )
     }
 
@@ -1195,12 +1200,12 @@ mod tests {
             Arc::new(mock_email_client),
             Arc::new(mock_notif_store),
             Arc::new(MockContactStoreApiMock::new()),
+            Arc::new(test_cfg()),
         )
     }
 
     #[tokio::test]
     async fn create_identity_baseline() {
-        init_test_cfg();
         let mut storage = MockIdentityStoreApiMock::new();
         storage
             .expect_get_key_pair()
@@ -1253,7 +1258,6 @@ mod tests {
 
     #[tokio::test]
     async fn create_anon_identity_baseline() {
-        init_test_cfg();
         let mut storage = MockIdentityStoreApiMock::new();
 
         storage
@@ -1303,7 +1307,6 @@ mod tests {
 
     #[tokio::test]
     async fn deanonymize_identity_baseline() {
-        init_test_cfg();
         let mut storage = MockIdentityStoreApiMock::new();
         storage
             .expect_get_key_pair()
@@ -1361,7 +1364,6 @@ mod tests {
 
     #[tokio::test]
     async fn deanonymize_identity_fails_with_anon() {
-        init_test_cfg();
         let mut storage = MockIdentityStoreApiMock::new();
         storage
             .expect_get_key_pair()
@@ -1411,7 +1413,6 @@ mod tests {
 
     #[tokio::test]
     async fn deanonymize_identity_fails_for_non_anon() {
-        init_test_cfg();
         let mut storage = MockIdentityStoreApiMock::new();
         storage
             .expect_get_key_pair()
@@ -1712,7 +1713,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_email() {
-        init_test_cfg();
         let keys = BcrKeys::new();
         let mut storage = MockIdentityStoreApiMock::new();
         storage

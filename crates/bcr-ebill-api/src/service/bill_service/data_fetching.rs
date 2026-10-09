@@ -1,5 +1,3 @@
-use crate::get_config;
-
 use super::service::BillService;
 use super::{Error, Result};
 use bcr_common::core::{BillId, NodeId};
@@ -173,7 +171,7 @@ impl BillService {
                     .iter()
                     .find(|ec| {
                         &ec.0.witness
-                            == if !get_config().dev_mode_config.mandatory_email_confirmations {
+                            == if !self.config.dev_mode_config.mandatory_email_confirmations {
                                 &identified.node_id
                             } else {
                                 witness
@@ -187,7 +185,7 @@ impl BillService {
                     .iter()
                     .find(|ec| {
                         &ec.0.witness
-                            == if !get_config().dev_mode_config.mandatory_email_confirmations {
+                            == if !self.config.dev_mode_config.mandatory_email_confirmations {
                                 &signatory_identity.identity.node_id
                             } else {
                                 witness
@@ -934,7 +932,7 @@ impl BillService {
             Some(ref endorsee) => endorsee,
         };
 
-        let btc_network = get_config().bitcoin_network();
+        let btc_network = self.config.bitcoin_network();
 
         // Request to Pay
         if holder.node_id() == caller_public_data.node_id()

@@ -1,8 +1,8 @@
 use super::Result;
+use crate::Config;
 use crate::constants::{COMPANY_LOGO_FILE_FIELD, COMPANY_PROOF_OF_REGISTRATION_FILE_FIELD};
 use crate::external::email::EmailClientApi;
 use crate::external::file_storage::FileStorageClientApi;
-use crate::get_config;
 use crate::service::Error;
 use crate::service::file_reference_helper::{company_file_context, encrypt_upload_and_track_file};
 use crate::service::file_server_service::{
@@ -213,6 +213,7 @@ pub struct CompanyService {
     transport_service: Arc<dyn TransportServiceApi>,
     email_client: Arc<dyn EmailClientApi>,
     email_notification_store: Arc<dyn EmailNotificationStoreApi>,
+    config: Arc<Config>,
 }
 
 impl CompanyService {
@@ -229,6 +230,7 @@ impl CompanyService {
         transport_service: Arc<dyn TransportServiceApi>,
         email_client: Arc<dyn EmailClientApi>,
         email_notification_store: Arc<dyn EmailNotificationStoreApi>,
+        config: Arc<Config>,
     ) -> Self {
         Self {
             store,
@@ -243,6 +245,7 @@ impl CompanyService {
             transport_service,
             email_client,
             email_notification_store,
+            config,
         }
     }
 
@@ -291,7 +294,7 @@ impl CompanyService {
             &self.file_reference_store,
             &self.file_upload_client,
             &self.transport_service,
-            &configured_blossom_servers(&get_config().nostr_config),
+            &configured_blossom_servers(&self.config.nostr_config),
             file_name,
             file_bytes,
             public_key,
@@ -369,7 +372,7 @@ impl CompanyService {
         company_id: &NodeId,
         email: &Email,
     ) -> Result<(SignedIdentityProof, EmailIdentityProofData)> {
-        if get_config().dev_mode_config.mandatory_email_confirmations {
+        if self.config.dev_mode_config.mandatory_email_confirmations {
             // Make sure there is a confirmed email
             let email_confirmations = self.store.get_email_confirmations(company_id).await?;
             if email_confirmations.is_empty() {
@@ -479,7 +482,7 @@ impl ServiceTraitBounds for CompanyService {}
 #[async_trait]
 impl CompanyServiceApi for CompanyService {
     async fn list_signatories(&self, id: &NodeId) -> Result<Vec<(CompanySignatory, Contact)>> {
-        validate_node_id_network(id)?;
+        validate_node_id_network(id, self.config.bitcoin_network())?;
         if !self.store.exists(id).await {
             return Err(crate::service::Error::NotFound);
         }
@@ -560,7 +563,7 @@ impl CompanyServiceApi for CompanyService {
     }
 
     async fn get_company_and_keys_by_id(&self, id: &NodeId) -> Result<(Company, BcrKeys)> {
-        validate_node_id_network(id)?;
+        validate_node_id_network(id, self.config.bitcoin_network())?;
         if !self.store.exists(id).await {
             return Err(crate::service::Error::NotFound);
         }
@@ -576,14 +579,14 @@ impl CompanyServiceApi for CompanyService {
     }
 
     async fn get_company_by_id(&self, id: &NodeId) -> Result<Company> {
-        validate_node_id_network(id)?;
+        validate_node_id_network(id, self.config.bitcoin_network())?;
         let (company, _keys) = self.get_company_and_keys_by_id(id).await?;
         Ok(company)
     }
 
     async fn create_company_keys(&self) -> Result<NodeId> {
         let company_keys = BcrKeys::new();
-        let id = NodeId::new(company_keys.pub_key(), get_config().bitcoin_network());
+        let id = NodeId::new(company_keys.pub_key(), self.config.bitcoin_network());
         self.store.save_key_pair(&id, &company_keys).await?;
         Ok(id)
     }
@@ -758,9 +761,9 @@ impl CompanyServiceApi for CompanyService {
                         identification_number: company.registration_number.clone(),
                         avatar_file: None,
                         proof_document_file: None,
-                        nostr_relays: get_config().nostr_config.relays.clone(),
+                        nostr_relays: self.config.nostr_config.relays.clone(),
                         is_logical: false,
-                        mint_url: Some(get_config().mint_config.default_mint_url.clone()),
+                        mint_url: Some(self.config.mint_config.default_mint_url.clone()),
                     },
                 )
                 .await
@@ -829,7 +832,7 @@ impl CompanyServiceApi for CompanyService {
         timestamp: Timestamp,
     ) -> Result<()> {
         debug!("editing company with id: {id}");
-        validate_node_id_network(id)?;
+        validate_node_id_network(id, self.config.bitcoin_network())?;
         if !self.store.exists(id).await {
             debug!("company with id {id} does not exist");
             return Err(super::Error::NotFound);
@@ -1048,8 +1051,8 @@ impl CompanyServiceApi for CompanyService {
             "adding signatory {} to company with id: {id}",
             signatory_node_id
         );
-        validate_node_id_network(id)?;
-        validate_node_id_network(&signatory_node_id)?;
+        validate_node_id_network(id, self.config.bitcoin_network())?;
+        validate_node_id_network(&signatory_node_id, self.config.bitcoin_network())?;
         if !self.store.exists(id).await {
             return Err(super::Error::NotFound);
         }
@@ -1187,8 +1190,8 @@ impl CompanyServiceApi for CompanyService {
             "removing signatory {} from company with id: {id}",
             signatory_node_id
         );
-        validate_node_id_network(id)?;
-        validate_node_id_network(&signatory_node_id)?;
+        validate_node_id_network(id, self.config.bitcoin_network())?;
+        validate_node_id_network(&signatory_node_id, self.config.bitcoin_network())?;
         if !self.store.exists(id).await {
             return Err(super::Error::NotFound);
         }
@@ -1336,7 +1339,7 @@ impl CompanyServiceApi for CompanyService {
             return Err(super::Error::NotFound);
         }
         debug!("getting file {file_name} for company with id: {id}",);
-        validate_node_id_network(id)?;
+        validate_node_id_network(id, self.config.bitcoin_network())?;
         let mut file = None;
         if let Some(logo_file) = company.logo_file
             && &logo_file.name == file_name
@@ -1355,7 +1358,7 @@ impl CompanyServiceApi for CompanyService {
                 self.file_upload_client.as_ref(),
                 Some(&self.file_reference_store),
                 Some(&self.transport_service),
-                &configured_blossom_servers(&get_config().nostr_config),
+                &configured_blossom_servers(&self.config.nostr_config),
                 &file.hash,
                 &file.nostr_hash,
             )
@@ -1388,11 +1391,11 @@ impl CompanyServiceApi for CompanyService {
         id: &NodeId,
     ) -> Result<Vec<CompanyBlockPlaintextWrapper>> {
         // if dev mode is off - we return an error
-        if !get_config().dev_mode_config.on {
+        if !self.config.dev_mode_config.on {
             error!("Called dev mode operation with dev mode disabled - please enable!");
             return Err(Error::Validation(ValidationError::InvalidOperation));
         }
-        validate_node_id_network(id)?;
+        validate_node_id_network(id, self.config.bitcoin_network())?;
 
         // if there is no such company, we return an error
         if !self.store.exists(id).await {
@@ -1411,13 +1414,13 @@ impl CompanyServiceApi for CompanyService {
 
     async fn publish_contact(&self, company: &Company, keys: &BcrKeys) -> Result<()> {
         debug!("Publishing our company contact to nostr profile");
-        let relays = get_config().nostr_config.relays.clone();
-        let mint_url = Some(get_config().mint_config.default_mint_url.clone());
+        let relays = self.config.nostr_config.relays.clone();
+        let mint_url = Some(self.config.mint_config.default_mint_url.clone());
         let bcr_data = get_bcr_data(company, keys, relays.clone(), mint_url)?;
         let contact_data = NostrContactData::new(
             &company.name,
             relays,
-            configured_blossom_servers(&get_config().nostr_config),
+            configured_blossom_servers(&self.config.nostr_config),
             bcr_data,
         );
         debug!("Publishing company contact data: {contact_data:?}");
@@ -1503,7 +1506,7 @@ impl CompanyServiceApi for CompanyService {
         let identity = self.identity_store.get_full().await?;
 
         // use default mint URL for now, until we support multiple mints
-        let mint_url = get_config().mint_config.default_mint_url.to_owned();
+        let mint_url = self.config.mint_config.default_mint_url.to_owned();
 
         self.email_client
             .register(
@@ -1524,8 +1527,8 @@ impl CompanyServiceApi for CompanyService {
         let identity_keys = identity.key_pair;
 
         // use default mint URL for now, until we support multiple mints
-        let mint_url = get_config().mint_config.default_mint_url.to_owned();
-        let mint_node_id = get_config().mint_config.default_mint_node_id.to_owned();
+        let mint_url = self.config.mint_config.default_mint_url.to_owned();
+        let mint_node_id = self.config.mint_config.default_mint_node_id.to_owned();
 
         let (signed_proof, signed_email_identity_data) = self
             .email_client
@@ -1589,7 +1592,7 @@ impl CompanyServiceApi for CompanyService {
         timestamp: Timestamp,
     ) -> Result<()> {
         debug!("accepting invite to company with id: {id}");
-        validate_node_id_network(id)?;
+        validate_node_id_network(id, self.config.bitcoin_network())?;
         if !self.store.exists(id).await {
             return Err(super::Error::NotFound);
         }
@@ -1759,7 +1762,7 @@ impl CompanyServiceApi for CompanyService {
 
     async fn reject_company_invite(&self, id: &NodeId, timestamp: Timestamp) -> Result<()> {
         debug!("rejecting invite to company with id: {id}");
-        validate_node_id_network(id)?;
+        validate_node_id_network(id, self.config.bitcoin_network())?;
         if !self.store.exists(id).await {
             return Err(super::Error::NotFound);
         }
@@ -1860,8 +1863,8 @@ impl CompanyServiceApi for CompanyService {
     }
 
     async fn locally_hide_signatory(&self, id: &NodeId, signatory_node_id: &NodeId) -> Result<()> {
-        validate_node_id_network(id)?;
-        validate_node_id_network(signatory_node_id)?;
+        validate_node_id_network(id, self.config.bitcoin_network())?;
+        validate_node_id_network(signatory_node_id, self.config.bitcoin_network())?;
         if !self.store.exists(id).await {
             return Err(super::Error::NotFound);
         }
@@ -1941,7 +1944,7 @@ pub mod tests {
             MockNostrContactStore, empty_address, empty_identity, empty_other_identity,
             node_id_test, node_id_test_another, node_id_test_other, node_id_test_other2,
             private_key_test, private_key_test_another, signed_identity_proof_test,
-            signed_other_identity_proof_test, test_ts,
+            signed_other_identity_proof_test, test_cfg, test_ts,
         },
         util::get_uuid_v4,
     };
@@ -1984,6 +1987,7 @@ pub mod tests {
             Arc::new(transport_service),
             Arc::new(mock_email_client),
             Arc::new(mock_email_notification_store),
+            Arc::new(test_cfg()),
         )
     }
 
@@ -2472,7 +2476,6 @@ pub mod tests {
 
     #[tokio::test]
     async fn create_company_baseline() {
-        crate::tests::tests::init_test_cfg();
         let (
             mut storage,
             mut file_upload_store,
@@ -2737,7 +2740,6 @@ pub mod tests {
 
     #[tokio::test]
     async fn edit_company_baseline() {
-        crate::tests::tests::init_test_cfg();
         let (
             mut storage,
             mut file_upload_store,
@@ -3108,7 +3110,6 @@ pub mod tests {
 
     #[tokio::test]
     async fn accept_company_invite_baseline() {
-        crate::tests::tests::init_test_cfg();
         let (
             mut storage,
             file_upload_store,
@@ -4101,7 +4102,6 @@ pub mod tests {
 
     #[tokio::test]
     async fn save_encrypt_open_decrypt_compare_hashes() {
-        crate::tests::tests::init_test_cfg();
         let company_id = node_id_test();
         let file_name = Name::new("file_00000000-0000-0000-0000-000000000000.pdf").unwrap();
         let file_bytes = String::from("hello world").as_bytes().to_vec();

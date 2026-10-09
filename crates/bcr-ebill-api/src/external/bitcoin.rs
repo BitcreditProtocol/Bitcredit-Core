@@ -1,6 +1,6 @@
-use std::{collections::HashMap, str::FromStr};
+use std::{collections::HashMap, str::FromStr, sync::Arc};
 
-use crate::get_config;
+use crate::Config;
 use async_trait::async_trait;
 use bcr_ebill_core::{
     application::{
@@ -104,6 +104,7 @@ pub struct BitcoinClient {
     cl: reqwest::Client,
     esplora_base_urls: Vec<url::Url>,
     network: Network,
+    config: Arc<Config>,
 }
 
 impl ServiceTraitBounds for BitcoinClient {}
@@ -112,24 +113,26 @@ impl ServiceTraitBounds for BitcoinClient {}
 impl ServiceTraitBounds for MockBitcoinClientApi {}
 
 impl BitcoinClient {
-    pub fn new() -> Self {
-        Self::from_config(get_config().as_ref())
-    }
-
-    pub fn from_config(config: &crate::Config) -> Self {
+    pub fn new(config: Arc<Config>) -> Self {
         Self {
             cl: bcr_common::client::reqwest_client(),
             esplora_base_urls: config.esplora_base_urls.clone(),
             network: config.bitcoin_network(),
+            config,
         }
     }
 
     #[cfg(test)]
-    pub fn with_urls(esplora_base_urls: Vec<url::Url>, network: Network) -> Self {
+    pub fn with_urls(
+        config: Arc<Config>,
+        esplora_base_urls: Vec<url::Url>,
+        network: Network,
+    ) -> Self {
         Self {
             cl: bcr_common::client::reqwest_client(),
             esplora_base_urls,
             network,
+            config,
         }
     }
 
@@ -348,12 +351,6 @@ impl BitcoinClient {
     }
 }
 
-impl Default for BitcoinClient {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[async_trait]
 impl BitcoinClientApi for BitcoinClient {
     async fn check_payment_for_address(
@@ -368,8 +365,15 @@ impl BitcoinClientApi for BitcoinClient {
         // in parallel, get current chain height and transactions
         let (chain_block_height, txs) =
             try_join!(self.get_last_block_height(), self.get_transactions(address))?;
-
-        payment_state_from_transactions(chain_block_height, txs, address, target_amount)
+        let num_confirmations_for_payment =
+            self.config.payment_config.num_confirmations_for_payment;
+        payment_state_from_transactions(
+            chain_block_height,
+            txs,
+            address,
+            target_amount,
+            num_confirmations_for_payment,
+        )
     }
 
     fn generate_link_to_pay(&self, address: &BitcoinAddress, sum: &Sum, message: &str) -> String {
@@ -638,6 +642,7 @@ fn payment_state_from_transactions(
     txs: Transactions,
     address: &BitcoinAddress,
     target_amount: u64,
+    num_confirmations_for_payment: usize,
 ) -> Result<PaymentState> {
     // no transactions - no payment
     if txs.is_empty() {
@@ -685,9 +690,7 @@ fn payment_state_from_transactions(
                             confirmations,
                             tx_id: tx.txid,
                         };
-                        if confirmations
-                            >= get_config().payment_config.num_confirmations_for_payment as u64
-                        {
+                        if confirmations >= num_confirmations_for_payment as u64 {
                             // paid and confirmed
                             debug!(
                                 "payment for {addr_string} is paid and confirmed with {confirmations} confirmations"
@@ -801,9 +804,9 @@ pub mod tests {
     use super::{BitcoinClient, Error, Result, Status, Tx, Vout, payment_state_from_transactions};
     use crate::{
         external::bitcoin::{BitcoinClientApi, ReqContext},
-        tests::tests::init_test_cfg,
+        tests::tests::test_cfg,
     };
-    use std::str::FromStr;
+    use std::{str::FromStr, sync::Arc};
 
     use bcr_ebill_core::{
         application::bill::PaymentState,
@@ -834,6 +837,7 @@ pub mod tests {
             .await;
 
         let client = BitcoinClient::with_urls(
+            Arc::new(test_cfg()),
             vec![
                 url::Url::parse(&server1.url()).unwrap(),
                 url::Url::parse(&server2.url()).unwrap(),
@@ -873,6 +877,7 @@ pub mod tests {
             .await;
 
         let client = BitcoinClient::with_urls(
+            Arc::new(test_cfg()),
             vec![invalid_url, url::Url::parse(&server2.url()).unwrap()],
             Network::Testnet,
         );
@@ -911,6 +916,7 @@ pub mod tests {
             .await;
 
         let client = BitcoinClient::with_urls(
+            Arc::new(test_cfg()),
             vec![
                 url::Url::parse(&server1.url()).unwrap(),
                 url::Url::parse(&server2.url()).unwrap(),
@@ -954,6 +960,7 @@ pub mod tests {
             .await;
 
         let client = BitcoinClient::with_urls(
+            Arc::new(test_cfg()),
             vec![
                 url::Url::parse(&server1.url()).unwrap(),
                 url::Url::parse(&server2.url()).unwrap(),
@@ -999,6 +1006,7 @@ pub mod tests {
                 .await;
 
             let client = BitcoinClient::with_urls(
+                Arc::new(test_cfg()),
                 vec![
                     url::Url::parse(&server1.url()).unwrap(),
                     url::Url::parse(&server2.url()).unwrap(),
@@ -1045,6 +1053,7 @@ pub mod tests {
                 .await;
 
             let client = BitcoinClient::with_urls(
+                Arc::new(test_cfg()),
                 vec![
                     url::Url::parse(&server1.url()).unwrap(),
                     url::Url::parse(&server2.url()).unwrap(),
@@ -1070,7 +1079,6 @@ pub mod tests {
 
     #[test]
     fn test_payment_state_from_transactions() {
-        init_test_cfg();
         let test_height = 4578915;
         let test_addr = BitcoinAddress::from_str("n4n9CNeCkgtEs8wukKEvWC78eEqK4A3E6d").unwrap();
         let test_amount = 500;
@@ -1090,8 +1098,14 @@ pub mod tests {
             }],
         };
 
-        let res_empty =
-            payment_state_from_transactions(test_height, vec![], &test_addr, test_amount);
+        let num_confirmations_for_payment = 6;
+        let res_empty = payment_state_from_transactions(
+            test_height,
+            vec![],
+            &test_addr,
+            test_amount,
+            num_confirmations_for_payment,
+        );
         assert!(matches!(res_empty, Ok(PaymentState::NotFound)));
 
         let res_paid_confirmed = payment_state_from_transactions(
@@ -1099,6 +1113,7 @@ pub mod tests {
             vec![test_tx.clone()],
             &test_addr,
             test_amount,
+            num_confirmations_for_payment,
         );
         assert!(matches!(
             res_paid_confirmed,
@@ -1111,6 +1126,7 @@ pub mod tests {
             vec![test_tx.clone()],
             &test_addr,
             test_amount,
+            num_confirmations_for_payment,
         );
         assert!(matches!(
             res_paid_unconfirmed,
@@ -1125,6 +1141,7 @@ pub mod tests {
             vec![test_tx.clone()],
             &test_addr,
             test_amount,
+            num_confirmations_for_payment,
         );
         assert!(matches!(
             res_paid_confirmed_no_data,
@@ -1139,6 +1156,7 @@ pub mod tests {
             vec![test_tx.clone()],
             &test_addr,
             test_amount,
+            num_confirmations_for_payment,
         );
         assert!(matches!(res_in_mem_pool, Ok(PaymentState::InMempool(..))));
 
@@ -1148,6 +1166,7 @@ pub mod tests {
             vec![test_tx.clone()],
             &test_addr,
             test_amount,
+            num_confirmations_for_payment,
         );
         assert!(matches!(res_not_filled, Ok(PaymentState::NotFound)));
     }
@@ -1205,6 +1224,7 @@ pub mod tests {
                 .await;
 
             let client = BitcoinClient::with_urls(
+                Arc::new(test_cfg()),
                 vec![url::Url::parse(&server1.url()).unwrap()],
                 Network::Testnet,
             );
@@ -1275,6 +1295,7 @@ pub mod tests {
                 .await;
 
             let client = BitcoinClient::with_urls(
+                Arc::new(test_cfg()),
                 vec![url::Url::parse(&server1.url()).unwrap()],
                 Network::Testnet,
             );

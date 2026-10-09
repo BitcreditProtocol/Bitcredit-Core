@@ -11,7 +11,7 @@ use crate::{
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
 use bcr_ebill_api::{
-    get_config,
+    Config,
     service::transport_service::{ResyncMode, transport_client::TransportClientApi},
 };
 use bcr_ebill_core::{
@@ -64,6 +64,7 @@ pub struct CompanyChainEventProcessor {
     transport: Arc<dyn TransportClientApi>,
     contact_store: Arc<dyn ContactStoreApi>,
     bitcoin_network: bitcoin::Network,
+    config: Arc<Config>,
 }
 
 #[async_trait]
@@ -418,6 +419,7 @@ impl CompanyChainEventProcessor {
         transport: Arc<dyn TransportClientApi>,
         contact_store: Arc<dyn ContactStoreApi>,
         bitcoin_network: bitcoin::Network,
+        config: Arc<Config>,
     ) -> Self {
         Self {
             blockchain_store,
@@ -432,6 +434,7 @@ impl CompanyChainEventProcessor {
             bitcoin_network,
             contact_store,
             transport,
+            config,
         }
     }
 
@@ -528,9 +531,9 @@ impl CompanyChainEventProcessor {
                             identification_number: company.registration_number.clone(),
                             avatar_file: None,
                             proof_document_file: None,
-                            nostr_relays: get_config().nostr_config.relays.clone(),
+                            nostr_relays: self.config.nostr_config.relays.clone(),
                             is_logical: false,
-                            mint_url: Some(get_config().mint_config.default_mint_url.clone()),
+                            mint_url: Some(self.config.mint_config.default_mint_url.clone()),
                         },
                     )
                     .await
@@ -1278,7 +1281,7 @@ pub mod tests {
     };
     use crate::push_notification::MockPushApi;
     use crate::test_utils::{
-        MockContactStore, MockFileReferenceStore, signed_identity_proof_test, test_ts,
+        MockContactStore, MockFileReferenceStore, signed_identity_proof_test, test_cfg, test_ts,
     };
     use crate::{
         handler::{
@@ -1320,6 +1323,7 @@ pub mod tests {
             Arc::new(transport),
             Arc::new(contact_store),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
     }
 
@@ -1362,6 +1366,7 @@ pub mod tests {
             Arc::new(transport),
             Arc::new(contact_store),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         let valid = handler
@@ -1405,6 +1410,7 @@ pub mod tests {
             Arc::new(transport),
             Arc::new(contact_store),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         let valid = handler
@@ -1452,6 +1458,7 @@ pub mod tests {
             Arc::new(transport),
             Arc::new(contact_store),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         let valid = handler
@@ -1552,6 +1559,7 @@ pub mod tests {
             Arc::new(transport),
             Arc::new(contact_store),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         let block = get_company_create_block(node_id.clone(), company.clone(), &keys);
@@ -1666,6 +1674,7 @@ pub mod tests {
             Arc::new(transport),
             Arc::new(contact_store),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         handler
@@ -1860,6 +1869,7 @@ pub mod tests {
             Arc::new(transport),
             Arc::new(contact_store),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         handler
@@ -2018,6 +2028,7 @@ pub mod tests {
             Arc::new(transport),
             Arc::new(contact_store),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         handler
@@ -2142,6 +2153,7 @@ pub mod tests {
             Arc::new(transport),
             Arc::new(contact_store),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         handler
@@ -2266,6 +2278,7 @@ pub mod tests {
             Arc::new(transport),
             Arc::new(contact_store),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         handler
@@ -2407,6 +2420,7 @@ pub mod tests {
             Arc::new(transport),
             Arc::new(contact_store),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         handler
@@ -2531,6 +2545,7 @@ pub mod tests {
             Arc::new(transport),
             Arc::new(contact_store),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         handler
@@ -2762,6 +2777,7 @@ pub mod tests {
             Arc::new(MockNotificationJsonTransport::new()),
             Arc::new(MockContactStore::new()),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         let mut test_company = company.clone();
@@ -2852,6 +2868,7 @@ pub mod tests {
             Arc::new(MockNotificationJsonTransport::new()),
             Arc::new(MockContactStore::new()),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         let mut test_company = company.clone();
@@ -3006,6 +3023,7 @@ pub mod tests {
             Arc::new(transport),
             Arc::new(contact_store),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         let result = handler
@@ -3148,6 +3166,7 @@ pub mod tests {
             Arc::new(transport),
             Arc::new(contact_store),
             bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
         );
 
         handler
