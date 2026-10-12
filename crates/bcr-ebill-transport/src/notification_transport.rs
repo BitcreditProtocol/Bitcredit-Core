@@ -5,6 +5,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
 
+use bcr_ebill_api::Config;
 use bcr_ebill_api::external::email::EmailClientApi;
 use bcr_ebill_api::service::transport_service::NotificationTransportServiceApi;
 use bcr_ebill_api::service::transport_service::{Error, Result};
@@ -30,6 +31,7 @@ pub struct NotificationTransportService {
     #[allow(unused)]
     email_client: Arc<dyn EmailClientApi>,
     push_service: Arc<dyn PushApi>,
+    config: Arc<Config>,
 }
 
 impl NotificationTransportService {
@@ -38,12 +40,14 @@ impl NotificationTransportService {
         email_notification_store: Arc<dyn EmailNotificationStoreApi>,
         email_client: Arc<dyn EmailClientApi>,
         push_service: Arc<dyn PushApi>,
+        config: Arc<Config>,
     ) -> Self {
         Self {
             notification_store,
             email_notification_store,
             email_client,
             push_service,
+            config,
         }
     }
 
@@ -121,7 +125,7 @@ impl NotificationTransportServiceApi for NotificationTransportService {
         filter: NotificationFilter,
     ) -> Result<Vec<Notification>> {
         for node_id in filter.node_ids.iter() {
-            validate_node_id_network(node_id)?;
+            validate_node_id_network(node_id, self.config.bitcoin_network())?;
         }
         let result = self.notification_store.list(filter).await.map_err(|e| {
             error!("Failed to get client notifications: {e}");
@@ -143,7 +147,7 @@ impl NotificationTransportServiceApi for NotificationTransportService {
     }
 
     async fn get_active_bill_notification(&self, bill_id: &BillId) -> Option<Notification> {
-        validate_bill_id_network(bill_id).ok()?;
+        validate_bill_id_network(bill_id, self.config.bitcoin_network()).ok()?;
         self.notification_store
             .get_latest_by_reference(&bill_id.to_string(), NotificationType::Bill)
             .await
@@ -275,7 +279,7 @@ impl NotificationTransportServiceApi for NotificationTransportService {
         block_height: i32,
         action: ActionType,
     ) -> Result<bool> {
-        validate_bill_id_network(bill_id)?;
+        validate_bill_id_network(bill_id, self.config.bitcoin_network())?;
         Ok(self
             .notification_store
             .bill_notification_sent(bill_id, block_height, action)
@@ -295,7 +299,7 @@ impl NotificationTransportServiceApi for NotificationTransportService {
         block_height: i32,
         action: ActionType,
     ) -> Result<()> {
-        validate_bill_id_network(bill_id)?;
+        validate_bill_id_network(bill_id, self.config.bitcoin_network())?;
         self.notification_store
             .set_bill_notification_sent(bill_id, block_height, action)
             .await
@@ -354,8 +358,8 @@ mod tests {
         push_notification::MockPushApi,
         test_utils::{
             MockEmailClient, MockEmailNotificationStore, MockNotificationStore, bill_id_test,
-            get_identity_public_data, init_test_cfg, node_id_test, node_id_test_other,
-            node_id_test_other2,
+            get_identity_public_data, node_id_test, node_id_test_other, node_id_test_other2,
+            test_cfg,
         },
     };
 
@@ -363,7 +367,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_request_to_action_timed_out_event() {
-        init_test_cfg();
         let recipients = vec![
             BillParticipant::Ident(get_identity_public_data(
                 &node_id_test(),
@@ -427,7 +430,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_request_to_action_timed_out_does_not_send_non_timeout_action() {
-        init_test_cfg();
         let recipients = vec![
             BillParticipant::Ident(get_identity_public_data(
                 &node_id_test(),
@@ -465,7 +467,6 @@ mod tests {
 
     #[tokio::test]
     async fn get_client_notifications() {
-        init_test_cfg();
         let result = Notification::new_bill_notification(
             &bill_id_test(),
             &node_id_test(),
@@ -496,7 +497,6 @@ mod tests {
 
     #[tokio::test]
     async fn wrong_network_failures() {
-        init_test_cfg();
         let mainnet_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Bitcoin);
         let mainnet_bill_id = BillId::new(BcrKeys::new().pub_key(), bitcoin::Network::Bitcoin);
         let filter = NotificationFilter {
@@ -529,8 +529,6 @@ mod tests {
 
     #[tokio::test]
     async fn get_mark_notification_done() {
-        init_test_cfg();
-
         let service = expect_service(|mock_store, _, _, _| {
             mock_store
                 .expect_mark_as_done()
@@ -546,8 +544,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_email_notifications_preferences_link() {
-        init_test_cfg();
-
         let service = expect_service(|_, email_store, _, _| {
             email_store
                 .expect_get_email_preferences_link_for_node_id()
@@ -567,7 +563,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_email_notifications_preferences_link_no_entry() {
-        init_test_cfg();
         let service = expect_service(|_, email_store, _, _| {
             email_store
                 .expect_get_email_preferences_link_for_node_id()
@@ -605,6 +600,7 @@ mod tests {
             Arc::new(email_notification_store),
             Arc::new(email_client),
             Arc::new(push_service),
+            Arc::new(test_cfg()),
         )
     }
 

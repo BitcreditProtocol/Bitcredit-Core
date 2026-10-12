@@ -4,6 +4,7 @@ use crate::handler::NostrContactProcessorApi;
 use crate::nostr_transport::NostrTransportService;
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
+use bcr_ebill_api::Config;
 use bcr_ebill_api::service::transport_service::NostrContactData;
 use bcr_ebill_api::util::validate_node_id_network;
 
@@ -22,6 +23,7 @@ pub struct ContactTransportService {
     nostr_transport: Arc<NostrTransportService>,
     nostr_contact_store: Arc<dyn NostrContactStoreApi>,
     nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
+    config: Arc<Config>,
 }
 
 impl ContactTransportService {
@@ -29,11 +31,13 @@ impl ContactTransportService {
         nostr_transport: Arc<NostrTransportService>,
         nostr_contact_store: Arc<dyn NostrContactStoreApi>,
         nostr_contact_processor: Arc<dyn NostrContactProcessorApi>,
+        config: Arc<Config>,
     ) -> Self {
         Self {
             nostr_transport,
             nostr_contact_store,
             nostr_contact_processor,
+            config,
         }
     }
 }
@@ -44,7 +48,7 @@ impl ServiceTraitBounds for ContactTransportService {}
 impl ContactTransportServiceApi for ContactTransportService {
     /// Attempts to resolve the nostr contact for the given Node Id
     async fn resolve_contact(&self, node_id: &NodeId) -> Result<Option<NostrContactData>> {
-        validate_node_id_network(node_id)?;
+        validate_node_id_network(node_id, self.config.bitcoin_network())?;
         // take any transport - doesn't matter
         let transport = self.nostr_transport.get_first_transport();
         let res = transport.resolve_contact(node_id).await?;

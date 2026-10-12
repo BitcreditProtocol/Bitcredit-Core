@@ -26,6 +26,7 @@
     * Mint Recovery Data
     * Contact Share private Key
     * Nostr re-send queue
+* Refactor `bcr_ebill_api::Config` to not be a global, but injected
 
 # 0.5.16
 

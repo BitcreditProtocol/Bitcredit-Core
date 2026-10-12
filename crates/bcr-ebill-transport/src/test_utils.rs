@@ -58,7 +58,7 @@ use super::nostr::NostrClient;
 use serde::Serialize;
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use bcr_ebill_api::service::transport_service::{
     BlockTransportServiceApi, ContactTransportServiceApi, NostrContactData,
@@ -118,44 +118,38 @@ impl<T: borsh::BorshSerialize + borsh::BorshDeserialize> TestEventHandler<T> {
     }
 }
 
-static CONFIG: OnceLock<Config> = OnceLock::new();
-pub fn init_test_cfg() {
-    match CONFIG.get() {
-        Some(_) => (),
-        None => {
-            let _ = bcr_ebill_api::init(Config {
-                bitcoin_network: "testnet".to_string(),
-                esplora_base_urls: vec![url::Url::parse("https://esplora.minibill.tech").unwrap()],
-                db_conf: DbConfig {
-                    connection_string: "sqlite://local_db/ebill.db".to_string(),
-                    temp_files_path: PathBuf::from_str("/tmp").unwrap(),
-                },
-                nostr_config: bcr_ebill_api::NostrConfig {
-                    only_known_contacts: false,
-                    relays: vec![url::Url::parse("ws://localhost:8080").unwrap()],
-                    blossom_servers: vec![],
-                    max_relays: Some(50),
-                    relay_ack_threshold: 1,
-                },
-                mint_config: bcr_ebill_api::MintConfig {
-                    default_mint_url: url::Url::parse("http://localhost:4242/").unwrap(),
-                    default_mint_node_id: NodeId::from_str(
-                        "bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f",
-                    )
-                    .unwrap(),
-                },
-                payment_config: bcr_ebill_api::PaymentConfig {
-                    num_confirmations_for_payment: 6,
-                },
-                dev_mode_config: DevModeConfig {
-                    on: false,
-                    mandatory_email_confirmations: true,
-                },
-                court_config: CourtConfig {
-                    default_url: url::Url::parse("https://court-dev.minibill.tech").unwrap(),
-                },
-            });
-        }
+pub fn test_cfg() -> Config {
+    Config {
+        bitcoin_network: "testnet".to_string(),
+        esplora_base_urls: vec![url::Url::parse("https://esplora.minibill.tech").unwrap()],
+        db_conf: DbConfig {
+            connection_string: "sqlite://local_db/ebill.db".to_string(),
+            temp_files_path: PathBuf::from_str("/tmp").unwrap(),
+        },
+        nostr_config: bcr_ebill_api::NostrConfig {
+            only_known_contacts: false,
+            relays: vec![url::Url::parse("ws://localhost:8080").unwrap()],
+            blossom_servers: vec![],
+            max_relays: Some(50),
+            relay_ack_threshold: 1,
+        },
+        mint_config: bcr_ebill_api::MintConfig {
+            default_mint_url: url::Url::parse("http://localhost:4242/").unwrap(),
+            default_mint_node_id: NodeId::from_str(
+                "bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f",
+            )
+            .unwrap(),
+        },
+        payment_config: bcr_ebill_api::PaymentConfig {
+            num_confirmations_for_payment: 6,
+        },
+        dev_mode_config: DevModeConfig {
+            on: false,
+            mandatory_email_confirmations: true,
+        },
+        court_config: CourtConfig {
+            default_url: url::Url::parse("https://court-dev.minibill.tech").unwrap(),
+        },
     }
 }
 
@@ -493,6 +487,7 @@ pub fn get_nostr_transport(
         Arc::new(queued_message_store),
         Arc::new(chain_events),
         vec![url::Url::parse("ws://test.relay").unwrap()],
+        Arc::new(test_cfg()),
     )
 }
 

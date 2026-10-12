@@ -42,21 +42,21 @@ pub struct Context {
     pub push_service: Arc<dyn PushApi>,
     pub chain_key_service: Arc<dyn ChainKeyServiceApi>,
     pub mint_client: Arc<dyn MintClientApi>,
-    pub cfg: Config,
+    pub cfg: Arc<Config>,
 }
 
 impl Context {
-    pub async fn new(cfg: Config, db: DbContext) -> Result<Self, EbillFfiError> {
+    pub async fn new(cfg: Arc<Config>, db: DbContext) -> Result<Self, EbillFfiError> {
         let db_ctx = db.clone();
         let file_upload_client = Arc::new(FileStorageClient::new());
-        let bitcoin_client = Arc::new(BitcoinClient::new());
-        let mint_client = Arc::new(MintClient::new());
+        let bitcoin_client = Arc::new(BitcoinClient::new(cfg.clone()));
+        let mint_client = Arc::new(MintClient::new(cfg.clone()));
         let court_client = Arc::new(CourtClient::new());
         let email_client = Arc::new(EmailClient::new());
         let push_service = Arc::new(PushService::new());
 
         let nostr_client = create_nostr_clients(
-            &cfg,
+            cfg.clone(),
             db.identity_store.clone(),
             db.company_store.clone(),
             db.nostr_contact_store.clone(),
@@ -69,6 +69,7 @@ impl Context {
             cfg.nostr_config.relays.to_owned(),
             push_service.clone(),
             mint_client.clone(),
+            cfg.clone(),
         )
         .await?;
 
@@ -81,10 +82,11 @@ impl Context {
             db.company_store.clone(),
             db.nostr_contact_store.clone(),
             transport_service.clone(),
-            &cfg,
+            cfg.clone(),
         ));
 
         let bill_service = Arc::new(BillService::new(
+            cfg.clone(),
             db.bill_store.clone(),
             db.bill_blockchain_store.clone(),
             db.identity_store.clone(),
@@ -113,6 +115,7 @@ impl Context {
             email_client.clone(),
             db.email_notification_store.clone(),
             db.contact_store.clone(),
+            cfg.clone(),
         );
 
         let company_service = CompanyService::new(
@@ -128,6 +131,7 @@ impl Context {
             transport_service.clone(),
             email_client.clone(),
             db.email_notification_store.clone(),
+            cfg.clone(),
         );
         let file_upload_service = FileUploadService::new(db.file_upload_store);
 
@@ -144,6 +148,7 @@ impl Context {
             chain_key_service.clone(),
             db_ctx.clone(),
             mint_client.clone(),
+            cfg.clone(),
         )
         .await?;
 
@@ -151,6 +156,7 @@ impl Context {
             bill_service.clone(),
             contact_service.clone(),
             Arc::new(company_service.clone()),
+            cfg.clone(),
         );
 
         Ok(Self {

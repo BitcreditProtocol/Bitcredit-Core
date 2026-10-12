@@ -534,8 +534,8 @@ pub mod tests {
         }
     }
 
-    pub fn init_test_cfg() {
-        crate::init(crate::Config {
+    pub fn test_cfg() -> crate::Config {
+        crate::Config {
             bitcoin_network: "testnet".to_string(),
             esplora_base_urls: vec![url::Url::parse("https://esplora.minibill.tech").unwrap()],
             db_conf: DbConfig {
@@ -563,8 +563,7 @@ pub mod tests {
             court_config: CourtConfig {
                 default_url: url::Url::parse("https://court-dev.minibill.tech").unwrap(),
             },
-        })
-        .expect("can init config");
+        }
     }
 
     pub fn empty_address() -> PostalAddress {

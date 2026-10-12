@@ -349,7 +349,7 @@ pub async fn seed_recover(seed_phrase_payload: SeedPhrase) -> Result<(), EbillFf
 
     let keys = context.identity_service.get_keys().await?;
     let recovery_service = create_restore_account_service(
-        &context.cfg,
+        context.cfg.clone(),
         &keys,
         context.chain_key_service.clone(),
         context.contact_service.clone(),

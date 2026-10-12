@@ -8,7 +8,7 @@ use crate::handler::{
 use crate::nostr_transport::NostrTransportService;
 use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
-use bcr_ebill_api::get_config;
+use bcr_ebill_api::Config;
 use bcr_ebill_api::service::transport_service::{BlockTransportServiceApi, ResyncMode};
 use bcr_ebill_core::application::nostr::ResendQueueEntry;
 use bcr_ebill_core::application::{ServiceTraitBounds, ValidationError};
@@ -30,6 +30,7 @@ pub struct BlockTransportService {
     bill_chain_event_processor: Arc<dyn BillChainEventProcessorApi>,
     company_chain_event_processor: Arc<dyn CompanyChainEventProcessorApi>,
     identity_chain_event_processor: Arc<dyn IdentityChainEventProcessorApi>,
+    config: Arc<Config>,
 }
 
 impl BlockTransportService {
@@ -38,12 +39,14 @@ impl BlockTransportService {
         bill_chain_event_processor: Arc<dyn BillChainEventProcessorApi>,
         company_chain_event_processor: Arc<dyn CompanyChainEventProcessorApi>,
         identity_chain_event_processor: Arc<dyn IdentityChainEventProcessorApi>,
+        config: Arc<Config>,
     ) -> Self {
         Self {
             nostr_transport,
             bill_chain_event_processor,
             company_chain_event_processor,
             identity_chain_event_processor,
+            config,
         }
     }
 }
@@ -349,7 +352,7 @@ impl BlockTransportServiceApi for BlockTransportService {
         mode: ResyncMode,
     ) -> Result<()> {
         // if dev mode is off - we return an error
-        if matches!(mode, ResyncMode::NostrAuthoritative) && !get_config().dev_mode_config.on {
+        if matches!(mode, ResyncMode::NostrAuthoritative) && !self.config.dev_mode_config.on {
             error!("Called dev mode operation with dev mode disabled - please enable!");
             return Err(Error::Validation(ValidationError::InvalidOperation));
         }
@@ -363,7 +366,7 @@ impl BlockTransportServiceApi for BlockTransportService {
     /// Resync company chain
     async fn resync_company_chain(&self, company_id: &NodeId, mode: ResyncMode) -> Result<()> {
         // if dev mode is off - we return an error
-        if matches!(mode, ResyncMode::NostrAuthoritative) && !get_config().dev_mode_config.on {
+        if matches!(mode, ResyncMode::NostrAuthoritative) && !self.config.dev_mode_config.on {
             error!("Called dev mode operation with dev mode disabled - please enable!");
             return Err(Error::Validation(ValidationError::InvalidOperation));
         }
@@ -377,7 +380,7 @@ impl BlockTransportServiceApi for BlockTransportService {
     /// Resync identity chain
     async fn resync_identity_chain(&self, mode: ResyncMode) -> Result<()> {
         // if dev mode is off - we return an error
-        if matches!(mode, ResyncMode::NostrAuthoritative) && !get_config().dev_mode_config.on {
+        if matches!(mode, ResyncMode::NostrAuthoritative) && !self.config.dev_mode_config.on {
             error!("Called dev mode operation with dev mode disabled - please enable!");
             return Err(Error::Validation(ValidationError::InvalidOperation));
         }
@@ -459,7 +462,7 @@ mod tests {
         MockContactStore, MockNostrChainEventStore, MockNostrContactStore,
         MockNostrQueuedMessageStore, MockNotificationJsonTransport, bill_id_test,
         get_genesis_chain, get_nostr_transport, get_test_company_chain_event,
-        get_test_identity_chain_event, private_key_test,
+        get_test_identity_chain_event, private_key_test, test_cfg,
     };
     use crate::transport::create_public_chain_event;
     use bcr_ebill_core::protocol::blockchain::{Blockchain, BlockchainType};
@@ -511,6 +514,7 @@ mod tests {
             Arc::new(MockBillChainEventProcessorApi::new()),
             Arc::new(MockCompanyChainEventProcessorApi::new()),
             Arc::new(MockIdentityChainEventProcessorApi::new()),
+            Arc::new(test_cfg()),
         )
     }
 
@@ -533,6 +537,7 @@ mod tests {
             Arc::new(bill_chain_event_processor),
             Arc::new(MockCompanyChainEventProcessorApi::new()),
             Arc::new(MockIdentityChainEventProcessorApi::new()),
+            Arc::new(test_cfg()),
         )
     }
 
@@ -720,6 +725,7 @@ mod tests {
             Arc::new(MockBillChainEventProcessorApi::new()),
             Arc::new(MockCompanyChainEventProcessorApi::new()),
             Arc::new(MockIdentityChainEventProcessorApi::new()),
+            Arc::new(test_cfg()),
         );
         let event = get_test_identity_chain_event();
 

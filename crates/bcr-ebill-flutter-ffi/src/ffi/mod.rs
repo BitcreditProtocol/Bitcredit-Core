@@ -1,4 +1,5 @@
 use ::nostr::nips::nip19::ToBech32;
+use anyhow::anyhow;
 use bcr_common::core::NodeId;
 use bcr_ebill_api::{
     Config as ApiConfig, CourtConfig, DevModeConfig, MintConfig, NostrConfig, PaymentConfig,
@@ -164,7 +165,7 @@ pub async fn init_ebill_ffi(conf: EbillConfig) -> Result<(), EbillFfiError> {
         None => log::LevelFilter::Info,
     };
 
-    let api_config = build_api_config(&conf)?;
+    let api_config = Arc::new(build_api_config(&conf)?);
 
     // parse mnemonic to keys
     let parsed_mnemonic_keys = BcrKeys::from_seedphrase(&conf.mnemonic)?;
@@ -186,12 +187,14 @@ pub async fn init_ebill_ffi(conf: EbillConfig) -> Result<(), EbillFfiError> {
         rt.panic_hook_initialized = true;
     }
 
-    bcr_ebill_api::init(api_config.clone())?;
     // make sure the configured default mint node id is valid for the configured network
-    validate_node_id_network(&api_config.mint_config.default_mint_node_id)?;
+    validate_node_id_network(
+        &api_config.mint_config.default_mint_node_id,
+        api_config.bitcoin_network(),
+    )?;
 
     // init db
-    let db = get_db_context(&api_config, &parsed_mnemonic_keys).await?;
+    let db = get_db_context(api_config.clone(), &parsed_mnemonic_keys).await?;
 
     // set the network and check if the configured network matches the persisted network and fail, if not
     db.identity_store
@@ -290,6 +293,11 @@ fn build_api_config(conf: &EbillConfig) -> Result<ApiConfig, EbillFfiError> {
             default_url: url::Url::parse(&conf.default_court_url).map_err(err_init)?,
         },
     };
+    if api_config.esplora_base_urls.is_empty() {
+        return Err(EbillFfiError::from(anyhow!(
+            "esplora_base_urls must contain at least one URL"
+        )));
+    }
     debug!("Config: {api_config:?}");
     Ok(api_config)
 }
