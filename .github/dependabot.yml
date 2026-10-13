@@ -33,6 +33,11 @@ updates:
       time: "08:30"
       timezone: "Europe/Vienna"
     open-pull-requests-limit: 7
+    # libc 0.2.190 breaks iOS builds (rust-lang/libc#5601); see the pin in
+    # crates/bcr-ebill-flutter-ffi/Cargo.toml.
+    ignore:
+      - dependency-name: "libc"
+        versions: ["0.2.190"]
     labels:
       - "dependencies"
       - "rust"

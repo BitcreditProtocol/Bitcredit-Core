@@ -816,6 +816,7 @@ dependencies = [
  "bitcoin",
  "env_logger",
  "flutter_rust_bridge",
+ "libc",
  "log",
  "nostr 0.45.5",
  "once_cell",

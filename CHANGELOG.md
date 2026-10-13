@@ -7,7 +7,7 @@
 * Adapted CI/CD away from wasm to Flutter
 * CI: the Flutter example and podspecs are excluded from language detection, so Code Quality no longer analyses Ruby and Kotlin
 * Precompiled binaries: new `public_key` in `cargokit.yaml`, one parallel job per target, a pinned Android NDK, and binaries for macOS, Windows and Linux (x64 and arm64)
-* `libc` is held at 0.2.189: 0.2.190 made the dyld image functions macOS-only, so `backtrace` no longer compiled for iOS (rust-lang/libc#5601)
+* `libc` is pinned to `=0.2.189` in `bcr-ebill-flutter-ffi`: 0.2.190 made the dyld image functions macOS-only, so `backtrace` no longer compiled for iOS (rust-lang/libc#5601)
 * Precompiled binaries: the Android jobs install the pinned NDK themselves, since runner images no longer ship 28.2
 * Add `sqlite` and `postgres` persistence implementation baseline (using `sqlx`)
 * Add `temp_files_path` config option and replace DB-based temp upload files with a file-based version.
