@@ -15,8 +15,8 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_NET_GIT_FETCH_WITH_CLI: "true"
   # Flutter's default ndkVersion (FlutterExtension.kt, Flutter 3.44), so
-  # precompiled and locally built binaries use the same NDK. Cargokit installs
-  # it if the runner doesn't have it.
+  # precompiled and locally built binaries use the same NDK. The Android step
+  # installs it, since runner images drop older NDKs.
   ANDROID_NDK_VERSION: "28.2.13676358"
 
 jobs:
@@ -90,6 +90,9 @@ jobs:
         run: |
           android_sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
           echo "NDK Version: $ANDROID_NDK_VERSION"
+          # cargokit's precompile-binaries never installs a missing NDK (it has
+          # no javaHome), so install it here; a no-op when already present.
+          "$android_sdk/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$ANDROID_NDK_VERSION"
 
           dart run build_tool precompile-binaries -v \
             --manifest-dir=../../crates/bcr-ebill-flutter-ffi \
