@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:ebill_flutter_ffi/ebill_flutter_ffi.dart';
 import 'package:ebill_flutter_ffi/api/bill.dart' as bill_api;
 import 'package:ebill_flutter_ffi/api/company.dart' as company_api;
 import 'package:ebill_flutter_ffi/api/contact.dart' as contact_api;
@@ -18,13 +19,13 @@ import 'mappings.dart' as mappings;
 
 class HarnessPage extends StatefulWidget {
   const HarnessPage({
-    required this.environment,
+    required this.environments,
+    required this.initialInstance,
     super.key,
   });
 
-  final DevEnvironment environment;
-
-  String get dataDirectory => environment.baseDir.path;
+  final Map<InstanceId, DevEnvironment> environments;
+  final InstanceId initialInstance;
 
   @override
   State<HarnessPage> createState() => _HarnessPageState();
@@ -33,7 +34,20 @@ class HarnessPage extends StatefulWidget {
 class _HarnessPageState extends State<HarnessPage> {
   final _console = <String>[];
   bool _busy = false;
-  bool _notificationSubscribed = false;
+  late InstanceId _activeInstance;
+  final Set<InstanceId> _notificationSubscriptions = {};
+  DevEnvironment get _activeEnvironment =>
+      widget.environments[_activeInstance]!;
+  String get _dataDirectory =>
+      _activeEnvironment.baseDir.path;
+
+  @override
+  void initState() {
+    super.initState();
+    _activeInstance = widget.initialInstance;
+    _mintNodeId.text =
+        _activeEnvironment.spec.defaultMintNodeId;
+  }
 
   final _currency = TextEditingController(text: 'SAT');
   final _generalSearch = TextEditingController();
@@ -71,7 +85,7 @@ class _HarnessPageState extends State<HarnessPage> {
   final _actionSum = TextEditingController(text: '500');
   final _deadlineDays = TextEditingController(text: '3');
   final _billSearch = TextEditingController();
-  final _mintNodeId = TextEditingController(text: defaultMintNodeId);
+  final _mintNodeId = TextEditingController();
   final _mintRequestId = TextEditingController();
   final _mintPaymentAddress = TextEditingController();
   final _courtNodeId = TextEditingController();
@@ -181,6 +195,7 @@ class _HarnessPageState extends State<HarnessPage> {
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
+      _instanceSection(),
       Card(
         child: Padding(
           padding: const EdgeInsets.all(12),
@@ -189,15 +204,26 @@ class _HarnessPageState extends State<HarnessPage> {
             children: [
             Expanded(
               child: SelectableText(
-                'Data directory: ${widget.dataDirectory}',
+                'Data directory: $_dataDirectory',
                 ),
               ),
             const SizedBox(width: 16),
             FilledButton.tonalIcon(
-              onPressed: _busy ? null : _resetState,
-              icon: const Icon(Icons.delete_forever),
-              label: const Text('Reset state'),
+              onPressed: _busy
+                  ? null
+                  : () => _requestReset(all: false),
+              icon: const Icon(Icons.delete_outline),
+              label: Text(
+                'Reset ${_activeInstance.name}',
               ),
+            ),
+            FilledButton.tonalIcon(
+              onPressed: _busy
+                  ? null
+                  : () => _requestReset(all: true),
+              icon: const Icon(Icons.delete_forever),
+              label: const Text('Reset both'),
+            ),
             ],
             ),
           ),
@@ -333,6 +359,70 @@ class _HarnessPageState extends State<HarnessPage> {
     ], initiallyExpanded: true);
   }
 
+  Widget _instanceSection() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            const Text('Active instance:'),
+            const SizedBox(width: 16),
+            SegmentedButton<InstanceId>(
+              segments: const [
+                ButtonSegment(
+                  value: InstanceId.testnet,
+                  label: Text('Testnet'),
+                ),
+                ButtonSegment(
+                  value: InstanceId.mainnet,
+                  label: Text('Mainnet'),
+                ),
+              ],
+              selected: {_activeInstance},
+              onSelectionChanged: _busy
+                  ? null
+                  : (selected) {
+                      _switchInstance(selected.single);
+                    },
+            ),
+            const SizedBox(width: 24),
+            Expanded(
+              child: SelectableText(
+                _dataDirectory,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _switchInstance(
+    InstanceId instanceId,
+  ) async {
+    if (_activeInstance == instanceId) {
+      return;
+    }
+    await _run(
+      'Switch instance -> ${instanceId.name}',
+      () async {
+        await setActiveInstance(
+          instanceId: instanceId,
+        );
+        if (!mounted) {
+          return instanceId.name;
+        }
+        setState(() {
+          _activeInstance = instanceId;
+
+          _mintNodeId.text =
+              _activeEnvironment.spec.defaultMintNodeId;
+        });
+        return 'Active instance: ${instanceId.name}';
+      },
+    );
+  }
+
   Widget _uploadSection() {
     return _section('Uploads / files', [
       _field('Local file path', _filePath, width: 620, hint: '/tmp/test.pdf'),
@@ -429,10 +519,19 @@ class _HarnessPageState extends State<HarnessPage> {
       }),
       _field('Blossom hash', _blossomHash, width: 420),
       _button('Build Blossom URL', () async {
-        final hash = _required(_blossomHash, 'Blossom hash');
-        return '$defaultBlossomServer/$hash';
-      }),
-      _note('Fetched binary files are written to ${widget.dataDirectory}/downloads.'),
+          final hash =
+          _required(_blossomHash, 'Blossom hash');
+          final servers =
+          _activeEnvironment.spec.blossomServers;
+          if (servers.isEmpty) {
+          throw StateError(
+              'No Blossom server configured for '
+              '${_activeInstance.name}',
+              );
+          }
+          return '${servers.first}/$hash';
+          }),
+      _note('Fetched binary files are written to $_dataDirectory/downloads.'),
     ]);
   }
 
@@ -520,9 +619,10 @@ class _HarnessPageState extends State<HarnessPage> {
         );
 
         // Only overwrite it after seedRecover succeeded
-        await widget.environment.replaceMnemonic(mnemonic);
+        await _activeEnvironment.replaceMnemonic(mnemonic);
 
-        return 'OK - recovery mnemonic persisted';
+        return 'OK - recovery mnemonic persisted '
+        'for ${_activeInstance.name}';
       }),
       _field('Email confirmation code', _identityConfirmationCode),
       _button('Confirm email', () async {
@@ -1069,18 +1169,23 @@ class _HarnessPageState extends State<HarnessPage> {
           filters: data.NotificationFiltersFfi(nodeIds: _nodeIds().isEmpty ? null : _nodeIds()),
         );
       }),
-      _button('Subscribe', () async {
-        if (_notificationSubscribed) return 'Already subscribed';
-        _notificationSubscribed = true;
-        await notification_api.subscribe(
-          callback: (event) {
-            if (!mounted) return;
-            setState(() {
-              _console.add('[notification] ${event.value}');
-            });
-          },
-        );
-        return 'Subscription registered';
+      _button(
+        'Subscribe active',
+        () => _subscribeToNotifications(
+          _activeInstance,
+        ),
+      ),
+
+      _button('Subscribe both', () async {
+        final results = <String>[];
+
+        for (final instanceId in widget.environments.keys) {
+          results.add(
+            await _subscribeToNotifications(instanceId),
+          );
+        }
+
+        return results;
       }),
       _field('Notification ID', _notificationId, width: 480),
       _button('Mark as done', () async {
@@ -1103,6 +1208,35 @@ class _HarnessPageState extends State<HarnessPage> {
         return 'OK';
       }),
     ]);
+  }
+
+  Future<String> _subscribeToNotifications(
+      InstanceId instanceId,
+      ) async {
+    if (_notificationSubscriptions.contains(instanceId)) {
+      return 'Already subscribed to ${instanceId.name}';
+    }
+    await notification_api.subscribe(
+        instanceId: instanceId,
+        callback: (event) async {
+        if (!mounted) {
+        return;
+        }
+
+        setState(() {
+            _console.add(
+                '[${instanceId.name} notification] '
+                '${event.value}',
+                );
+            });
+        },
+        );
+    if (mounted) {
+      setState(() {
+          _notificationSubscriptions.add(instanceId);
+          });
+    }
+    return 'Subscribed to ${instanceId.name}';
   }
 
   Future<void> _run(String label, Future<Object?> Function() action) async {
@@ -1151,7 +1285,7 @@ class _HarnessPageState extends State<HarnessPage> {
   }
 
   Future<Object?> _saveBinaryFile(data.BinaryFileResponse file) async {
-    final dir = Directory('${widget.dataDirectory}/downloads');
+    final dir = Directory('$_dataDirectory/downloads');
     await dir.create(recursive: true);
     final safeName = file.name.replaceAll(RegExp(r'[/\\]'), '_');
     final target = File('${dir.path}/$safeName');
@@ -1313,24 +1447,35 @@ class _HarnessPageState extends State<HarnessPage> {
     return '${value.year}-${two(value.month)}-${two(value.day)}';
   }
 
-
-  Future<void> _resetState() async {
-    await DevEnvironment.requestReset(widget.dataDirectory);
-
-    if (Platform.isLinux || Platform.isMacOS || Platform.isWindows) {
+  Future<void> _requestReset({
+    required bool all,
+  }) async {
+    final environments = all
+        ? widget.environments.values
+        : [_activeEnvironment];
+    for (final environment in environments) {
+      await DevEnvironment.requestReset(
+        environment.baseDir.path,
+      );
+    }
+    if (Platform.isLinux ||
+        Platform.isMacOS ||
+        Platform.isWindows) {
       exit(0);
     }
-
     if (!mounted) {
       return;
     }
-
     ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Reset scheduled. Fully close and restart the app.',
-            ),
-          ),
-        );
+      SnackBar(
+        content: Text(
+          all
+              ? 'Reset for both instances scheduled. '
+                  'Fully close and restart the app.'
+              : 'Reset for ${_activeInstance.name} scheduled. '
+                  'Fully close and restart the app.',
+        ),
+      ),
+    );
   }
 }

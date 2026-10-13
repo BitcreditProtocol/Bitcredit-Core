@@ -27,6 +27,13 @@
     * Contact Share private Key
     * Nostr re-send queue
 * Refactor `bcr_ebill_api::Config` to not be a global, but injected
+* Added an `Instance Manager` mechanism to E-Bill, which enables an app to run both a `testnet` and a `mainnet` instance of the library
+    * `initEbillFfi` is replaced by `initEbillInstance`, which takes a config (same as before) and an instance id
+        * The `InstanceId` can be `testnet`, or `mainnet`
+        * The active instance can be set via `setActiveInstance`
+            * Background jobs and nostr subscriptions continue to run, even for non-active instances
+        * The active instance can be gotten via `getActiveInstance`
+        * An instance can be reset using `resetEbillInstance` and can then be initialized again
 
 # 0.5.16
 

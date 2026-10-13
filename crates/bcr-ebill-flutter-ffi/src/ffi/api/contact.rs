@@ -13,7 +13,6 @@ use std::str::FromStr;
 use uuid::Uuid;
 
 use crate::ffi::{
-    context::get_ctx,
     data::{
         Base64FileResponse, BinaryFileResponse, PostalAddressFfi, UploadFile, UploadFileResponse,
         contact::{
@@ -23,26 +22,22 @@ use crate::ffi::{
         },
     },
     error::EbillFfiError,
+    get_active_ctx,
 };
 
 async fn get_file(node_id: &str, file_name: &Name) -> Result<(Vec<u8>, String), EbillFfiError> {
     let parsed_node_id = NodeId::from_str(node_id).map_err(ProtocolValidationError::from)?;
-    let contact = get_ctx()
-        .await
-        .contact_service
-        .get_contact(&parsed_node_id)
-        .await?; // check if contact exists
+    let ctx = get_active_ctx().await?;
+    let contact = ctx.contact_service.get_contact(&parsed_node_id).await?; // check if contact exists
 
-    let private_key = get_ctx()
-        .await
+    let private_key = ctx
         .identity_service
         .get_full_identity()
         .await?
         .key_pair
         .get_private_key();
 
-    let file_bytes = get_ctx()
-        .await
+    let file_bytes = ctx
         .contact_service
         .open_and_decrypt_file(contact, &parsed_node_id, file_name, &private_key)
         .await?;
@@ -79,16 +74,14 @@ pub async fn file_base64(
 
 #[frb]
 pub async fn upload(upload_file: UploadFile) -> Result<UploadFileResponse, EbillFfiError> {
+    let ctx = get_active_ctx().await?;
     let upload_file_handler: &dyn UploadFileHandler = &upload_file as &dyn UploadFileHandler;
 
-    get_ctx()
-        .await
-        .file_upload_service
+    ctx.file_upload_service
         .validate_attached_file(upload_file_handler)
         .await?;
 
-    let file_upload_response = get_ctx()
-        .await
+    let file_upload_response = ctx
         .file_upload_service
         .upload_file(upload_file_handler)
         .await?;
@@ -98,7 +91,8 @@ pub async fn upload(upload_file: UploadFile) -> Result<UploadFileResponse, Ebill
 
 #[frb]
 pub async fn list() -> Result<ContactsResponse, EbillFfiError> {
-    let contacts = get_ctx().await.contact_service.get_contacts().await?;
+    let ctx = get_active_ctx().await?;
+    let contacts = ctx.contact_service.get_contacts().await?;
     Ok(ContactsResponse {
         contacts: contacts.into_iter().map(|c| c.into()).collect(),
     })
@@ -106,8 +100,8 @@ pub async fn list() -> Result<ContactsResponse, EbillFfiError> {
 
 #[frb]
 pub async fn search(query: SearchContactsPayload) -> Result<ContactsResponse, EbillFfiError> {
-    let contacts = get_ctx()
-        .await
+    let ctx = get_active_ctx().await?;
+    let contacts = ctx
         .contact_service
         .search(
             query.search_term.as_str(),
@@ -122,9 +116,9 @@ pub async fn search(query: SearchContactsPayload) -> Result<ContactsResponse, Eb
 
 #[frb]
 pub async fn detail(node_id: &str) -> Result<ContactFfi, EbillFfiError> {
+    let ctx = get_active_ctx().await?;
     let parsed_node_id = NodeId::from_str(node_id).map_err(ProtocolValidationError::from)?;
-    let contact: ContactFfi = get_ctx()
-        .await
+    let contact: ContactFfi = ctx
         .contact_service
         .get_contact(&parsed_node_id)
         .await?
@@ -134,19 +128,16 @@ pub async fn detail(node_id: &str) -> Result<ContactFfi, EbillFfiError> {
 
 #[frb]
 pub async fn remove(node_id: &str) -> Result<(), EbillFfiError> {
+    let ctx = get_active_ctx().await?;
     let parsed_node_id = NodeId::from_str(node_id).map_err(ProtocolValidationError::from)?;
-    get_ctx()
-        .await
-        .contact_service
-        .delete(&parsed_node_id)
-        .await?;
+    ctx.contact_service.delete(&parsed_node_id).await?;
     Ok(())
 }
 
 #[frb]
 pub async fn deanonymize(contact_payload: NewContactPayload) -> Result<ContactFfi, EbillFfiError> {
-    let contact = get_ctx()
-        .await
+    let ctx = get_active_ctx().await?;
+    let contact = ctx
         .contact_service
         .deanonymize_contact(
             &NodeId::from_str(&contact_payload.node_id).map_err(ProtocolValidationError::from)?,
@@ -195,8 +186,8 @@ pub async fn deanonymize(contact_payload: NewContactPayload) -> Result<ContactFf
 
 #[frb]
 pub async fn create(contact_payload: NewContactPayload) -> Result<ContactFfi, EbillFfiError> {
-    let contact = get_ctx()
-        .await
+    let ctx = get_active_ctx().await?;
+    let contact = ctx
         .contact_service
         .add_contact(
             &NodeId::from_str(&contact_payload.node_id).map_err(ProtocolValidationError::from)?,
@@ -245,6 +236,7 @@ pub async fn create(contact_payload: NewContactPayload) -> Result<ContactFfi, Eb
 
 #[frb]
 pub async fn edit(contact_payload: EditContactPayload) -> Result<(), EbillFfiError> {
+    let ctx = get_active_ctx().await?;
     let edit_date_of_birth_or_registration: EditOptionalFieldMode<Date> = contact_payload
         .date_of_birth_or_registration
         .try_map(|v| Date::from_str(&v))?;
@@ -274,9 +266,7 @@ pub async fn edit(contact_payload: EditContactPayload) -> Result<(), EbillFfiErr
         .postal_address_zip
         .try_map(|z| Zip::from_str(&z))?;
 
-    get_ctx()
-        .await
-        .contact_service
+    ctx.contact_service
         .update_contact(
             &NodeId::from_str(&contact_payload.node_id).map_err(ProtocolValidationError::from)?,
             contact_payload.name.map(Name::new).transpose()?,
@@ -309,10 +299,10 @@ pub async fn edit(contact_payload: EditContactPayload) -> Result<(), EbillFfiErr
 pub async fn list_pending_contact_shares(
     receiver_node_id: &str,
 ) -> Result<PendingContactSharesResponse, EbillFfiError> {
+    let ctx = get_active_ctx().await?;
     let parsed_node_id = NodeId::from_str(receiver_node_id)
         .map_err(bcr_ebill_core::protocol::ProtocolValidationError::from)?;
-    let pending_shares = get_ctx()
-        .await
+    let pending_shares = ctx
         .contact_service
         .list_pending_contact_shares(&parsed_node_id)
         .await?;
@@ -325,11 +315,8 @@ pub async fn list_pending_contact_shares(
 pub async fn get_pending_contact_share(
     id: &str,
 ) -> Result<Option<PendingContactShareFfi>, EbillFfiError> {
-    let pending_share = get_ctx()
-        .await
-        .contact_service
-        .get_pending_contact_share(id)
-        .await?;
+    let ctx = get_active_ctx().await?;
+    let pending_share = ctx.contact_service.get_pending_contact_share(id).await?;
     Ok(pending_share.map(|ps| ps.into()))
 }
 
@@ -337,9 +324,8 @@ pub async fn get_pending_contact_share(
 pub async fn approve_contact_share(
     approve_payload: ApproveContactSharePayload,
 ) -> Result<(), EbillFfiError> {
-    get_ctx()
-        .await
-        .contact_service
+    let ctx = get_active_ctx().await?;
+    ctx.contact_service
         .approve_contact_share(
             &approve_payload.pending_share_id,
             approve_payload.add_to_contacts,
@@ -351,9 +337,8 @@ pub async fn approve_contact_share(
 
 #[frb]
 pub async fn reject_contact_share(pending_share_id: &str) -> Result<(), EbillFfiError> {
-    get_ctx()
-        .await
-        .contact_service
+    let ctx = get_active_ctx().await?;
+    ctx.contact_service
         .reject_contact_share(pending_share_id)
         .await?;
     Ok(())

@@ -1,21 +1,86 @@
 import 'dart:io';
-
 import 'package:ebill_flutter_ffi/ebill_flutter_ffi.dart';
 
-const defaultMintNodeId =
-    'bitcrt020e50d48b6b2897743ca257c82684e984509c05c9bf812176c717005698e57023';
-const defaultCourtUrl = 'https://bcr-court-dev.minibill.tech';
-const defaultBlossomServer =
-    'https://relay.wildcat0.clowder-dev.minibill.tech';
+class DevInstanceSpec {
+  const DevInstanceSpec({
+    required this.instanceId,
+    required this.bitcoinNetwork,
+    required this.esploraBaseUrls,
+    required this.nostrRelays,
+    required this.blossomServers,
+    required this.defaultMintUrl,
+    required this.defaultMintNodeId,
+    required this.defaultCourtUrl,
+  });
+
+  final InstanceId instanceId;
+  final String bitcoinNetwork;
+
+  final List<String> esploraBaseUrls;
+  final List<String> nostrRelays;
+  final List<String> blossomServers;
+
+  final String defaultMintUrl;
+  final String defaultMintNodeId;
+  final String defaultCourtUrl;
+}
+
+
+const testnetSpec = DevInstanceSpec(
+  instanceId: InstanceId.testnet,
+  bitcoinNetwork: 'testnet',
+  esploraBaseUrls: [
+    'https://esplora.minibill.tech',
+  ],
+  nostrRelays: [
+    'wss://relay.wildcat0.clowder-dev.minibill.tech',
+    'wss://relay.wildcat1.clowder-dev.minibill.tech',
+  ],
+  blossomServers: [
+    'https://relay.wildcat0.clowder-dev.minibill.tech',
+    'https://relay.wildcat1.clowder-dev.minibill.tech',
+  ],
+  defaultMintUrl:
+      'https://mint.wildcat0.clowder-dev.minibill.tech',
+  defaultMintNodeId:
+      'bitcrt020e50d48b6b2897743ca257c82684e984509c05c9bf812176c717005698e57023',
+  defaultCourtUrl:
+      'https://bcr-court-dev.minibill.tech',
+);
+
+final mainnetSpec = DevInstanceSpec(
+  instanceId: InstanceId.mainnet,
+  bitcoinNetwork: 'mainnet',
+  esploraBaseUrls: const [
+    'https://esplora.minibill.tech',
+  ],
+  nostrRelays: const [
+    'wss://relay.wildcat0.clowder-dev.minibill.tech',
+    'wss://relay.wildcat1.clowder-dev.minibill.tech',
+  ],
+  blossomServers: const [
+    'https://relay.wildcat0.clowder-dev.minibill.tech',
+    'https://relay.wildcat1.clowder-dev.minibill.tech',
+  ],
+  defaultMintUrl:
+      'https://mint.wildcat0.clowder-dev.minibill.tech',
+  defaultMintNodeId:
+      'bitcrm020e50d48b6b2897743ca257c82684e984509c05c9bf812176c717005698e57023',
+  defaultCourtUrl:
+      'https://bcr-court-dev.minibill.tech',
+);
 
 class DevEnvironment {
   DevEnvironment({
+    required this.spec,
     required this.baseDir,
     required this.tempFilesDir,
     required this.sqliteDbFile,
     required this.mnemonicFile,
     required this.mnemonic,
   });
+
+  final DevInstanceSpec spec;
 
   final Directory baseDir;
   final Directory tempFilesDir;
@@ -24,7 +89,10 @@ class DevEnvironment {
 
   String mnemonic;
 
+  InstanceId get instanceId => spec.instanceId;
+
   static Future<DevEnvironment> prepare({
+    required DevInstanceSpec spec,
     String? suffix,
     required Future<String> Function() generateMnemonic,
   }) async {
@@ -33,8 +101,13 @@ class DevEnvironment {
         '${Directory.systemTemp.path}/bitcredit-ebill-harness';
     final basePath = override ?? defaultBase;
 
+    final suffixPart = suffix == null ? '' : '-$suffix';
+
+    // per-instance:
+    // /tmp/bitcredit-ebill-harness-testnet
+    // /tmp/bitcredit-ebill-harness-mainnet
     final base = Directory(
-      '$basePath${suffix == null ? '' : '-$suffix'}',
+      '$basePath$suffixPart-${spec.instanceId.name}',
     );
 
     final resetMarker = File('${base.path}.reset');
@@ -76,6 +149,7 @@ class DevEnvironment {
     }
 
     return DevEnvironment(
+      spec: spec,
       baseDir: base,
       tempFilesDir: tempFiles,
       sqliteDbFile: sqliteDbFile,
@@ -114,27 +188,21 @@ class DevEnvironment {
         sqliteDbPath: sqliteDbFile.path,
         tempFilesPath: tempFilesDir.path,
         logLevel: 'debug',
-        bitcoinNetwork: 'testnet',
-        esploraBaseUrls: const ['https://esplora.minibill.tech'],
-        nostrRelays: const [
-          'wss://relay.wildcat0.clowder-dev.minibill.tech',
-          'wss://relay.wildcat1.clowder-dev.minibill.tech',
-        ],
-        blossomServers: const [
-          'https://relay.wildcat0.clowder-dev.minibill.tech',
-          'https://relay.wildcat1.clowder-dev.minibill.tech',
-        ],
+        bitcoinNetwork: spec.bitcoinNetwork,
+        esploraBaseUrls: spec.esploraBaseUrls,
+        nostrRelays: spec.nostrRelays,
+        blossomServers: spec.blossomServers,
         nostrOnlyKnownContacts: false,
         jobRunnerInitialDelaySeconds: BigInt.from(5),
         jobRunnerCheckIntervalSeconds: BigInt.from(60),
         transportInitialSubscriptionDelaySeconds: 1,
-        defaultMintUrl:
-            'https://mint.wildcat0.clowder-dev.minibill.tech',
-        defaultMintNodeId: defaultMintNodeId,
+        defaultMintUrl: spec.defaultMintUrl,
+        defaultMintNodeId: spec.defaultMintNodeId,
         numConfirmationsForPayment: BigInt.one,
         devMode: true,
         mandatoryEmailConfirmations: false,
-        defaultCourtUrl: defaultCourtUrl,
+        defaultCourtUrl: spec.defaultCourtUrl,
         mnemonic: mnemonic,
       );
 }
+
