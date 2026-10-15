@@ -36,6 +36,7 @@
             * Background jobs and nostr subscriptions continue to run, even for non-active instances
         * The active instance can be gotten via `getActiveInstance`
         * An instance can be reset using `resetEbillInstance` and can then be initialized again
+* Remove SurrealDB
 
 # 0.5.16
 
