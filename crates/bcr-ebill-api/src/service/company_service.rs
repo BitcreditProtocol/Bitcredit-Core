@@ -198,6 +198,13 @@ pub trait CompanyServiceApi: ServiceTraitBounds {
     ) -> Result<()>;
 }
 
+#[derive(Debug, Clone)]
+struct PreparedEmailConfirmation {
+    proof: SignedIdentityProof,
+    data: EmailIdentityProofData,
+    needs_persisting: bool,
+}
+
 /// The company service is responsible for managing the companies
 #[derive(Clone)]
 pub struct CompanyService {
@@ -332,46 +339,14 @@ impl CompanyService {
         self.publish_contact(company, keys).await
     }
 
-    async fn create_identity_proof_block(
-        &self,
-        proof: SignedIdentityProof,
-        data: EmailIdentityProofData,
-        company: &Company,
-        identity_keys: &BcrKeys,
-        company_keys: &BcrKeys,
-        chain: &mut CompanyBlockchain,
-        reference_block: &Option<BlockId>,
-    ) -> Result<()> {
-        let new_block = CompanyBlock::create_block_for_identity_proof(
-            company.id.clone(),
-            chain.get_latest_block(),
-            &CompanyIdentityProofBlockData {
-                proof,
-                data,
-                reference_block: reference_block.to_owned(),
-            },
-            identity_keys,
-            company_keys,
-            Timestamp::now(),
-        )
-        .map_err(|e| Error::Protocol(e.into()))?;
-
-        self.validate_and_add_block(&company.id, chain, new_block.clone())
-            .await?;
-        self.populate_block(company, chain, company_keys, None)
-            .await?;
-
-        Ok(())
-    }
-
     /// If mandatory email confirmations are not disabled, check that there is a confirmed email and the
     /// given email is a confirmed one for the company signatory
-    async fn check_confirmed_email(
+    async fn check_email_confirmed(
         &self,
         node_id: &NodeId,
         company_id: &NodeId,
         email: &Email,
-    ) -> Result<(SignedIdentityProof, EmailIdentityProofData)> {
+    ) -> Result<PreparedEmailConfirmation> {
         if self.config.dev_mode_config.mandatory_email_confirmations {
             // Make sure there is a confirmed email
             let email_confirmations = self.store.get_email_confirmations(company_id).await?;
@@ -384,7 +359,11 @@ impl CompanyService {
             // Given email has to be a confirmed email
             for ec in email_confirmations.iter() {
                 if &ec.1.email == email {
-                    return Ok((ec.0.to_owned(), ec.1.to_owned()));
+                    return Ok(PreparedEmailConfirmation {
+                        proof: ec.0.to_owned(),
+                        data: ec.1.to_owned(),
+                        needs_persisting: false,
+                    });
                 }
             }
 
@@ -403,42 +382,12 @@ impl CompanyService {
                 created_at: Timestamp::now(),
             };
             let proof = self_signed_identity.sign(node_id, &identity_keys.get_private_key())?;
-            self.store
-                .set_email_confirmation(company_id, &proof, &self_signed_identity)
-                .await?;
 
-            Ok((proof, self_signed_identity))
-        }
-    }
-
-    async fn validate_and_add_identity_block(
-        &self,
-        chain: &mut IdentityBlockchain,
-        new_block: IdentityBlock,
-    ) -> Result<()> {
-        let try_add_block = chain.try_add_block(new_block.clone());
-        if try_add_block && chain.is_chain_valid() {
-            self.identity_blockchain_store.add_block(&new_block).await?;
-            Ok(())
-        } else {
-            Err(Error::Protocol(blockchain::Error::BlockchainInvalid.into()))
-        }
-    }
-
-    async fn validate_and_add_block(
-        &self,
-        company_id: &NodeId,
-        chain: &mut CompanyBlockchain,
-        new_block: CompanyBlock,
-    ) -> Result<()> {
-        let try_add_block = chain.try_add_block(new_block.clone());
-        if try_add_block && chain.is_chain_valid() {
-            self.company_blockchain_store
-                .add_block(company_id, &new_block)
-                .await?;
-            Ok(())
-        } else {
-            Err(Error::Protocol(blockchain::Error::BlockchainInvalid.into()))
+            Ok(PreparedEmailConfirmation {
+                proof,
+                data: self_signed_identity,
+                needs_persisting: true,
+            })
         }
     }
 }
@@ -609,12 +558,6 @@ impl CompanyServiceApi for CompanyService {
         debug!("creating company by creator {}", creator_email);
         let company_keys = self.store.get_key_pair(&id).await?;
 
-        // Register the company's identity with the transport layer before any file uploads,
-        // so that file metadata can be published with the correct signer.
-        self.transport_service
-            .add_identity(&id, &company_keys)
-            .await?;
-
         let full_identity = self.identity_store.get_full().await?;
         // company can only be created by identified identity
         if full_identity.identity.t == IdentityType::Anon {
@@ -623,9 +566,18 @@ impl CompanyServiceApi for CompanyService {
             ));
         }
 
-        // check if email is confirmed
-        let (proof, data) = self
-            .check_confirmed_email(&full_identity.identity.node_id, &id, &creator_email)
+        let PreparedEmailConfirmation {
+            proof,
+            data,
+            needs_persisting,
+        } = self
+            .check_email_confirmed(&full_identity.identity.node_id, &id, &creator_email)
+            .await?;
+
+        // Register the company's identity with the transport layer before any file uploads,
+        // so that file metadata can be published with the correct signer.
+        self.transport_service
+            .add_identity(&id, &company_keys)
             .await?;
 
         let proof_of_registration_file = self
@@ -674,8 +626,8 @@ impl CompanyServiceApi for CompanyService {
             creation_time: timestamp,
             status,
         };
-        self.store.insert(&company).await?;
 
+        // prepare & validate
         let mut company_chain = CompanyBlockchain::new(
             &CompanyCreateBlockData {
                 id: id.clone(),
@@ -696,7 +648,7 @@ impl CompanyServiceApi for CompanyService {
             timestamp,
         )
         .map_err(|e| Error::Protocol(e.into()))?;
-        let create_company_block = company_chain.get_first_block();
+        let create_company_block = company_chain.get_first_block().clone();
 
         let mut identity_chain = self.identity_blockchain_store.get_chain().await?;
         IdentityValidateActionData {
@@ -708,7 +660,7 @@ impl CompanyServiceApi for CompanyService {
         }
         .validate()?;
         let previous_block = identity_chain.get_latest_block();
-        let new_block = IdentityBlock::create_block_for_create_company(
+        let identity_block = IdentityBlock::create_block_for_create_company(
             previous_block,
             &IdentityCreateCompanyBlockData {
                 company_id: id.clone(),
@@ -720,23 +672,75 @@ impl CompanyServiceApi for CompanyService {
         )
         .map_err(|e| Error::Protocol(e.into()))?;
 
+        validate_and_append_identity_block(&mut identity_chain, identity_block.clone())?;
+
+        let reference_block = create_company_block.id();
+        CompanyValidateActionData {
+            blockchain: company_chain.clone(),
+            company_id: id.to_owned(),
+            signer_node_id: full_identity.identity.node_id.clone(),
+            op: CompanyOpCode::IdentityProof,
+            company_keys: company_keys.clone(),
+            invitee: None,
+            removee: None,
+            identity_proof_data: Some((proof.clone(), data.clone(), Some(reference_block))),
+        }
+        .validate()?;
+
+        // capture the chain after the create for the population of the create block
+        let company_chain_after_create = company_chain.clone();
+
+        // company identity proof block
+        let identity_proof_block = prepare_identity_proof_block(
+            proof.clone(),
+            data.clone(),
+            &company,
+            &full_identity.key_pair,
+            &company_keys,
+            &mut company_chain,
+            &Some(reference_block),
+        )?;
+
+        // persist - TODO (tx): make transactional
+
+        self.store.insert(&company).await?;
+
         self.company_blockchain_store
-            .add_block(&id, create_company_block)
+            .add_block(&id, &create_company_block)
             .await?;
 
-        self.populate_block(&company, &company_chain, &company_keys, None)
+        self.company_blockchain_store
+            .add_block(&id, &identity_proof_block)
             .await?;
 
-        self.validate_and_add_identity_block(&mut identity_chain, new_block.clone())
+        self.identity_blockchain_store
+            .add_block(&identity_block)
             .await?;
 
+        if needs_persisting {
+            self.store
+                .set_email_confirmation(&id, &proof, &data)
+                .await?;
+        }
+
+        // effects & propagation
+
+        // populate create block
+        self.populate_block(&company, &company_chain_after_create, &company_keys, None)
+            .await?;
+
+        // populate identity block
         self.transport_service
             .block_transport()
             .send_identity_chain_events(IdentityChainEvent::new(
                 &full_identity.identity.node_id,
-                &new_block,
+                &identity_block,
                 &full_identity.key_pair,
             ))
+            .await?;
+
+        // populate identity proof block
+        self.populate_block(&company, &company_chain, &company_keys, None)
             .await?;
 
         // publish our company contact to nostr
@@ -771,31 +775,9 @@ impl CompanyServiceApi for CompanyService {
             error!("Could not create contact for added company {id}: {e}");
         }
 
-        let reference_block = create_company_block.id();
-        CompanyValidateActionData {
-            blockchain: company_chain.clone(),
-            company_id: id.to_owned(),
-            signer_node_id: full_identity.identity.node_id.clone(),
-            op: CompanyOpCode::IdentityProof,
-            company_keys: company_keys.clone(),
-            invitee: None,
-            removee: None,
-            identity_proof_data: Some((proof.clone(), data.clone(), Some(reference_block))),
-        }
-        .validate()?;
-        // Create and populate company proof block
-        self.create_identity_proof_block(
-            proof,
-            data,
-            &company,
-            &full_identity.key_pair,
-            &company_keys,
-            &mut company_chain,
-            &Some(reference_block),
-        )
-        .await?;
-
         debug!("company with id {id} created");
+
+        // cleanup
 
         // clean up temporary file uploads, if there are any, logging any errors
         for upload_id in [proof_of_registration_file_upload_id, logo_file_upload_id]
@@ -981,7 +963,7 @@ impl CompanyServiceApi for CompanyService {
             return Ok(());
         }
 
-        self.store.update(id, &company).await?;
+        // prepare & validate
 
         let previous_block = company_chain.get_latest_block();
         let new_block = CompanyBlock::create_block_for_update(
@@ -1007,8 +989,17 @@ impl CompanyServiceApi for CompanyService {
             timestamp,
         )
         .map_err(|e| Error::Protocol(e.into()))?;
-        self.validate_and_add_block(id, &mut company_chain, new_block.clone())
+        validate_and_append_block(&mut company_chain, new_block.clone())?;
+
+        // persist - TODO (tx): make transactional
+        self.store.update(id, &company).await?;
+
+        self.company_blockchain_store
+            .add_block(id, &new_block)
             .await?;
+
+        // effects & propagation
+
         self.populate_block(&company, &company_chain, &company_keys, None)
             .await?;
 
@@ -1017,6 +1008,8 @@ impl CompanyServiceApi for CompanyService {
             .await?;
 
         debug!("company with id {id} updated");
+
+        // cleanup
 
         // clean up temporary file uploads, if there are any, logging any errors
         for upload_id in [proof_of_registration_file_upload_id, logo_file_upload_id]
@@ -1066,6 +1059,8 @@ impl CompanyServiceApi for CompanyService {
 
         let mut company = self.store.get(id).await?;
         let company_keys = self.store.get_key_pair(id).await?;
+
+        // prepare & validate
         let mut company_chain = self.company_blockchain_store.get_chain(id).await?;
         CompanyValidateActionData {
             blockchain: company_chain.clone(),
@@ -1111,8 +1106,6 @@ impl CompanyServiceApi for CompanyService {
             });
         }
 
-        self.store.update(id, &company).await?;
-
         let previous_block = company_chain.get_latest_block();
         let new_block = CompanyBlock::create_block_for_invite_signatory(
             id.to_owned(),
@@ -1128,6 +1121,7 @@ impl CompanyServiceApi for CompanyService {
             timestamp,
         )
         .map_err(|e| Error::Protocol(e.into()))?;
+        validate_and_append_block(&mut company_chain, new_block.clone())?;
 
         let mut identity_chain = self.identity_blockchain_store.get_chain().await?;
         IdentityValidateActionData {
@@ -1151,8 +1145,22 @@ impl CompanyServiceApi for CompanyService {
             timestamp,
         )
         .map_err(|e| Error::Protocol(e.into()))?;
-        self.validate_and_add_block(id, &mut company_chain, new_block.clone())
+        validate_and_append_identity_block(&mut identity_chain, new_identity_block.clone())?;
+
+        // persist - TODO (tx): make transactional
+
+        self.store.update(id, &company).await?;
+
+        self.company_blockchain_store
+            .add_block(id, &new_block)
             .await?;
+
+        self.identity_blockchain_store
+            .add_block(&new_identity_block)
+            .await?;
+
+        // effects & propagation
+
         self.populate_block(
             &company,
             &company_chain,
@@ -1161,8 +1169,6 @@ impl CompanyServiceApi for CompanyService {
         )
         .await?;
 
-        self.validate_and_add_identity_block(&mut identity_chain, new_identity_block.clone())
-            .await?;
         self.transport_service
             .block_transport()
             .send_identity_chain_events(IdentityChainEvent::new(
@@ -1205,6 +1211,8 @@ impl CompanyServiceApi for CompanyService {
         }
         let mut company = self.store.get(id).await?;
         let company_keys = self.store.get_key_pair(id).await?;
+
+        // prepare & validate
         let mut company_chain = self.company_blockchain_store.get_chain(id).await?;
         CompanyValidateActionData {
             blockchain: company_chain.clone(),
@@ -1238,8 +1246,6 @@ impl CompanyServiceApi for CompanyService {
             company.status = CompanyStatus::None;
         }
 
-        self.store.update(id, &company).await?;
-
         let previous_block = company_chain.get_latest_block();
         let new_block = CompanyBlock::create_block_for_remove_signatory(
             id.to_owned(),
@@ -1253,6 +1259,7 @@ impl CompanyServiceApi for CompanyService {
             timestamp,
         )
         .map_err(|e| Error::Protocol(e.into()))?;
+        validate_and_append_block(&mut company_chain, new_block.clone())?;
 
         let mut identity_chain = self.identity_blockchain_store.get_chain().await?;
         IdentityValidateActionData {
@@ -1276,14 +1283,24 @@ impl CompanyServiceApi for CompanyService {
             timestamp,
         )
         .map_err(|e| Error::Protocol(e.into()))?;
+        validate_and_append_identity_block(&mut identity_chain, new_identity_block.clone())?;
 
-        self.validate_and_add_block(id, &mut company_chain, new_block.clone())
+        // persist - TODO (tx): make transactional
+
+        self.store.update(id, &company).await?;
+
+        self.company_blockchain_store
+            .add_block(id, &new_block)
             .await?;
+
+        self.identity_blockchain_store
+            .add_block(&new_identity_block)
+            .await?;
+
+        // effects & propagation
         self.populate_block(&company, &company_chain, &company_keys, None)
             .await?;
 
-        self.validate_and_add_identity_block(&mut identity_chain, new_identity_block.clone())
-            .await?;
         self.transport_service
             .block_transport()
             .send_identity_chain_events(IdentityChainEvent::new(
@@ -1467,13 +1484,16 @@ impl CompanyServiceApi for CompanyService {
             ));
         }
 
-        // check if email is confirmed
-        let (proof, data) = self
-            .check_confirmed_email(&identity.identity.node_id, id, email)
+        let PreparedEmailConfirmation {
+            proof,
+            data,
+            needs_persisting,
+        } = self
+            .check_email_confirmed(&identity.identity.node_id, id, email)
             .await?;
 
         // update signatories list in the DB
-        self.store.update(id, &company).await?;
+        // prepare & validate
         let mut company_chain = self.company_blockchain_store.get_chain(id).await?;
         CompanyValidateActionData {
             blockchain: company_chain.clone(),
@@ -1487,16 +1507,32 @@ impl CompanyServiceApi for CompanyService {
         }
         .validate()?;
         // Create and populate company proof block
-        self.create_identity_proof_block(
-            proof,
-            data,
+        let identity_proof_block = prepare_identity_proof_block(
+            proof.clone(),
+            data.clone(),
             &company,
             &identity.key_pair,
             &company_keys,
             &mut company_chain,
             &None, // no reference block, just updating signatory email
-        )
-        .await?;
+        )?;
+
+        // persist - TODO (tx): make transactional
+
+        self.store.update(id, &company).await?;
+
+        self.company_blockchain_store
+            .add_block(id, &identity_proof_block)
+            .await?;
+
+        if needs_persisting {
+            self.store.set_email_confirmation(id, &proof, &data).await?;
+        }
+
+        // effects & propagation
+
+        self.populate_block(&company, &company_chain, &company_keys, None)
+            .await?;
 
         debug!("updated signatory email");
         Ok(())
@@ -1604,6 +1640,8 @@ impl CompanyServiceApi for CompanyService {
             ));
         }
         let our_node_id = full_identity.identity.node_id.clone();
+
+        // prepare & validate
         let mut company_chain = self.company_blockchain_store.get_chain(id).await?;
         let mut company = self.store.get(id).await?;
         let company_keys = self.store.get_key_pair(id).await?;
@@ -1630,8 +1668,11 @@ impl CompanyServiceApi for CompanyService {
             ));
         };
 
-        // check if email is confirmed
-        let (proof, data) = self.check_confirmed_email(&our_node_id, id, email).await?;
+        let PreparedEmailConfirmation {
+            proof,
+            data,
+            needs_persisting,
+        } = self.check_email_confirmed(&our_node_id, id, email).await?;
 
         signatory.status = CompanySignatoryStatus::InviteAcceptedIdentityProven {
             ts: timestamp,
@@ -1639,45 +1680,6 @@ impl CompanyServiceApi for CompanyService {
             data: data.clone(),
         }; // invite accepted and identity proven
         company.status = CompanyStatus::Active; // we're now active in the company
-        // update signatories list in the DB
-        self.store.update(id, &company).await?;
-
-        // Ensure the company identity is registered with the transport layer before
-        // broadcasting chain events, in case it was lost (e.g. after restart).
-        self.transport_service
-            .add_identity(id, &company_keys)
-            .await?;
-
-        // Ensure all company signatories and the company itself are in our nostr contacts
-        // so that we can receive and decrypt messages from them.
-        for signatory in company.signatories.iter() {
-            if signatory.node_id != our_node_id {
-                self.transport_service
-                    .contact_transport()
-                    .ensure_nostr_contact(&signatory.node_id)
-                    .await;
-            }
-        }
-        self.transport_service
-            .contact_transport()
-            .ensure_nostr_contact(id)
-            .await;
-
-        // Process any historical bill invites that were sent to this company
-        // before we joined, so we can construct those bills in our store.
-        let transport = self.transport_service.clone();
-        let company_id = id.clone();
-        tokio::spawn(async move {
-            if let Err(e) = transport
-                .process_company_historical_bill_invites(&company_id)
-                .await
-            {
-                error!(
-                    "Failed to process historical bill invites for company {}: {}",
-                    company_id, e
-                );
-            }
-        });
 
         // company block
         let previous_block = company_chain.get_latest_block();
@@ -1692,6 +1694,9 @@ impl CompanyServiceApi for CompanyService {
             timestamp,
         )
         .map_err(|e| Error::Protocol(e.into()))?;
+
+        validate_and_append_block(&mut company_chain, new_block.clone())?;
+        let company_chain_after_accept = company_chain.clone();
 
         // identity block
         let mut identity_chain = self.identity_blockchain_store.get_chain().await?;
@@ -1715,22 +1720,7 @@ impl CompanyServiceApi for CompanyService {
             timestamp,
         )
         .map_err(|e| Error::Protocol(e.into()))?;
-
-        self.validate_and_add_block(id, &mut company_chain, new_block.clone())
-            .await?;
-        self.populate_block(&company, &company_chain, &company_keys, None)
-            .await?;
-
-        self.validate_and_add_identity_block(&mut identity_chain, new_identity_block.clone())
-            .await?;
-        self.transport_service
-            .block_transport()
-            .send_identity_chain_events(IdentityChainEvent::new(
-                &our_node_id,
-                &new_identity_block,
-                &full_identity.key_pair,
-            ))
-            .await?;
+        validate_and_append_identity_block(&mut identity_chain, new_identity_block.clone())?;
 
         let reference_block = new_block.id();
         CompanyValidateActionData {
@@ -1744,17 +1734,93 @@ impl CompanyServiceApi for CompanyService {
             identity_proof_data: Some((proof.clone(), data.clone(), Some(reference_block))),
         }
         .validate()?;
-        // Create and populate company proof block
-        self.create_identity_proof_block(
-            proof,
-            data,
+
+        // company identity proof block
+        let identity_proof_block = prepare_identity_proof_block(
+            proof.clone(),
+            data.clone(),
             &company,
             &full_identity.key_pair,
             &company_keys,
             &mut company_chain,
             &Some(reference_block),
-        )
-        .await?;
+        )?;
+
+        // persist - TODO (tx): make transactional
+        self.store.update(id, &company).await?;
+
+        self.company_blockchain_store
+            .add_block(id, &new_block)
+            .await?;
+
+        self.company_blockchain_store
+            .add_block(id, &identity_proof_block)
+            .await?;
+
+        self.identity_blockchain_store
+            .add_block(&new_identity_block)
+            .await?;
+
+        if needs_persisting {
+            self.store.set_email_confirmation(id, &proof, &data).await?;
+        }
+
+        // effects & propagation
+
+        // Ensure the company identity is registered with the transport layer before
+        // broadcasting chain events, in case it was lost (e.g. after restart).
+        self.transport_service
+            .add_identity(id, &company_keys)
+            .await?;
+
+        // Ensure all company signatories and the company itself are in our nostr contacts
+        // so that we can receive and decrypt messages from them.
+        for signatory in company.signatories.iter() {
+            if signatory.node_id != our_node_id {
+                self.transport_service
+                    .contact_transport()
+                    .ensure_nostr_contact(&signatory.node_id)
+                    .await;
+            }
+        }
+        self.transport_service
+            .contact_transport()
+            .ensure_nostr_contact(id)
+            .await;
+
+        // populate accept block
+        self.populate_block(&company, &company_chain_after_accept, &company_keys, None)
+            .await?;
+
+        // populate identity block
+        self.transport_service
+            .block_transport()
+            .send_identity_chain_events(IdentityChainEvent::new(
+                &our_node_id,
+                &new_identity_block,
+                &full_identity.key_pair,
+            ))
+            .await?;
+
+        // populate identity proof block
+        self.populate_block(&company, &company_chain, &company_keys, None)
+            .await?;
+
+        // Process any historical bill invites that were sent to this company
+        // before we joined, so we can construct those bills in our store.
+        let transport = self.transport_service.clone();
+        let company_id = id.clone();
+        tokio::spawn(async move {
+            if let Err(e) = transport
+                .process_company_historical_bill_invites(&company_id)
+                .await
+            {
+                error!(
+                    "Failed to process historical bill invites for company {}: {}",
+                    company_id, e
+                );
+            }
+        });
 
         debug!("accepted invite to company with id: {id}");
         Ok(())
@@ -1775,9 +1841,12 @@ impl CompanyServiceApi for CompanyService {
             ));
         }
         let our_node_id = full_identity.identity.node_id.clone();
-        let mut company_chain = self.company_blockchain_store.get_chain(id).await?;
+
+        // prepare & validate
         let mut company = self.store.get(id).await?;
         let company_keys = self.store.get_key_pair(id).await?;
+
+        let mut company_chain = self.company_blockchain_store.get_chain(id).await?;
         CompanyValidateActionData {
             blockchain: company_chain.clone(),
             company_id: id.to_owned(),
@@ -1802,8 +1871,6 @@ impl CompanyServiceApi for CompanyService {
 
         signatory.status = CompanySignatoryStatus::InviteRejected { ts: timestamp }; // invite rejected
         company.status = CompanyStatus::None; // not interested in the company anymore
-        // update signatories list in the DB
-        self.store.update(id, &company).await?;
 
         // company block
         let previous_block = company_chain.get_latest_block();
@@ -1818,6 +1885,7 @@ impl CompanyServiceApi for CompanyService {
             timestamp,
         )
         .map_err(|e| Error::Protocol(e.into()))?;
+        validate_and_append_block(&mut company_chain, new_block.clone())?;
 
         // identity block
         let mut identity_chain = self.identity_blockchain_store.get_chain().await?;
@@ -1841,14 +1909,23 @@ impl CompanyServiceApi for CompanyService {
             timestamp,
         )
         .map_err(|e| Error::Protocol(e.into()))?;
+        validate_and_append_identity_block(&mut identity_chain, new_identity_block.clone())?;
 
-        self.validate_and_add_block(id, &mut company_chain, new_block.clone())
+        // persist - TODO (tx): make transactional
+        self.store.update(id, &company).await?;
+
+        self.company_blockchain_store
+            .add_block(id, &new_block)
             .await?;
+
+        self.identity_blockchain_store
+            .add_block(&new_identity_block)
+            .await?;
+
+        // effects & propagation
         self.populate_block(&company, &company_chain, &company_keys, None)
             .await?;
 
-        self.validate_and_add_identity_block(&mut identity_chain, new_identity_block.clone())
-            .await?;
         self.transport_service
             .block_transport()
             .send_identity_chain_events(IdentityChainEvent::new(
@@ -1926,6 +2003,54 @@ impl CompanyServiceApi for CompanyService {
         });
         Ok(())
     }
+}
+
+fn validate_and_append_identity_block(
+    chain: &mut IdentityBlockchain,
+    new_block: IdentityBlock,
+) -> Result<()> {
+    let try_add_block = chain.try_add_block(new_block);
+    if try_add_block && chain.is_chain_valid() {
+        Ok(())
+    } else {
+        Err(Error::Protocol(blockchain::Error::BlockchainInvalid.into()))
+    }
+}
+
+fn validate_and_append_block(chain: &mut CompanyBlockchain, new_block: CompanyBlock) -> Result<()> {
+    let try_add_block = chain.try_add_block(new_block);
+    if try_add_block && chain.is_chain_valid() {
+        Ok(())
+    } else {
+        Err(Error::Protocol(blockchain::Error::BlockchainInvalid.into()))
+    }
+}
+
+// create the block, validate it and add it to the chain
+fn prepare_identity_proof_block(
+    proof: SignedIdentityProof,
+    data: EmailIdentityProofData,
+    company: &Company,
+    identity_keys: &BcrKeys,
+    company_keys: &BcrKeys,
+    chain: &mut CompanyBlockchain,
+    reference_block: &Option<BlockId>,
+) -> Result<CompanyBlock> {
+    let new_block = CompanyBlock::create_block_for_identity_proof(
+        company.id.clone(),
+        chain.get_latest_block(),
+        &CompanyIdentityProofBlockData {
+            proof,
+            data,
+            reference_block: reference_block.to_owned(),
+        },
+        identity_keys,
+        company_keys,
+        Timestamp::now(),
+    )
+    .map_err(|e| Error::Protocol(e.into()))?;
+    validate_and_append_block(chain, new_block.clone())?;
+    Ok(new_block)
 }
 
 #[cfg(test)]
@@ -2616,7 +2741,7 @@ pub mod tests {
             file_reference_store,
             mut identity_store,
             contact_store,
-            identity_chain_store,
+            mut identity_chain_store,
             company_chain_store,
             mut notification,
             nostr_contact_store,
@@ -2627,6 +2752,9 @@ pub mod tests {
         storage
             .expect_get_key_pair()
             .returning(|_| Ok(get_baseline_company_data().1.1));
+        identity_chain_store
+            .expect_get_chain()
+            .returning(|| Ok(get_valid_identity_chain()));
         storage.expect_insert().returning(|_| {
             Err(bcr_ebill_persistence::Error::Io(std::io::Error::other(
                 "test error",
