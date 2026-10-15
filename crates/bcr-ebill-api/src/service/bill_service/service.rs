@@ -849,7 +849,7 @@ impl BillServiceApi for BillService {
         let mut result = vec![];
 
         let filter_set: HashSet<NodeId> = participants.iter().cloned().collect();
-        // for now we do the search here - with the quick-fetch table, we can search in surrealDB
+        // for now we do the search here - with the quick-fetch table, we can search in the DB
         // directly
         for bill in bills {
             // if the bill wasn't issued between from and to, we kick them out

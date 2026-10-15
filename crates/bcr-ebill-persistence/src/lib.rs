@@ -1,7 +1,5 @@
 #![recursion_limit = "256"]
 pub mod constants;
-#[cfg(any(feature = "surrealkv", feature = "protocol-ws"))]
-pub mod db;
 pub mod file_upload;
 #[cfg(test)]
 mod tests;
@@ -30,9 +28,6 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Error {
     #[error("io error {0}")]
     Io(#[from] std::io::Error),
-
-    #[error("SurrealDB error {0}")]
-    SurrealConnection(String),
 
     #[error("Failed to insert into database: {0}")]
     InsertFailed(String),
@@ -78,13 +73,6 @@ pub enum Error {
 
     #[error("Base58 decoding Error: {0}")]
     Base58(#[from] base58::InvalidCharacterError),
-}
-
-#[cfg(any(feature = "surrealkv", feature = "protocol-ws"))]
-impl From<surrealdb::Error> for Error {
-    fn from(e: surrealdb::Error) -> Self {
-        Error::SurrealConnection(format!("SurrealDB connection error: {e}"))
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -152,26 +140,9 @@ pub async fn get_postgres_db(config: &DbConfig) -> Result<postgres::PostgresPers
     Ok(db)
 }
 
-#[cfg(any(feature = "surrealkv", feature = "protocol-ws"))]
-pub use db::file_reference::SurrealFileReferenceStore;
-#[cfg(any(feature = "surrealkv", feature = "protocol-ws"))]
-pub use db::file_upload::FileUploadStore;
-#[cfg(any(feature = "surrealkv", feature = "protocol-ws"))]
-pub use db::get_surreal_db;
-#[cfg(any(feature = "surrealkv", feature = "protocol-ws"))]
-pub use db::{
-    SurrealDbConfig, bill::SurrealBillStore, bill_chain::SurrealBillChainStore,
-    company::SurrealCompanyStore, company_chain::SurrealCompanyChainStore,
-    contact::SurrealContactStore, identity::SurrealIdentityStore,
-    identity_chain::SurrealIdentityChainStore, nostr_chain_event::SurrealNostrChainEventStore,
-    nostr_contact_store::SurrealNostrStore, nostr_event_offset::SurrealNostrEventOffsetStore,
-    notification::SurrealNotificationStore,
-};
 pub use traits::contact::ContactStoreApi;
 pub use traits::file_reference::FileReferenceStoreApi;
 // Backwards compatibility alias
-#[cfg(any(feature = "surrealkv", feature = "protocol-ws"))]
-pub use db::nostr_contact_store::SurrealNostrStore as SurrealNostrContactStore;
 pub use traits::nostr::{
     NostrChainEventStoreApi, NostrEventOffset, NostrEventOffsetStoreApi,
     NostrQueuedMessageStoreApi, NostrStoreApi, PendingContactShare, RelaySyncRetry,

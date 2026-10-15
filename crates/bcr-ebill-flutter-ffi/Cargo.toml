@@ -22,9 +22,7 @@ bip39 = {workspace = true}
 bitcoin.workspace = true
 env_logger = {version = "0.11"}
 flutter_rust_bridge = { version = "=2.13.0", default-features = false, features = ["anyhow", "dart-opaque", "portable-atomic", "rust-async", "thread-pool", "user-utils", "wasm-start"] }
-# Not used directly: libc 0.2.190 made the dyld image functions macOS-only,
-# breaking backtrace (via flutter_rust_bridge) on iOS. Drop once
-# rust-lang/libc#5601 is fixed in a release.
+# Not used directly: libc 0.2.190 made the dyld image functions macOS-only
 libc = "=0.2.189"
 log = {workspace = true}
 nostr.workspace = true

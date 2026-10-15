@@ -2,10 +2,6 @@
 use anyhow::{Result, anyhow};
 use bcr_common::core::NodeId;
 use bcr_ebill_core::protocol::crypto::BcrKeys;
-#[cfg(all(not(feature = "sqlite"), not(feature = "postgres")))]
-use bcr_ebill_persistence::db::surreal::SurrealWrapper;
-#[cfg(all(not(feature = "sqlite"), not(feature = "postgres")))]
-use bcr_ebill_persistence::get_surreal_db;
 use bcr_ebill_persistence::{
     ContactStoreApi, FileReferenceStoreApi, NostrChainEventStoreApi, NostrContactStoreApi,
     NostrEventOffsetStoreApi, NotificationStoreApi,
@@ -167,14 +163,6 @@ pub async fn get_db_context(
 ) -> bcr_ebill_persistence::Result<DbContext> {
     let encryption_context = Arc::new(EncryptionContext::new(encryption_keys.to_owned()));
 
-    #[cfg(all(not(feature = "sqlite"), not(feature = "postgres")))]
-    let db = get_surreal_db(&conf.db_config).await?;
-    #[cfg(all(not(feature = "sqlite"), not(feature = "postgres")))]
-    let surreal_wrapper = SurrealWrapper {
-        db: db.clone(),
-        files: false,
-    };
-
     #[cfg(feature = "sqlite")]
     let database = bcr_ebill_persistence::get_sqlite_db(&conf.db_conf).await?;
 
@@ -184,11 +172,6 @@ pub async fn get_db_context(
     #[cfg(any(feature = "sqlite", feature = "postgres"))]
     let company_store: Arc<dyn CompanyStoreApi> =
         { Arc::new(database.company_store(encryption_context.clone())) };
-
-    #[cfg(all(not(feature = "sqlite"), not(feature = "postgres")))]
-    let company_store = Arc::new(
-        bcr_ebill_persistence::db::company::SurrealCompanyStore::new(surreal_wrapper.clone()),
-    );
 
     let file_upload_store = Arc::new(bcr_ebill_persistence::file_upload::FileUploadStore::new(
         conf.db_conf.temp_files_path.clone(),
@@ -201,143 +184,55 @@ pub async fn get_db_context(
     #[cfg(any(feature = "sqlite", feature = "postgres"))]
     let contact_store: Arc<dyn ContactStoreApi> = { Arc::new(database.contact_store()) };
 
-    #[cfg(all(not(feature = "sqlite"), not(feature = "postgres")))]
-    let contact_store: Arc<dyn ContactStoreApi> = Arc::new(
-        bcr_ebill_persistence::SurrealContactStore::new(surreal_wrapper.clone()),
-    );
-
     #[cfg(any(feature = "sqlite", feature = "postgres"))]
     let bill_store: Arc<dyn BillStoreApi> =
         Arc::new(database.bill_store(encryption_context.clone()));
 
-    #[cfg(not(any(feature = "sqlite", feature = "postgres")))]
-    let bill_store = Arc::new(bcr_ebill_persistence::db::bill::SurrealBillStore::new(
-        surreal_wrapper.clone(),
-    ));
-
     #[cfg(any(feature = "sqlite", feature = "postgres"))]
     let bill_blockchain_store: Arc<dyn BillChainStoreApi> = Arc::new(database.bill_chain_store());
-
-    #[cfg(not(any(feature = "sqlite", feature = "postgres")))]
-    let bill_blockchain_store = Arc::new(
-        bcr_ebill_persistence::db::bill_chain::SurrealBillChainStore::new(surreal_wrapper.clone()),
-    );
 
     #[cfg(any(feature = "sqlite", feature = "postgres"))]
     let identity_store: Arc<dyn IdentityStoreApi> =
         Arc::new(database.identity_store(encryption_context.clone()));
 
-    #[cfg(not(any(feature = "sqlite", feature = "postgres")))]
-    let identity_store = Arc::new(
-        bcr_ebill_persistence::db::identity::SurrealIdentityStore::new(surreal_wrapper.clone()),
-    );
-
     #[cfg(any(feature = "sqlite", feature = "postgres"))]
     let identity_chain_store: Arc<dyn IdentityChainStoreApi> =
         Arc::new(database.identity_chain_store());
-
-    #[cfg(not(any(feature = "sqlite", feature = "postgres")))]
-    let identity_chain_store = Arc::new(
-        bcr_ebill_persistence::db::identity_chain::SurrealIdentityChainStore::new(
-            surreal_wrapper.clone(),
-        ),
-    );
 
     #[cfg(any(feature = "sqlite", feature = "postgres"))]
     let company_chain_store: Arc<dyn CompanyChainStoreApi> =
         Arc::new(database.company_chain_store());
 
-    #[cfg(not(any(feature = "sqlite", feature = "postgres")))]
-    let company_chain_store = Arc::new(
-        bcr_ebill_persistence::db::company_chain::SurrealCompanyChainStore::new(
-            surreal_wrapper.clone(),
-        ),
-    );
-
     #[cfg(any(feature = "sqlite", feature = "postgres"))]
     let nostr_event_offset_store: Arc<dyn NostrEventOffsetStoreApi> =
         Arc::new(database.nostr_event_offset_store());
 
-    #[cfg(not(any(feature = "sqlite", feature = "postgres")))]
-    let nostr_event_offset_store = Arc::new(
-        bcr_ebill_persistence::db::nostr_event_offset::SurrealNostrEventOffsetStore::new(
-            surreal_wrapper.clone(),
-        ),
-    );
-
     #[cfg(any(feature = "sqlite", feature = "postgres"))]
     let notification_store: Arc<dyn NotificationStoreApi> = Arc::new(database.notification_store());
-
-    #[cfg(not(any(feature = "sqlite", feature = "postgres")))]
-    let notification_store = Arc::new(
-        bcr_ebill_persistence::db::notification::SurrealNotificationStore::new(
-            surreal_wrapper.clone(),
-        ),
-    );
 
     #[cfg(any(feature = "sqlite", feature = "postgres"))]
     let email_notification_store: Arc<dyn EmailNotificationStoreApi> =
         { Arc::new(database.email_notification_store()) };
 
-    #[cfg(all(not(feature = "sqlite"), not(feature = "postgres")))]
-    let email_notification_store = Arc::new(
-        bcr_ebill_persistence::db::email_notification::SurrealEmailNotificationStore::new(
-            surreal_wrapper.clone(),
-        ),
-    );
-
     #[cfg(any(feature = "sqlite", feature = "postgres"))]
     let mint_store: Arc<dyn MintStoreApi> =
         Arc::new(database.mint_store(encryption_context.clone()));
-
-    #[cfg(not(any(feature = "sqlite", feature = "postgres")))]
-    let mint_store: Arc<dyn MintStoreApi> = Arc::new(
-        bcr_ebill_persistence::db::mint::SurrealMintStore::new(surreal_wrapper.clone()),
-    );
 
     #[cfg(any(feature = "sqlite", feature = "postgres"))]
     let queued_message_store: Arc<dyn NostrQueuedMessageStoreApi> =
         Arc::new(database.nostr_event_queue_store(encryption_context.clone()));
 
-    #[cfg(not(any(feature = "sqlite", feature = "postgres")))]
-    let queued_message_store = Arc::new(
-        bcr_ebill_persistence::db::nostr_send_queue::SurrealNostrEventQueueStore::new(
-            surreal_wrapper.clone(),
-        ),
-    );
-
     #[cfg(any(feature = "sqlite", feature = "postgres"))]
     let nostr_contact_store: Arc<dyn NostrContactStoreApi> =
         Arc::new(database.nostr_contact_store(encryption_context.clone()));
-
-    #[cfg(not(any(feature = "sqlite", feature = "postgres")))]
-    let nostr_contact_store = Arc::new(
-        bcr_ebill_persistence::db::nostr_contact_store::SurrealNostrContactStore::new(
-            surreal_wrapper.clone(),
-        ),
-    );
 
     #[cfg(any(feature = "sqlite", feature = "postgres"))]
     let nostr_chain_event_store: Arc<dyn NostrChainEventStoreApi> =
         Arc::new(database.nostr_chain_event_store());
 
-    #[cfg(not(any(feature = "sqlite", feature = "postgres")))]
-    let nostr_chain_event_store = Arc::new(
-        bcr_ebill_persistence::db::nostr_chain_event::SurrealNostrChainEventStore::new(
-            surreal_wrapper.clone(),
-        ),
-    );
-
     #[cfg(any(feature = "sqlite", feature = "postgres"))]
     let file_reference_store: Arc<dyn FileReferenceStoreApi> =
         Arc::new(database.file_reference_store());
-
-    #[cfg(not(any(feature = "sqlite", feature = "postgres")))]
-    let file_reference_store = Arc::new(
-        bcr_ebill_persistence::db::file_reference::SurrealFileReferenceStore::new(
-            surreal_wrapper.clone(),
-        ),
-    );
 
     Ok(DbContext {
         contact_store,
