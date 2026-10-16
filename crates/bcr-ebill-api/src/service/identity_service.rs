@@ -270,51 +270,14 @@ impl IdentityService {
         self.publish_contact(identity, keys).await
     }
 
-    async fn validate_and_add_block(
-        &self,
-        chain: &mut IdentityBlockchain,
-        new_block: IdentityBlock,
-    ) -> Result<()> {
-        let try_add_block = chain.try_add_block(new_block.clone());
-        if try_add_block && chain.is_chain_valid() {
-            self.blockchain_store.add_block(&new_block).await?;
-            Ok(())
-        } else {
-            Err(Error::Protocol(blockchain::Error::BlockchainInvalid.into()))
-        }
-    }
-
-    async fn create_identity_proof_block(
-        &self,
-        proof: SignedIdentityProof,
-        data: EmailIdentityProofData,
-        identity: &Identity,
-        keys: &BcrKeys,
-        chain: &mut IdentityBlockchain,
-    ) -> Result<()> {
-        let new_block = IdentityBlock::create_block_for_identity_proof(
-            chain.get_latest_block(),
-            &IdentityProofBlockData { proof, data },
-            keys,
-            Timestamp::now(),
-        )
-        .map_err(|e| Error::Protocol(e.into()))?;
-
-        self.validate_and_add_block(chain, new_block.clone())
-            .await?;
-        self.populate_block(identity, &new_block, keys).await?;
-
-        Ok(())
-    }
-
     /// If mandatory email confirmations are not disabled, check that there is a confirmed email and the
     /// given email is a confirmed one for the identity
-    async fn check_confirmed_email(
+    async fn check_email_confirmed(
         &self,
         email: &Option<Email>,
         t: &IdentityType,
         node_id: &NodeId,
-    ) -> Result<Option<(SignedIdentityProof, EmailIdentityProofData)>> {
+    ) -> Result<Option<PreparedEmailConfirmation>> {
         match t {
             IdentityType::Ident => {
                 // Email has to be checked before
@@ -334,7 +297,11 @@ impl IdentityService {
                     // Given email has to be a confirmed email
                     for ec in email_confirmations.iter() {
                         if &ec.1.email == em {
-                            return Ok(Some((ec.0.to_owned(), ec.1.to_owned())));
+                            return Ok(Some(PreparedEmailConfirmation {
+                                proof: ec.0.to_owned(),
+                                data: ec.1.to_owned(),
+                                needs_persisting: false,
+                            }));
                         }
                     }
 
@@ -353,11 +320,12 @@ impl IdentityService {
                         created_at: Timestamp::now(),
                     };
                     let proof = self_signed_identity.sign(node_id, &keys.get_private_key())?;
-                    self.store
-                        .set_email_confirmation(&proof, &self_signed_identity)
-                        .await?;
 
-                    Ok(Some((proof, self_signed_identity)))
+                    Ok(Some(PreparedEmailConfirmation {
+                        proof,
+                        data: self_signed_identity,
+                        needs_persisting: true,
+                    }))
                 }
             }
             IdentityType::Anon => Ok(None),
@@ -383,6 +351,13 @@ fn get_bcr_data(
     Ok(BcrMetadata {
         contact_data: encrypted,
     })
+}
+
+#[derive(Debug, Clone)]
+struct PreparedEmailConfirmation {
+    proof: SignedIdentityProof,
+    data: EmailIdentityProofData,
+    needs_persisting: bool,
 }
 
 impl ServiceTraitBounds for IdentityService {}
@@ -524,6 +499,8 @@ impl IdentityServiceApi for IdentityService {
             }
         }
 
+        // prepare & validate
+
         let mut identity_chain = self.blockchain_store.get_chain().await?;
         IdentityValidateActionData {
             blockchain: identity_chain.clone(),
@@ -555,10 +532,15 @@ impl IdentityServiceApi for IdentityService {
         let new_block =
             IdentityBlock::create_block_for_update(previous_block, &block_data, &keys, timestamp)
                 .map_err(|e| Error::Protocol(e.into()))?;
-        self.validate_and_add_block(&mut identity_chain, new_block.clone())
-            .await?;
+        validate_and_append_block(&mut identity_chain, new_block.clone())?;
 
+        // persist - TODO (tx): make transactional
+
+        self.blockchain_store.add_block(&new_block).await?;
         self.store.save(&identity).await?;
+
+        // effects & propagation
+
         self.populate_block(&identity, &new_block, &keys).await?;
         self.on_identity_contact_change(&identity, &keys).await?;
         debug!("updated identity");
@@ -584,12 +566,15 @@ impl IdentityServiceApi for IdentityService {
             ));
         }
 
-        // check if email is confirmed
+        // prepare & validate
+
         let email_confirmation = self
-            .check_confirmed_email(&Some(email.to_owned()), &identity.t, &identity.node_id)
+            .check_email_confirmed(&Some(email.to_owned()), &identity.t, &identity.node_id)
             .await?;
 
         let mut identity_chain = self.blockchain_store.get_chain().await?;
+        let mut blocks = Vec::new();
+
         IdentityValidateActionData {
             blockchain: identity_chain.clone(),
             id: identity.node_id.clone(),
@@ -615,29 +600,54 @@ impl IdentityServiceApi for IdentityService {
             identity_document_file: EditOptionalFieldMode::Ignore,
         };
         block_data.validate()?;
-        let new_block =
+        let update_block =
             IdentityBlock::create_block_for_update(previous_block, &block_data, &keys, timestamp)
                 .map_err(|e| Error::Protocol(e.into()))?;
-        self.validate_and_add_block(&mut identity_chain, new_block.clone())
-            .await?;
+        validate_and_append_block(&mut identity_chain, update_block.clone())?;
 
-        self.store.save(&identity).await?;
-        self.populate_block(&identity, &new_block, &keys).await?;
-        self.on_identity_contact_change(&identity, &keys).await?;
+        blocks.push(update_block);
 
-        // Create and populate identity proof block
-        if let Some((proof, data)) = email_confirmation {
+        // identity proof block
+        if let Some(ref confirmation) = email_confirmation {
             IdentityValidateActionData {
                 blockchain: identity_chain.clone(),
                 id: identity.node_id.clone(),
                 op: IdentityOpCode::IdentityProof,
                 keys: keys.clone(),
-                identity_proof_data: Some((proof.clone(), data.clone())),
+                identity_proof_data: Some((confirmation.proof.clone(), confirmation.data.clone())),
             }
             .validate()?;
-            self.create_identity_proof_block(proof, data, &identity, &keys, &mut identity_chain)
+            let identity_proof_block = prepare_identity_proof_block(
+                confirmation.proof.to_owned(),
+                confirmation.data.to_owned(),
+                &keys,
+                &mut identity_chain,
+            )?;
+            blocks.push(identity_proof_block);
+        }
+
+        // persist - TODO (tx): make transactional
+
+        for block in &blocks {
+            self.blockchain_store.add_block(block).await?;
+        }
+        self.store.save(&identity).await?;
+
+        if let Some(confirmation) = &email_confirmation
+            && confirmation.needs_persisting
+        {
+            self.store
+                .set_email_confirmation(&confirmation.proof, &confirmation.data)
                 .await?;
         }
+
+        // effects & propagation
+
+        for block in &blocks {
+            self.populate_block(&identity, block, &keys).await?;
+        }
+
+        self.on_identity_contact_change(&identity, &keys).await?;
 
         debug!("updated identity email");
         Ok(())
@@ -670,7 +680,7 @@ impl IdentityServiceApi for IdentityService {
         let keys = self.store.get_key_pair().await?;
         let node_id = NodeId::new(keys.pub_key(), self.config.bitcoin_network());
         validate_create_identity(t.clone(), &email, &postal_address)?;
-        let email_confirmation = self.check_confirmed_email(&email, &t, &node_id).await?;
+        let email_confirmation = self.check_email_confirmed(&email, &t, &node_id).await?;
 
         let identity = match t {
             IdentityType::Ident => {
@@ -727,17 +737,55 @@ impl IdentityServiceApi for IdentityService {
             },
         };
 
-        // create new identity chain and persist it
+        // prepare & validate
+
+        // create new identity chain
         let block_data: IdentityCreateBlockData = identity.clone().into();
         block_data.validate()?;
         let mut identity_chain = IdentityBlockchain::new(&block_data, &keys, timestamp)
             .map_err(|e| Error::Protocol(e.into()))?;
-        let first_block = identity_chain.get_first_block();
-        self.blockchain_store.add_block(first_block).await?;
 
-        // persist the identity in the DB
+        let mut blocks = vec![identity_chain.get_first_block().clone()];
+
+        // identity proof block
+        if let Some(ref confirmation) = email_confirmation {
+            IdentityValidateActionData {
+                blockchain: identity_chain.clone(),
+                id: identity.node_id.clone(),
+                op: IdentityOpCode::IdentityProof,
+                keys: keys.clone(),
+                identity_proof_data: Some((confirmation.proof.clone(), confirmation.data.clone())),
+            }
+            .validate()?;
+            let identity_proof_block = prepare_identity_proof_block(
+                confirmation.proof.to_owned(),
+                confirmation.data.to_owned(),
+                &keys,
+                &mut identity_chain,
+            )?;
+            blocks.push(identity_proof_block);
+        }
+
+        // persist - TODO (tx): make transactional
+
+        for block in &blocks {
+            self.blockchain_store.add_block(block).await?;
+        }
         self.store.save(&identity).await?;
-        self.populate_block(&identity, first_block, &keys).await?;
+
+        if let Some(confirmation) = &email_confirmation
+            && confirmation.needs_persisting
+        {
+            self.store
+                .set_email_confirmation(&confirmation.proof, &confirmation.data)
+                .await?;
+        }
+
+        // effects & propagation
+
+        for block in &blocks {
+            self.populate_block(&identity, block, &keys).await?;
+        }
         self.on_identity_contact_change(&identity, &keys).await?;
 
         // add to contacts without files if it's not there already, but don't fail
@@ -786,20 +834,6 @@ impl IdentityServiceApi for IdentityService {
             error!("Failed to create save seed phrase notification: {e}");
         }
 
-        // Create and populate identity proof block
-        if let Some((proof, data)) = email_confirmation {
-            IdentityValidateActionData {
-                blockchain: identity_chain.clone(),
-                id: identity.node_id.clone(),
-                op: IdentityOpCode::IdentityProof,
-                keys: keys.clone(),
-                identity_proof_data: Some((proof.clone(), data.clone())),
-            }
-            .validate()?;
-            self.create_identity_proof_block(proof, data, &identity, &keys, &mut identity_chain)
-                .await?;
-        }
-
         debug!("created identity");
         Ok(())
     }
@@ -820,6 +854,7 @@ impl IdentityServiceApi for IdentityService {
     ) -> Result<()> {
         debug!("deanonymizing identity");
         let existing_identity = self.store.get().await?;
+        let node_id = existing_identity.node_id.clone();
         let keys = self.store.get_key_pair().await?;
         // can't de-anonymize to an anonymous identity
         if t == IdentityType::Anon {
@@ -838,7 +873,7 @@ impl IdentityServiceApi for IdentityService {
         validate_create_identity(t.clone(), &email, &postal_address)?;
 
         let email_confirmation = self
-            .check_confirmed_email(&email, &t, &existing_identity.node_id)
+            .check_email_confirmed(&email, &t, &existing_identity.node_id)
             .await?;
 
         let profile_picture_file = self
@@ -878,7 +913,10 @@ impl IdentityServiceApi for IdentityService {
             nostr_relays: self.config.nostr_config.relays.to_owned(),
         };
 
+        // prepare & validate
         let mut identity_chain = self.blockchain_store.get_chain().await?;
+        let mut blocks = Vec::new();
+
         IdentityValidateActionData {
             blockchain: identity_chain.clone(),
             id: identity.node_id.clone(),
@@ -908,19 +946,70 @@ impl IdentityServiceApi for IdentityService {
             ),
         };
         block_data.validate()?;
-        let new_block =
+        let deanon_block =
             IdentityBlock::create_block_for_update(previous_block, &block_data, &keys, timestamp)
                 .map_err(|e| Error::Protocol(e.into()))?;
-        self.validate_and_add_block(&mut identity_chain, new_block.clone())
-            .await?;
+        validate_and_append_block(&mut identity_chain, deanon_block.clone())?;
+        blocks.push(deanon_block);
+
+        // identity proof block
+        if let Some(ref confirmation) = email_confirmation {
+            IdentityValidateActionData {
+                blockchain: identity_chain.clone(),
+                id: identity.node_id.clone(),
+                op: IdentityOpCode::IdentityProof,
+                keys: keys.clone(),
+                identity_proof_data: Some((confirmation.proof.clone(), confirmation.data.clone())),
+            }
+            .validate()?;
+            let identity_proof_block = prepare_identity_proof_block(
+                confirmation.proof.to_owned(),
+                confirmation.data.to_owned(),
+                &keys,
+                &mut identity_chain,
+            )?;
+            blocks.push(identity_proof_block);
+        }
+
+        // persist - TODO (tx): make transactional
+
+        for block in &blocks {
+            self.blockchain_store.add_block(block).await?;
+        }
+
         self.store.save(&identity).await?;
-        self.populate_block(&identity, &new_block, &keys).await?;
+
+        if let Some(confirmation) = &email_confirmation
+            && confirmation.needs_persisting
+        {
+            self.store
+                .set_email_confirmation(&confirmation.proof, &confirmation.data)
+                .await?;
+        }
+
+        // effects & propagation
+
+        for block in &blocks {
+            self.populate_block(&identity, block, &keys).await?;
+        }
+
         self.on_identity_contact_change(&identity, &keys).await?;
 
-        // Create and populate identity proof block
-        if let Some((proof, data)) = email_confirmation {
-            self.create_identity_proof_block(proof, data, &identity, &keys, &mut identity_chain)
-                .await?;
+        // if there is a contact for ourselves and it's anon, deanonimize it as well
+        if let Ok(Some(mut contact)) = self.contact_store.get(&node_id).await
+            && matches!(contact.t, ContactType::Anon)
+        {
+            contact.t = ContactType::Person;
+            contact.name = identity.name.clone();
+            contact.email = identity.email.clone();
+            contact.postal_address = identity.postal_address.to_full_postal_address();
+            contact.date_of_birth_or_registration = identity.date_of_birth.clone();
+            contact.country_of_birth_or_registration = identity.country_of_birth.clone();
+            contact.city_of_birth_or_registration = identity.city_of_birth.clone();
+            contact.identification_number = identity.identification_number.clone();
+            if let Err(e) = self.contact_store.update(&node_id, contact).await {
+                error!("Could not deanonimize contact for own identity {node_id}: {e}");
+            }
         }
 
         debug!("deanonymized identity");
@@ -1127,6 +1216,36 @@ impl IdentityServiceApi for IdentityService {
         let email_confirmations = self.store.get_email_confirmations().await?;
         Ok(email_confirmations)
     }
+}
+
+fn validate_and_append_block(
+    chain: &mut IdentityBlockchain,
+    new_block: IdentityBlock,
+) -> Result<()> {
+    let try_add_block = chain.try_add_block(new_block);
+    if try_add_block && chain.is_chain_valid() {
+        Ok(())
+    } else {
+        Err(Error::Protocol(blockchain::Error::BlockchainInvalid.into()))
+    }
+}
+
+// create the block, validate it and add it to the chain
+fn prepare_identity_proof_block(
+    proof: SignedIdentityProof,
+    data: EmailIdentityProofData,
+    keys: &BcrKeys,
+    chain: &mut IdentityBlockchain,
+) -> Result<IdentityBlock> {
+    let new_block = IdentityBlock::create_block_for_identity_proof(
+        chain.get_latest_block(),
+        &IdentityProofBlockData { proof, data },
+        keys,
+        Timestamp::now(),
+    )
+    .map_err(|e| Error::Protocol(e.into()))?;
+    validate_and_append_block(chain, new_block.clone())?;
+    Ok(new_block)
 }
 
 #[cfg(test)]
