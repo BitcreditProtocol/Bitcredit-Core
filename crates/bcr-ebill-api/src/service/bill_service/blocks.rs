@@ -1,3 +1,5 @@
+use super::{BillAction, Result, error::Error, service::BillService};
+use crate::util::validate_node_id_network;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::{
     application::identity::IdentityWithAll,
@@ -31,17 +33,25 @@ use bcr_ebill_core::{
             BcrKeys,
             btc::{calculate_tweak_hash_for_payment_request, get_address_to_pay},
         },
-        event::{ActionType, BillEventType, CompanyChainEvent, IdentityChainEvent},
     },
 };
 use log::error;
 
-use crate::util::validate_node_id_network;
+pub(super) struct PreparedSignerBlocks {
+    pub(super) identity_block: IdentityBlock,
+    pub(super) company_block: Option<PreparedCompanyBlock>,
+}
 
-use super::{BillAction, Result, error::Error, service::BillService};
+pub(super) struct PreparedCompanyBlock {
+    pub(super) company_id: NodeId,
+    pub(super) block: CompanyBlock,
+    pub(super) chain: CompanyBlockchain,
+    pub(super) company_keys: BcrKeys,
+}
 
 impl BillService {
-    pub(super) async fn create_blocks_for_bill_action(
+    // create, validate and add the bill block to the bill chain
+    pub(super) async fn prepare_bill_action_block(
         &self,
         bill: &BitcreditBill,
         blockchain: &mut BillBlockchain,
@@ -51,7 +61,7 @@ impl BillService {
         signer_keys: &BcrKeys,
         identity: &IdentityWithAll,
         timestamp: Timestamp,
-    ) -> Result<()> {
+    ) -> Result<BillBlock> {
         let bill_id = bill.id.clone();
         let signing_keys = self.get_bill_signing_keys(signer_public_data, signer_keys, identity)?;
         let previous_block = blockchain.get_latest_block();
@@ -652,290 +662,97 @@ impl BillService {
             }
         };
 
-        self.validate_and_add_block(&bill_id, blockchain, block.clone())
-            .await?;
+        validate_and_append_bill_block(blockchain, block.clone())?;
 
-        match bill_action {
-            BillAction::Sell(_) => {
-                self.transport_service
-                    .notification_transport()
-                    .create_local_bill_notification(
-                        &signer_public_data.node_id(),
-                        &bill_id,
-                        BillEventType::BillSold,
-                        Some(ActionType::CheckBill),
-                        Some(bill.sum.clone()),
-                    )
-                    .await?;
-            }
-            BillAction::Recourse(_) => {
-                self.transport_service
-                    .notification_transport()
-                    .create_local_bill_notification(
-                        &signer_public_data.node_id(),
-                        &bill_id,
-                        BillEventType::BillRecoursePaid,
-                        Some(ActionType::CheckBill),
-                        Some(bill.sum.clone()),
-                    )
-                    .await?;
-            }
-            _ => {}
-        }
-
-        self.add_identity_and_company_chain_blocks_for_signed_bill_action(
-            signer_public_data,
-            &bill_id,
-            &block,
-            identity,
-            signer_keys,
-            timestamp,
-            None,
-        )
-        .await?;
-
-        Ok(())
+        Ok(block)
     }
 
-    pub(super) async fn validate_and_add_block(
-        &self,
-        bill_id: &BillId,
-        blockchain: &mut BillBlockchain,
-        new_block: BillBlock,
-    ) -> Result<()> {
-        let try_add_block = blockchain.try_add_block(new_block.clone());
-        if try_add_block && blockchain.is_chain_valid() {
-            self.blockchain_store.add_block(bill_id, &new_block).await?;
-            Ok(())
-        } else {
-            Err(Error::Protocol(blockchain::Error::BlockchainInvalid.into()))
-        }
-    }
-
-    async fn validate_and_add_identity_block(
-        &self,
-        chain: &mut IdentityBlockchain,
-        new_block: IdentityBlock,
-    ) -> Result<()> {
-        let try_add_block = chain.try_add_block(new_block.clone());
-        if try_add_block && chain.is_chain_valid() {
-            self.identity_blockchain_store.add_block(&new_block).await?;
-            Ok(())
-        } else {
-            Err(Error::Protocol(blockchain::Error::BlockchainInvalid.into()))
-        }
-    }
-
-    async fn validate_and_add_company_block(
-        &self,
-        company_id: &NodeId,
-        chain: &mut CompanyBlockchain,
-        new_block: CompanyBlock,
-    ) -> Result<()> {
-        let try_add_block = chain.try_add_block(new_block.clone());
-        if try_add_block && chain.is_chain_valid() {
-            self.company_blockchain_store
-                .add_block(company_id, &new_block)
-                .await?;
-            Ok(())
-        } else {
-            Err(Error::Protocol(blockchain::Error::BlockchainInvalid.into()))
-        }
-    }
-
-    pub(super) async fn add_identity_and_company_chain_blocks_for_signed_bill_action(
+    // create, validate and add signer blocks to their respective chains
+    pub(super) fn prepare_signer_blocks(
         &self,
         signer_public_data: &BillParticipant,
         bill_id: &BillId,
-        block: &BillBlock,
+        bill_block: &BillBlock,
         identity: &IdentityWithAll,
         signer_keys: &BcrKeys,
+        identity_chain: &mut IdentityBlockchain,
+        company_chain: Option<&mut CompanyBlockchain>,
         timestamp: Timestamp,
         bill_keys: Option<BcrKeys>,
-    ) -> Result<()> {
-        match signer_public_data {
+    ) -> Result<PreparedSignerBlocks> {
+        Ok(match signer_public_data {
             BillParticipant::Ident(identified) => {
                 match identified.t {
                     ContactType::Person | ContactType::Anon => {
-                        self.add_block_to_identity_chain_for_signed_bill_action(
-                            bill_id, block, identity, timestamp, bill_keys,
-                        )
-                        .await?;
-                    }
-                    ContactType::Company => {
-                        self.add_block_to_company_chain_for_signed_bill_action(
-                            &identified.node_id, // company id
+                        let identity_block = prepare_identity_block_for_signed_person_bill_action(
                             bill_id,
-                            block,
+                            bill_block,
                             identity,
-                            &BcrKeys::from_private_key(&signer_keys.get_private_key()),
+                            identity_chain,
                             timestamp,
                             bill_keys,
-                        )
-                        .await?;
-
-                        self.add_block_to_identity_chain_for_signed_company_bill_action(
+                        )?;
+                        PreparedSignerBlocks {
+                            identity_block,
+                            company_block: None,
+                        }
+                    }
+                    ContactType::Company => {
+                        let Some(company_chain) = company_chain else {
+                            return Err(Error::Internal(format!(
+                                "No company chain for signing bill with company {}",
+                                identified.node_id
+                            )));
+                        };
+                        let company_keys =
+                            BcrKeys::from_private_key(&signer_keys.get_private_key());
+                        let company_block = prepare_company_block_for_signed_bill_action(
                             &identified.node_id, // company id
                             bill_id,
-                            block,
+                            bill_block,
                             identity,
+                            &company_keys,
+                            company_chain,
                             timestamp,
-                        )
-                        .await?;
+                            bill_keys,
+                        )?;
+
+                        let identity_block = prepare_identity_block_for_signed_company_bill_action(
+                            &identified.node_id, // company id
+                            bill_id,
+                            bill_block,
+                            identity,
+                            identity_chain,
+                            timestamp,
+                        )?;
+                        PreparedSignerBlocks {
+                            identity_block,
+                            company_block: Some(PreparedCompanyBlock {
+                                company_id: identified.node_id.clone(),
+                                block: company_block,
+                                chain: company_chain.to_owned(),
+                                company_keys,
+                            }),
+                        }
                     }
-                };
+                }
             }
             // for anon, we only add to our identity chain, since we're no company
             BillParticipant::Anon(_) => {
-                self.add_block_to_identity_chain_for_signed_bill_action(
-                    bill_id, block, identity, timestamp, bill_keys,
-                )
-                .await?;
+                let identity_block = prepare_identity_block_for_signed_person_bill_action(
+                    bill_id,
+                    bill_block,
+                    identity,
+                    identity_chain,
+                    timestamp,
+                    bill_keys,
+                )?;
+                PreparedSignerBlocks {
+                    identity_block,
+                    company_block: None,
+                }
             }
-        }
-        Ok(())
-    }
-
-    pub(super) async fn add_block_to_identity_chain_for_signed_bill_action(
-        &self,
-        bill_id: &BillId,
-        block: &BillBlock,
-        identity: &IdentityWithAll,
-        timestamp: Timestamp,
-        bill_keys: Option<BcrKeys>,
-    ) -> Result<()> {
-        let mut chain = self.identity_blockchain_store.get_chain().await?;
-        IdentityValidateActionData {
-            blockchain: chain.clone(),
-            id: identity.identity.node_id.clone(),
-            op: IdentityOpCode::SignPersonBill,
-            keys: identity.key_pair.clone(),
-            identity_proof_data: None,
-        }
-        .validate()?;
-        let previous_block = chain.get_latest_block();
-        let new_block = IdentityBlock::create_block_for_sign_person_bill(
-            previous_block,
-            &IdentitySignPersonBillBlockData {
-                bill_id: bill_id.to_owned(),
-                block_id: block.id,
-                block_hash: block.hash.to_owned(),
-                operation: block.op_code.clone(),
-                bill_key: bill_keys.map(|k| k.get_private_key()),
-            },
-            &identity.key_pair,
-            timestamp,
-        )
-        .map_err(|e| Error::Protocol(e.into()))?;
-        self.validate_and_add_identity_block(&mut chain, new_block.clone())
-            .await?;
-        self.transport_service
-            .block_transport()
-            .send_identity_chain_events(IdentityChainEvent::new(
-                &identity.identity.node_id,
-                &new_block,
-                &identity.key_pair,
-            ))
-            .await?;
-        Ok(())
-    }
-
-    pub(super) async fn add_block_to_identity_chain_for_signed_company_bill_action(
-        &self,
-        company_id: &NodeId,
-        bill_id: &BillId,
-        block: &BillBlock,
-        identity: &IdentityWithAll,
-        timestamp: Timestamp,
-    ) -> Result<()> {
-        let mut chain = self.identity_blockchain_store.get_chain().await?;
-        IdentityValidateActionData {
-            blockchain: chain.clone(),
-            id: identity.identity.node_id.clone(),
-            op: IdentityOpCode::SignCompanyBill,
-            keys: identity.key_pair.clone(),
-            identity_proof_data: None,
-        }
-        .validate()?;
-        let previous_block = chain.get_latest_block();
-        let new_block = IdentityBlock::create_block_for_sign_company_bill(
-            previous_block,
-            &IdentitySignCompanyBillBlockData {
-                bill_id: bill_id.to_owned(),
-                block_id: block.id,
-                block_hash: block.hash.to_owned(),
-                company_id: company_id.to_owned(),
-                operation: block.op_code.clone(),
-            },
-            &identity.key_pair,
-            timestamp,
-        )
-        .map_err(|e| Error::Protocol(e.into()))?;
-        self.validate_and_add_identity_block(&mut chain, new_block.clone())
-            .await?;
-        self.transport_service
-            .block_transport()
-            .send_identity_chain_events(IdentityChainEvent::new(
-                &identity.identity.node_id,
-                &new_block,
-                &identity.key_pair,
-            ))
-            .await?;
-        Ok(())
-    }
-
-    pub(super) async fn add_block_to_company_chain_for_signed_bill_action(
-        &self,
-        company_id: &NodeId,
-        bill_id: &BillId,
-        block: &BillBlock,
-        signatory_identity: &IdentityWithAll,
-        company_keys: &BcrKeys,
-        timestamp: Timestamp,
-        bill_keys: Option<BcrKeys>,
-    ) -> Result<()> {
-        let mut chain = self.company_blockchain_store.get_chain(company_id).await?;
-        CompanyValidateActionData {
-            blockchain: chain.clone(),
-            company_id: company_id.to_owned(),
-            signer_node_id: signatory_identity.identity.node_id.clone(),
-            op: CompanyOpCode::SignCompanyBill,
-            company_keys: company_keys.clone(),
-            invitee: None,
-            removee: None,
-            identity_proof_data: None,
-        }
-        .validate()?;
-        let previous_block = chain.get_latest_block();
-        let new_block = CompanyBlock::create_block_for_sign_company_bill(
-            company_id.to_owned(),
-            previous_block,
-            &CompanySignCompanyBillBlockData {
-                bill_id: bill_id.to_owned(),
-                block_id: block.id,
-                block_hash: block.hash.to_owned(),
-                operation: block.op_code.clone(),
-                bill_key: bill_keys.map(|k| k.get_private_key()),
-            },
-            &signatory_identity.key_pair,
-            company_keys,
-            timestamp,
-        )
-        .map_err(|e| Error::Protocol(e.into()))?;
-        self.validate_and_add_company_block(company_id, &mut chain, new_block.clone())
-            .await?;
-        let company = self.company_store.get(company_id).await?;
-        self.transport_service
-            .block_transport()
-            .send_company_chain_events(CompanyChainEvent::new(
-                &company.id,
-                &chain,
-                company_keys,
-                None,
-                true,
-            ))
-            .await?;
-        Ok(())
+        })
     }
 }
 
@@ -950,4 +767,149 @@ fn signatory_for_signer(
         }
         d
     })
+}
+
+// create, validate and add identity block to the identity chain
+fn prepare_identity_block_for_signed_person_bill_action(
+    bill_id: &BillId,
+    block: &BillBlock,
+    identity: &IdentityWithAll,
+    chain: &mut IdentityBlockchain,
+    timestamp: Timestamp,
+    bill_keys: Option<BcrKeys>,
+) -> Result<IdentityBlock> {
+    IdentityValidateActionData {
+        blockchain: chain.clone(),
+        id: identity.identity.node_id.clone(),
+        op: IdentityOpCode::SignPersonBill,
+        keys: identity.key_pair.clone(),
+        identity_proof_data: None,
+    }
+    .validate()?;
+    let new_block = IdentityBlock::create_block_for_sign_person_bill(
+        chain.get_latest_block(),
+        &IdentitySignPersonBillBlockData {
+            bill_id: bill_id.clone(),
+            block_id: block.id,
+            block_hash: block.hash.clone(),
+            operation: block.op_code.clone(),
+            bill_key: bill_keys.map(|k| k.get_private_key()),
+        },
+        &identity.key_pair,
+        timestamp,
+    )
+    .map_err(|e| Error::Protocol(e.into()))?;
+    validate_and_append_identity_block(chain, new_block.clone())?;
+    Ok(new_block)
+}
+
+// create, validate and add identity block to the identity chain
+fn prepare_identity_block_for_signed_company_bill_action(
+    company_id: &NodeId,
+    bill_id: &BillId,
+    block: &BillBlock,
+    identity: &IdentityWithAll,
+    chain: &mut IdentityBlockchain,
+    timestamp: Timestamp,
+) -> Result<IdentityBlock> {
+    IdentityValidateActionData {
+        blockchain: chain.clone(),
+        id: identity.identity.node_id.clone(),
+        op: IdentityOpCode::SignCompanyBill,
+        keys: identity.key_pair.clone(),
+        identity_proof_data: None,
+    }
+    .validate()?;
+    let new_block = IdentityBlock::create_block_for_sign_company_bill(
+        chain.get_latest_block(),
+        &IdentitySignCompanyBillBlockData {
+            bill_id: bill_id.to_owned(),
+            block_id: block.id,
+            block_hash: block.hash.to_owned(),
+            company_id: company_id.to_owned(),
+            operation: block.op_code.clone(),
+        },
+        &identity.key_pair,
+        timestamp,
+    )
+    .map_err(|e| Error::Protocol(e.into()))?;
+    validate_and_append_identity_block(chain, new_block.clone())?;
+    Ok(new_block)
+}
+
+// create, validate and add company block to the company chain
+fn prepare_company_block_for_signed_bill_action(
+    company_id: &NodeId,
+    bill_id: &BillId,
+    block: &BillBlock,
+    identity: &IdentityWithAll,
+    company_keys: &BcrKeys,
+    chain: &mut CompanyBlockchain,
+    timestamp: Timestamp,
+    bill_keys: Option<BcrKeys>,
+) -> Result<CompanyBlock> {
+    CompanyValidateActionData {
+        blockchain: chain.clone(),
+        company_id: company_id.to_owned(),
+        signer_node_id: identity.identity.node_id.clone(),
+        op: CompanyOpCode::SignCompanyBill,
+        company_keys: company_keys.clone(),
+        invitee: None,
+        removee: None,
+        identity_proof_data: None,
+    }
+    .validate()?;
+    let new_block = CompanyBlock::create_block_for_sign_company_bill(
+        company_id.to_owned(),
+        chain.get_latest_block(),
+        &CompanySignCompanyBillBlockData {
+            bill_id: bill_id.to_owned(),
+            block_id: block.id,
+            block_hash: block.hash.to_owned(),
+            operation: block.op_code.clone(),
+            bill_key: bill_keys.map(|k| k.get_private_key()),
+        },
+        &identity.key_pair,
+        company_keys,
+        timestamp,
+    )
+    .map_err(|e| Error::Protocol(e.into()))?;
+    validate_and_append_company_block(chain, new_block.clone())?;
+    Ok(new_block)
+}
+
+fn validate_and_append_bill_block(
+    blockchain: &mut BillBlockchain,
+    new_block: BillBlock,
+) -> Result<()> {
+    let try_add_block = blockchain.try_add_block(new_block.clone());
+    if try_add_block && blockchain.is_chain_valid() {
+        Ok(())
+    } else {
+        Err(Error::Protocol(blockchain::Error::BlockchainInvalid.into()))
+    }
+}
+
+fn validate_and_append_identity_block(
+    chain: &mut IdentityBlockchain,
+    new_block: IdentityBlock,
+) -> Result<()> {
+    let try_add_block = chain.try_add_block(new_block.clone());
+    if try_add_block && chain.is_chain_valid() {
+        Ok(())
+    } else {
+        Err(Error::Protocol(blockchain::Error::BlockchainInvalid.into()))
+    }
+}
+
+fn validate_and_append_company_block(
+    chain: &mut CompanyBlockchain,
+    new_block: CompanyBlock,
+) -> Result<()> {
+    let try_add_block = chain.try_add_block(new_block.clone());
+    if try_add_block && chain.is_chain_valid() {
+        Ok(())
+    } else {
+        Err(Error::Protocol(blockchain::Error::BlockchainInvalid.into()))
+    }
 }

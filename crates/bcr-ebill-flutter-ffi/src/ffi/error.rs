@@ -71,6 +71,7 @@ pub enum EbillFfiErrorCode {
     NoConfirmedEmailForIdentIdentity,
     NoFileForFileUploadId,
     NotFound,
+    Internal,
     ExternalApi,
     Crypto,
     Persistence,
@@ -225,6 +226,7 @@ fn bill_service_error_data(e: BillServiceError) -> EbillFfiError {
     match e {
         BillServiceError::Validation(e) => validation_error_data(e),
         BillServiceError::NotFound => err_404(e, EbillFfiErrorCode::NotFound),
+        BillServiceError::Internal(_) => err_500(e, EbillFfiErrorCode::Internal),
         BillServiceError::Persistence(e) => err_500(e, EbillFfiErrorCode::Persistence),
         BillServiceError::ExternalApi(e) => err_500(e, EbillFfiErrorCode::ExternalApi),
         BillServiceError::Protocol(e) => err_500(e, EbillFfiErrorCode::Protocol),
