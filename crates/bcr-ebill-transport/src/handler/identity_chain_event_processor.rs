@@ -6,7 +6,7 @@ use crate::{
     },
 };
 use async_trait::async_trait;
-use bcr_common::core::NodeId;
+use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_api::{
     Config,
     service::transport_service::{ResyncMode, transport_client::TransportClientApi},
@@ -14,7 +14,7 @@ use bcr_ebill_api::{
 use bcr_ebill_core::{
     application::contact::Contact,
     protocol::{
-        Validate,
+        EmailIdentityProofData, File, SignedIdentityProof, Validate,
         blockchain::{
             Block,
             bill::ContactType,
@@ -22,8 +22,10 @@ use bcr_ebill_core::{
         },
         crypto::BcrKeys,
         event::{ChainInvite, Event},
+        file_reference::FileReferenceContext,
     },
 };
+use bitcoin::secp256k1::SecretKey;
 use log::{debug, error, info, warn};
 use std::{collections::HashSet, sync::Arc};
 
@@ -45,6 +47,51 @@ use bcr_ebill_persistence::{
 
 use super::inbound_file_anchor::{anchor_important_file, identity_file_context};
 use super::{IdentityChainEventProcessorApi, NostrContactProcessorApi, NotificationHandlerApi};
+
+#[derive(Debug, Clone)]
+struct PreparedIdentityBlock {
+    block: IdentityBlock,
+    chain: IdentityBlockchain,
+    identity: Identity,
+    identity_changed: bool,
+    email_confirmation: Option<PreparedEmailConfirmation>,
+    files_to_anchor: Vec<PreparedFileAnchor>,
+    post_commit_effects: Vec<IdentityPostCommitEffect>,
+}
+
+#[derive(Debug, Clone)]
+struct PreparedEmailConfirmation {
+    proof: SignedIdentityProof,
+    data: EmailIdentityProofData,
+}
+
+#[derive(Debug, Clone)]
+struct PreparedFileAnchor {
+    file: File,
+    context: FileReferenceContext,
+}
+
+#[derive(Debug, Clone)]
+enum IdentityPostCommitEffect {
+    EnsureNostrContact(NodeId),
+    RestoreCompany {
+        company_id: NodeId,
+        company_key: SecretKey,
+    },
+    RestoreBill {
+        bill_id: BillId,
+        bill_key: SecretKey,
+    },
+}
+
+#[derive(Debug, Clone)]
+struct PreparedIdentityChain {
+    node_id: NodeId,
+    identity: Identity,
+    chain: IdentityBlockchain,
+    blocks: Vec<PreparedIdentityBlock>,
+    create_files_to_anchor: Vec<PreparedFileAnchor>,
+}
 
 #[allow(dead_code)]
 #[derive(Clone)]
@@ -267,7 +314,7 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
                             &key_pair,
                             &identity.node_id,
                         ) {
-                            Ok(()) => {
+                            Ok(_) => {
                                 if let Some(fork_id) = fork_point {
                                     info!(
                                         "Fork resolution for identity {}: replacing blocks from height {fork_id} with preferred remote chain",
@@ -400,37 +447,57 @@ impl IdentityChainEventProcessor {
     }
 
     async fn add_new_chain(&self, blocks: Vec<IdentityBlock>, keys: &BcrKeys) -> Result<()> {
-        let (node_id, mut identity, mut chain) = self.get_valid_chain(blocks.clone(), keys)?;
+        // prepare & validate
+        let prepared = self.prepare_full_identity_chain(&blocks, keys)?;
+        let node_id = prepared.node_id.clone();
         debug!("updating identity chain for {node_id}");
-        // save the identity
-        self.identity_store.save(&identity).await.map_err(|e| {
-            error!("Failed to save identity {node_id}: {e}");
-            Error::Persistence(e.to_string())
-        })?;
+
+        // persist - TODO (tx): make transactional
+
+        self.identity_store
+            .save(&prepared.identity)
+            .await
+            .map_err(|e| {
+                error!("Failed to save identity {node_id}: {e}");
+                Error::Persistence(e.to_string())
+            })?;
 
         // Save the first block of the chain as it is the create block
-        self.save_block(chain.get_first_block()).await?;
+        self.save_block(prepared.chain.get_first_block()).await?;
 
-        if let Some(file) = &identity.profile_picture_file {
+        // anchored files from create
+        for anchor in &prepared.create_files_to_anchor {
             anchor_important_file(
                 &self.file_reference_store,
-                file,
-                identity_file_context("profile_picture_file"),
-            )
-            .await?;
-        }
-        if let Some(file) = &identity.identity_document_file {
-            anchor_important_file(
-                &self.file_reference_store,
-                file,
-                identity_file_context("identity_document_file"),
+                &anchor.file,
+                anchor.context.clone(),
             )
             .await?;
         }
 
-        // process remaining blocks
-        for block in blocks.iter().skip(1) {
-            self.add_identity_block(&node_id, keys, &mut identity, &mut chain, block)
+        // remaining blocks and state derived from them
+        for prepared_block in &prepared.blocks {
+            self.save_block(&prepared_block.block).await?;
+            if let Some(confirmation) = &prepared_block.email_confirmation {
+                self.identity_store
+                    .set_email_confirmation(&confirmation.proof, &confirmation.data)
+                    .await
+                    .map_err(|e| Error::Persistence(e.to_string()))?;
+            }
+            for anchor in &prepared_block.files_to_anchor {
+                anchor_important_file(
+                    &self.file_reference_store,
+                    &anchor.file,
+                    anchor.context.clone(),
+                )
+                .await?;
+            }
+        }
+
+        // effects
+
+        for prepared_block in prepared.blocks {
+            self.process_post_commit_effects(&node_id, prepared_block.post_commit_effects)
                 .await?;
         }
 
@@ -441,19 +508,22 @@ impl IdentityChainEventProcessor {
                 .insert(
                     &node_id,
                     Contact {
-                        t: if matches!(identity.t, IdentityType::Ident) {
+                        t: if matches!(prepared.identity.t, IdentityType::Ident) {
                             ContactType::Person
                         } else {
                             ContactType::Anon
                         },
-                        node_id: identity.node_id.to_owned(),
-                        name: identity.name.clone(),
-                        email: identity.email.clone(),
-                        postal_address: identity.postal_address.to_full_postal_address(),
-                        date_of_birth_or_registration: identity.date_of_birth.clone(),
-                        country_of_birth_or_registration: identity.country_of_birth.clone(),
-                        city_of_birth_or_registration: identity.city_of_birth.clone(),
-                        identification_number: identity.identification_number.clone(),
+                        node_id: prepared.identity.node_id.to_owned(),
+                        name: prepared.identity.name.clone(),
+                        email: prepared.identity.email.clone(),
+                        postal_address: prepared.identity.postal_address.to_full_postal_address(),
+                        date_of_birth_or_registration: prepared.identity.date_of_birth.clone(),
+                        country_of_birth_or_registration: prepared
+                            .identity
+                            .country_of_birth
+                            .clone(),
+                        city_of_birth_or_registration: prepared.identity.city_of_birth.clone(),
+                        identification_number: prepared.identity.identification_number.clone(),
                         avatar_file: None,
                         proof_document_file: None,
                         nostr_relays: self.config.nostr_config.relays.clone(),
@@ -467,6 +537,42 @@ impl IdentityChainEventProcessor {
         }
 
         Ok(())
+    }
+
+    fn prepare_full_identity_chain(
+        &self,
+        blocks: &[IdentityBlock],
+        keys: &BcrKeys,
+    ) -> Result<PreparedIdentityChain> {
+        let (node_id, mut identity, mut chain) = self.get_valid_chain(blocks.to_vec(), keys)?;
+
+        let mut create_files_to_anchor = Vec::new();
+        if let Some(file) = &identity.profile_picture_file {
+            create_files_to_anchor.push(PreparedFileAnchor {
+                file: file.clone(),
+                context: identity_file_context("profile_picture_file"),
+            });
+        }
+        if let Some(file) = &identity.identity_document_file {
+            create_files_to_anchor.push(PreparedFileAnchor {
+                file: file.clone(),
+                context: identity_file_context("identity_document_file"),
+            });
+        }
+        let mut prepared_blocks = Vec::new();
+        for block in blocks.iter().skip(1) {
+            let prepared = self.prepare_identity_block(&chain, &identity, block, keys)?;
+            identity = prepared.identity.clone();
+            chain = prepared.chain.clone();
+            prepared_blocks.push(prepared);
+        }
+        Ok(PreparedIdentityChain {
+            node_id,
+            identity,
+            chain,
+            blocks: prepared_blocks,
+            create_files_to_anchor,
+        })
     }
 
     async fn add_identity_blocks(
@@ -499,6 +605,7 @@ impl IdentityChainEventProcessor {
                             block.id
                         );
                         self.resync_chain(ResyncMode::Normal).await?;
+                        // resync potentially changed the complete chain - don't continue
                         return Ok(());
                     }
                 }
@@ -513,7 +620,6 @@ impl IdentityChainEventProcessor {
             {
                 Ok(_) => {
                     block_height = block.id;
-                    Ok(())
                 }
                 Err(e) => {
                     // if we received a single block (normal block populate) and we are missing blocks, we try to resync
@@ -527,46 +633,29 @@ impl IdentityChainEventProcessor {
                             block.id
                         );
                         self.resync_chain(ResyncMode::Normal).await?;
-                        break;
-                    } else {
-                        error!("Error adding block for identity {node_id}: {e}");
-                        Err(e)
+                        // resync potentially changed the complete chain - don't continue
+                        return Ok(());
                     }
+                    error!("Error adding block for identity {node_id}: {e}");
+                    return Err(e);
                 }
-            }?;
+            }
         }
         debug!("Updated identity {node_id} with data from new blocks");
         Ok(())
     }
 
     /// Validates a single identity block for a chain WITHOUT persisting or processing side effects.
-    /// Returns true if the block was validated and added to the in-memory chain.
-    /// Returns false if the block should be skipped (already exists, etc.).
+    /// Returns the candidate chain if the block was validated
     fn validate_identity_block_for_chain(
         &self,
-        chain: &mut IdentityBlockchain,
+        chain: &IdentityBlockchain,
         block: &IdentityBlock,
         keys: &BcrKeys,
         identity_id: &NodeId,
-    ) -> Result<bool> {
-        let block_height = chain.get_latest_block().id;
-
-        // if we already have the block, we skip it
-        if block.id <= block_height {
-            return Ok(false);
-        }
-        let chain_clone_for_validation = chain.clone();
-
-        // do cheap integrity checks (mutates chain in-memory)
-        if !chain.try_add_block(block.clone()) {
-            error!("Received invalid identity block");
-            return Err(Error::Blockchain(
-                "Received invalid identity block".to_string(),
-            ));
-        }
-
+    ) -> Result<IdentityBlockchain> {
         let block_id = block.id;
-        // then, verify signature and signer of the block and get data to validate
+        // verify signature and signer of the block and get data to validate
         let verify_and_get_signer = match block.verify_and_get_signer(keys) {
             Ok(d) => d,
             Err(e) => {
@@ -576,9 +665,8 @@ impl IdentityChainEventProcessor {
                 return Err(Error::Blockchain(e.to_string()));
             }
         };
-
         if let Err(e) = (IdentityValidateActionData {
-            blockchain: chain_clone_for_validation,
+            blockchain: chain.to_owned(),
             id: identity_id.clone(),
             op: block.op_code().clone(),
             keys: keys.to_owned(),
@@ -591,23 +679,34 @@ impl IdentityChainEventProcessor {
             );
             return Err(Error::Blockchain(e.to_string()));
         }
-
-        Ok(true)
+        let mut candidate_chain = chain.clone();
+        if !candidate_chain.try_add_block(block.clone()) {
+            error!("Received invalid identity block");
+            return Err(Error::Blockchain(
+                "Received invalid identity block".to_string(),
+            ));
+        }
+        Ok(candidate_chain)
     }
 
     /// Validates multiple identity blocks for a chain WITHOUT persisting or processing side effects.
     /// Returns Ok(()) if all blocks are valid, Err otherwise.
     fn validate_identity_blocks_for_chain(
         &self,
-        chain: &mut IdentityBlockchain,
+        chain: &IdentityBlockchain,
         blocks: &[IdentityBlock],
         keys: &BcrKeys,
         identity_id: &NodeId,
-    ) -> Result<()> {
+    ) -> Result<IdentityBlockchain> {
+        let mut candidate = chain.clone();
         for block in blocks {
-            self.validate_identity_block_for_chain(chain, block, keys, identity_id)?;
+            if block.id <= candidate.get_latest_block().id {
+                continue;
+            }
+            candidate =
+                self.validate_identity_block_for_chain(&candidate, block, keys, identity_id)?;
         }
-        Ok(())
+        Ok(candidate)
     }
 
     async fn add_identity_block(
@@ -618,110 +717,158 @@ impl IdentityChainEventProcessor {
         chain: &mut IdentityBlockchain,
         block: &IdentityBlock,
     ) -> Result<()> {
-        if self.validate_identity_block_for_chain(chain, block, keys, &identity.node_id)? {
-            let data = block
-                .get_block_data(keys)
-                .map_err(|e| Error::Blockchain(e.to_string()))?;
+        // prepare & validate
+        let prepared = self.prepare_identity_block(chain, identity, block, keys)?;
 
-            // process effects
-            self.process_identity_block_effects(node_id, identity, data)
-                .await?;
+        // persist - TODO (tx): make transactional
 
-            // persist data
-            self.save_block(block).await?;
+        if prepared.identity_changed {
+            self.identity_store
+                .save(&prepared.identity)
+                .await
+                .map_err(|e| Error::Persistence(e.to_string()))?;
         }
+
+        if let Some(confirmation) = &prepared.email_confirmation {
+            self.identity_store
+                .set_email_confirmation(&confirmation.proof, &confirmation.data)
+                .await
+                .map_err(|e| Error::Persistence(e.to_string()))?;
+        }
+
+        for anchor in &prepared.files_to_anchor {
+            anchor_important_file(
+                &self.file_reference_store,
+                &anchor.file,
+                anchor.context.clone(),
+            )
+            .await?;
+        }
+
+        self.save_block(&prepared.block).await?;
+
+        // mutate after persistence succeeded
+        *identity = prepared.identity;
+        *chain = prepared.chain;
+
+        // effects
+
+        self.process_post_commit_effects(&identity.node_id, prepared.post_commit_effects)
+            .await?;
+
         Ok(())
     }
 
-    /// Processes side effects for an identity block (contacts, invites, etc.) WITHOUT persisting the block itself.
-    async fn process_identity_block_effects(
+    async fn process_post_commit_effects(
         &self,
         node_id: &NodeId,
-        identity: &mut Identity,
-        data: IdentityBlockPayload,
+        effects: Vec<IdentityPostCommitEffect>,
     ) -> Result<()> {
-        match data {
-            update @ IdentityBlockPayload::Update(_) => {
-                let files_to_anchor = match &update {
-                    IdentityBlockPayload::Update(payload) => vec![
-                        match &payload.profile_picture_file {
-                            EditOptionalFieldMode::Set(file) => {
-                                Some((file.clone(), identity_file_context("profile_picture_file")))
-                            }
-                            _ => None,
-                        },
-                        match &payload.identity_document_file {
-                            EditOptionalFieldMode::Set(file) => Some((
-                                file.clone(),
-                                identity_file_context("identity_document_file"),
-                            )),
-                            _ => None,
-                        },
-                    ],
-                    _ => vec![],
-                };
-                info!("Updating identity {node_id} from block data");
-                identity.apply_block_data(&update);
-                self.identity_store
-                    .save(identity)
-                    .await
-                    .map_err(|e| Error::Persistence(e.to_string()))?;
-
-                for (file, context) in files_to_anchor.into_iter().flatten() {
-                    anchor_important_file(&self.file_reference_store, &file, context).await?;
+        for effect in effects {
+            match effect {
+                IdentityPostCommitEffect::EnsureNostrContact(signatory) => {
+                    self.nostr_contact_processor
+                        .ensure_nostr_contact(&signatory)
+                        .await;
                 }
-            }
-            IdentityBlockPayload::InviteSignatory(payload) => {
-                info!("Adding signatory to identity {node_id}");
-                self.nostr_contact_processor
-                    .ensure_nostr_contact(&payload.signatory)
-                    .await
-            }
-            IdentityBlockPayload::CreateCompany(payload) => {
-                info!("Received company create block. Restoring Company data");
-                let secret_key = payload.company_key;
-                let company_keys = BcrKeys::from_private_key(&secret_key);
-                let invite = ChainInvite::company(
-                    payload.company_id.to_string(),
-                    BcrKeys::from_private_key(&company_keys.get_private_key()),
-                );
-                let event = Event::new_company_invite(invite);
-                self.company_invite_handler
-                    .handle_event(event.try_into()?, node_id, None, None)
-                    .await?;
-            }
-            IdentityBlockPayload::SignPersonalBill(payload) => {
-                if let Some(bill_key) = payload.bill_key
-                    && payload.operation == BillOpCode::Issue
-                {
-                    debug!(
-                        "Found personal bill issue block so adding bill {}",
-                        payload.bill_id
-                    );
-                    let secret_key = bill_key;
-                    let bill_keys = BcrKeys::from_private_key(&secret_key);
-                    let invite = ChainInvite::bill(
-                        payload.bill_id.to_string(),
-                        BcrKeys::from_private_key(&bill_keys.get_private_key()),
-                    );
+                IdentityPostCommitEffect::RestoreCompany {
+                    company_id,
+                    company_key,
+                } => {
+                    let company_keys = BcrKeys::from_private_key(&company_key);
+                    let invite = ChainInvite::company(company_id.to_string(), company_keys);
+                    self.company_invite_handler
+                        .handle_event(
+                            Event::new_company_invite(invite).try_into()?,
+                            node_id,
+                            None,
+                            None,
+                        )
+                        .await?;
+                }
+                IdentityPostCommitEffect::RestoreBill { bill_id, bill_key } => {
+                    let bill_keys = BcrKeys::from_private_key(&bill_key);
+                    let invite = ChainInvite::bill(bill_id.to_string(), bill_keys);
                     self.bill_invite_handler
                         .handle_event(Event::new_bill(invite).try_into()?, node_id, None, None)
                         .await?;
                 }
             }
-            IdentityBlockPayload::AcceptSignatoryInvite(_) => { /* no action needed */ }
-            IdentityBlockPayload::RejectSignatoryInvite(_) => { /* no action needed */ }
-            IdentityBlockPayload::SignCompanyBill(_) => { /* handled in company chain */ }
-            IdentityBlockPayload::RemoveSignatory(_) => { /* no action needed */ }
-            IdentityBlockPayload::Create(_) => { /* creates are handled on validation */ }
-            IdentityBlockPayload::IdentityProof(data) => {
-                self.identity_store
-                    .set_email_confirmation(&data.proof, &data.data)
-                    .await
-                    .map_err(|e| Error::Persistence(e.to_string()))?;
-            }
         }
         Ok(())
+    }
+
+    /// Prepares side effects for an identity block (contacts, invites, etc.) without persistence
+    fn prepare_identity_block(
+        &self,
+        chain: &IdentityBlockchain,
+        identity: &Identity,
+        block: &IdentityBlock,
+        keys: &BcrKeys,
+    ) -> Result<PreparedIdentityBlock> {
+        let candidate_chain =
+            self.validate_identity_block_for_chain(chain, block, keys, &identity.node_id)?;
+        let data = block
+            .get_block_data(keys)
+            .map_err(|e| Error::Blockchain(e.to_string()))?;
+        let mut candidate_identity = identity.clone();
+        let mut identity_changed = false;
+        let mut email_confirmation = None;
+        let mut files_to_anchor = vec![];
+        let mut post_commit_effects = vec![];
+        match &data {
+            IdentityBlockPayload::Update(payload) => {
+                if let EditOptionalFieldMode::Set(file) = &payload.profile_picture_file {
+                    files_to_anchor.push(PreparedFileAnchor {
+                        file: file.clone(),
+                        context: identity_file_context("profile_picture_file"),
+                    });
+                }
+                if let EditOptionalFieldMode::Set(file) = &payload.identity_document_file {
+                    files_to_anchor.push(PreparedFileAnchor {
+                        file: file.clone(),
+                        context: identity_file_context("identity_document_file"),
+                    });
+                }
+                candidate_identity.apply_block_data(&data);
+                identity_changed = true;
+            }
+            IdentityBlockPayload::IdentityProof(data) => {
+                email_confirmation = Some(PreparedEmailConfirmation {
+                    proof: data.proof.clone(),
+                    data: data.data.clone(),
+                });
+            }
+            IdentityBlockPayload::InviteSignatory(data) => {
+                post_commit_effects.push(IdentityPostCommitEffect::EnsureNostrContact(
+                    data.signatory.clone(),
+                ));
+            }
+            IdentityBlockPayload::CreateCompany(data) => {
+                post_commit_effects.push(IdentityPostCommitEffect::RestoreCompany {
+                    company_id: data.company_id.clone(),
+                    company_key: data.company_key,
+                });
+            }
+            IdentityBlockPayload::SignPersonalBill(data) if data.operation == BillOpCode::Issue => {
+                if let Some(bill_key) = data.bill_key {
+                    post_commit_effects.push(IdentityPostCommitEffect::RestoreBill {
+                        bill_id: data.bill_id.clone(),
+                        bill_key,
+                    });
+                }
+            }
+            _ => {}
+        }
+        Ok(PreparedIdentityBlock {
+            block: block.clone(),
+            chain: candidate_chain,
+            identity: candidate_identity,
+            identity_changed,
+            email_confirmation,
+            files_to_anchor,
+            post_commit_effects,
+        })
     }
 
     /// Validates all blocks in the given chain and returns the the chain with create block and the
@@ -782,27 +929,6 @@ impl ServiceTraitBounds for IdentityChainEventProcessor {}
 
 #[cfg(test)]
 pub mod tests {
-    use std::sync::Arc;
-
-    use bcr_common::core::NodeId;
-    use bcr_ebill_api::service::transport_service::ResyncMode;
-    use bcr_ebill_core::protocol::event::{Event, EventEnvelope, IdentityBlockEvent};
-    use bcr_ebill_core::{
-        application::identity::Identity,
-        protocol::blockchain::{
-            Blockchain, BlockchainType,
-            identity::{
-                IdentityBlock, IdentityBlockPayload, IdentityBlockchain, IdentityProofBlockData,
-                IdentityUpdateBlockData,
-            },
-        },
-        protocol::crypto::BcrKeys,
-        protocol::file_reference::{FileReference, FileReferenceContext},
-        protocol::{EditOptionalFieldMode, File, Name, Sha256Hash, Timestamp},
-    };
-    use mockall::predicate::{always, eq};
-    use nostr::event::FinalizeEvent;
-
     use crate::handler::test_utils::update_identity_block_with_name;
     use crate::test_utils::{MockContactStore, signed_identity_proof_test, test_cfg, test_ts};
     use crate::{
@@ -818,6 +944,23 @@ pub mod tests {
         test_utils::{MockFileReferenceStore, MockNotificationJsonTransport},
         transport::create_public_chain_event,
     };
+    use bcr_common::core::NodeId;
+    use bcr_ebill_api::service::transport_service::ResyncMode;
+    use bcr_ebill_core::protocol::event::{Event, EventEnvelope, IdentityBlockEvent};
+    use bcr_ebill_core::{
+        application::identity::Identity,
+        protocol::blockchain::{
+            Blockchain, BlockchainType,
+            identity::{
+                IdentityBlock, IdentityBlockchain, IdentityProofBlockData, IdentityUpdateBlockData,
+            },
+        },
+        protocol::crypto::BcrKeys,
+        protocol::{Name, Sha256Hash, Timestamp},
+    };
+    use mockall::predicate::{always, eq};
+    use nostr::event::FinalizeEvent;
+    use std::sync::Arc;
 
     #[tokio::test]
     async fn test_create_event_handler() {
@@ -1333,142 +1476,6 @@ pub mod tests {
     ) -> IdentityBlock {
         IdentityBlock::create_block_for_identity_proof(previous_block, data, keys, test_ts())
             .expect("could not create block")
-    }
-
-    #[tokio::test]
-    async fn test_process_identity_block_effects_does_not_persist_block() {
-        let (mut chain_store, mut store, contact, _, _, _, _, _) = create_mocks();
-
-        let full = get_baseline_identity();
-        let identity = full.identity.clone();
-
-        let update_data = IdentityBlockPayload::Update(update_identity_block_with_name(Some(
-            Name::new("Updated").unwrap(),
-        )));
-
-        // CRITICAL: add_block should NEVER be called during side effect processing
-        chain_store.expect_add_block().times(0);
-
-        // Identity CAN be updated
-        store.expect_save().times(1).returning(|_| Ok(()));
-
-        let handler = IdentityChainEventProcessor::new(
-            Arc::new(chain_store),
-            Arc::new(store),
-            Arc::new(MockFileReferenceStore::new()),
-            Arc::new(MockNotificationHandlerApi::new()),
-            Arc::new(MockNotificationHandlerApi::new()),
-            Arc::new(contact),
-            Arc::new(MockNostrChainEventStore::new()),
-            Arc::new(MockNotificationJsonTransport::new()),
-            Arc::new(MockContactStore::new()),
-            bitcoin::Network::Testnet,
-            Arc::new(test_cfg()),
-        );
-
-        let mut test_identity = identity.clone();
-
-        // Call the side effect processing method directly
-        let result = handler
-            .process_identity_block_effects(&identity.node_id, &mut test_identity, update_data)
-            .await;
-
-        // Should succeed without persisting block
-        assert!(result.is_ok());
-        // Test passes if add_block was never called (mock verifies this)
-    }
-
-    #[tokio::test]
-    async fn test_process_identity_block_effects_anchors_inbound_files() {
-        let mut chain_store = MockIdentityChainStore::new();
-        let mut store = MockIdentityStore::new();
-        let mut file_reference_store = MockFileReferenceStore::new();
-        let full = get_baseline_identity();
-        let identity = full.identity.clone();
-
-        chain_store.expect_add_block().times(0);
-        store.expect_save().times(1).returning(|_| Ok(()));
-
-        let profile_picture_file = File {
-            name: Name::new("profile.png").unwrap(),
-            hash: Sha256Hash::new("identity_profile_file_hash_123456789"),
-            nostr_hash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-                .parse()
-                .unwrap(),
-        };
-        let expected_hash = profile_picture_file.hash.clone();
-        let expected_name = profile_picture_file.name.clone();
-
-        file_reference_store
-            .expect_upsert()
-            .withf(
-                move |hash: &Sha256Hash,
-                      _nostr_hash: &bitcoin::hashes::sha256::Hash,
-                      name: &Option<Name>,
-                      server_urls: &Vec<url::Url>,
-                      is_important: &Option<bool>,
-                      context: &Vec<FileReferenceContext>| {
-                    *hash == expected_hash
-                        && *name == Some(expected_name.clone())
-                        && server_urls.is_empty()
-                        && *is_important == Some(true)
-                        && context
-                            == &vec![FileReferenceContext::Identity {
-                                field: "profile_picture_file".to_string(),
-                            }]
-                },
-            )
-            .returning(
-                |hash: &Sha256Hash,
-                 nostr_hash: &bitcoin::hashes::sha256::Hash,
-                 name: Option<Name>,
-                 _: Vec<url::Url>,
-                 is_important: Option<bool>,
-                 context: Vec<FileReferenceContext>| {
-                    let mut file_ref = FileReference::new(hash.clone(), *nostr_hash, name);
-                    file_ref.is_important = is_important.unwrap_or(false);
-                    file_ref.context = context;
-                    Ok(file_ref)
-                },
-            )
-            .once();
-
-        let handler = IdentityChainEventProcessor::new(
-            Arc::new(chain_store),
-            Arc::new(store),
-            Arc::new(file_reference_store),
-            Arc::new(MockNotificationHandlerApi::new()),
-            Arc::new(MockNotificationHandlerApi::new()),
-            Arc::new(MockNostrContactProcessorApi::new()),
-            Arc::new(MockNostrChainEventStore::new()),
-            Arc::new(MockNotificationJsonTransport::new()),
-            Arc::new(MockContactStore::new()),
-            bitcoin::Network::Testnet,
-            Arc::new(test_cfg()),
-        );
-
-        let mut test_identity = identity.clone();
-        let update_data = IdentityBlockPayload::Update(IdentityUpdateBlockData {
-            t: None,
-            name: None,
-            email: None,
-            country: None,
-            city: None,
-            zip: EditOptionalFieldMode::Ignore,
-            address: None,
-            date_of_birth: EditOptionalFieldMode::Ignore,
-            country_of_birth: EditOptionalFieldMode::Ignore,
-            city_of_birth: EditOptionalFieldMode::Ignore,
-            identification_number: EditOptionalFieldMode::Ignore,
-            profile_picture_file: EditOptionalFieldMode::Set(profile_picture_file),
-            identity_document_file: EditOptionalFieldMode::Ignore,
-        });
-
-        let result = handler
-            .process_identity_block_effects(&identity.node_id, &mut test_identity, update_data)
-            .await;
-
-        assert!(result.is_ok());
     }
 
     fn create_mocks() -> (
