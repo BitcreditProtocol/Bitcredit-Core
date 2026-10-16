@@ -8,6 +8,10 @@ use thiserror::Error;
 /// Generic error type
 #[derive(Debug, Error)]
 pub enum Error {
+    /// errors stemming from internal errors
+    #[error("internal error")]
+    Internal(String),
+
     /// errors stemming from resources that were not found
     #[error("not found")]
     NotFound,

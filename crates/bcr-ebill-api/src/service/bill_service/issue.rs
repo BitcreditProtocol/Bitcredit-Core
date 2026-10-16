@@ -1,4 +1,5 @@
-use super::{BillAction, BillServiceApi, Result, error::Error, service::BillService};
+use super::{BillAction, Result, error::Error, service::BillService};
+use crate::service::bill_service::blocks::PreparedSignerBlocks;
 use crate::service::file_reference_helper::{bill_file_context, encrypt_upload_and_track_file};
 use crate::{
     constants::MAX_BILL_ATTACHMENTS,
@@ -8,6 +9,9 @@ use crate::{
     util::validate_node_id_network,
 };
 use bcr_common::core::{BillId, NodeId};
+use bcr_ebill_core::protocol::blockchain::bill::{
+    BillBlock, BillValidateActionData, BillValidationActionMode, ContactType,
+};
 use bcr_ebill_core::protocol::{
     File, Name, PublicKey, Validate,
     blockchain::{
@@ -240,8 +244,8 @@ impl BillService {
         );
         block_data.validate()?;
 
-        self.store.save_keys(&bill_id, &bill_keys).await?;
-        let chain = BillBlockchain::new(
+        // prepare
+        let mut chain = BillBlockchain::new(
             &block_data,
             signing_keys.signatory_keys,
             signing_keys.company_keys,
@@ -250,31 +254,174 @@ impl BillService {
         )
         .map_err(|e| Error::Protocol(e.into()))?;
 
-        let block = chain.get_first_block();
-        self.blockchain_store.add_block(&bill.id, block).await?;
+        let issue_block = chain.get_first_block().clone();
+        let chain_after_issue = chain.clone();
 
-        self.add_identity_and_company_chain_blocks_for_signed_bill_action(
-            &data.drawer_public_data.clone(), // drawer is identified
+        let mut identity_chain = self.identity_blockchain_store.get_chain().await?;
+        let mut company_chain = match &data.drawer_public_data {
+            BillParticipant::Ident(drawer) if drawer.t == ContactType::Company => Some(
+                self.company_blockchain_store
+                    .get_chain(&drawer.node_id)
+                    .await?,
+            ),
+            _ => None,
+        };
+
+        let issue_signer_blocks = self.prepare_signer_blocks(
+            &data.drawer_public_data,
             &bill_id,
-            block,
+            &issue_block,
             &identity,
             &data.drawer_keys,
+            &mut identity_chain,
+            company_chain.as_mut(),
             data.timestamp,
             Some(bill_keys.clone()),
-        )
-        .await?;
+        )?;
 
-        // Calculate bill and persist it to cache
-        self.recalculate_and_persist_bill(
-            &bill_id,
-            &chain,
-            &bill_keys,
-            &identity.identity,
-            &data.drawer_public_data,
-            &data.drawer_keys,
-            data.timestamp,
-        )
-        .await?;
+        // handle auto-accepting the bill with timestamp increased by 1 sec if we're the drawee
+        let mut auto_accept: Option<(BillBlock, PreparedSignerBlocks)> = None;
+        let final_timestamp = if bill.drawer.node_id == bill.drawee.node_id {
+            debug!("we are drawer and drawee of bill: {bill_id} - immediately accepting");
+            let accept_timestamp = data.timestamp + 1;
+            let accept_action = BillAction::Accept;
+            BillValidateActionData {
+                blockchain: chain.clone(),
+                drawee_node_id: bill.drawee.node_id.clone(),
+                payee_node_id: bill.payee.node_id(),
+                endorsee_node_id: None,
+                maturity_date: bill.maturity_date.clone(),
+                bill_keys: bill_keys.clone(),
+                timestamp: accept_timestamp,
+                signer_node_id: data.drawer_public_data.node_id(),
+                is_paid: false,
+                mode: BillValidationActionMode::Deep(accept_action.clone()),
+            }
+            .validate()?;
+            let accept_block = self
+                .prepare_bill_action_block(
+                    &bill,
+                    &mut chain,
+                    &bill_keys,
+                    &accept_action,
+                    &data.drawer_public_data,
+                    &data.drawer_keys,
+                    &identity,
+                    accept_timestamp,
+                )
+                .await?;
+            let accept_signer_blocks = self.prepare_signer_blocks(
+                &data.drawer_public_data,
+                &bill_id,
+                &accept_block,
+                &identity,
+                &data.drawer_keys,
+                &mut identity_chain,
+                company_chain.as_mut(),
+                accept_timestamp,
+                None,
+            )?;
+            auto_accept = Some((accept_block, accept_signer_blocks));
+            accept_timestamp
+        } else {
+            data.timestamp
+        };
+
+        // Calculate bill for caching
+        let calculated_bill = self
+            .calculate_full_bill(
+                &chain,
+                &bill_keys,
+                &identity.identity,
+                &data.drawer_public_data,
+                &data.drawer_keys,
+                final_timestamp,
+            )
+            .await?;
+
+        // persist - TODO (tx): make transactional
+
+        self.store.save_keys(&bill_id, &bill_keys).await?;
+
+        // bill block
+        self.blockchain_store
+            .add_block(&bill_id, &issue_block)
+            .await?;
+
+        // company block
+        if let Some(company) = &issue_signer_blocks.company_block {
+            self.company_blockchain_store
+                .add_block(&company.company_id, &company.block)
+                .await?;
+        }
+
+        // identity block
+        self.identity_blockchain_store
+            .add_block(&issue_signer_blocks.identity_block)
+            .await?;
+
+        // automatic accept
+        if let Some((accept_block, accept_signer_blocks)) = &auto_accept {
+            self.blockchain_store
+                .add_block(&bill_id, accept_block)
+                .await?;
+            if let Some(company) = &accept_signer_blocks.company_block {
+                self.company_blockchain_store
+                    .add_block(&company.company_id, &company.block)
+                    .await?;
+            }
+            self.identity_blockchain_store
+                .add_block(&accept_signer_blocks.identity_block)
+                .await?;
+        }
+
+        self.store
+            .save_bill_to_cache(
+                &bill_id,
+                &data.drawer_public_data.node_id(),
+                &calculated_bill,
+            )
+            .await?;
+
+        // effects & propagation
+
+        self.propagate_prepared_signer_blocks(&issue_signer_blocks, &identity)
+            .await?;
+
+        // send notification to all required recipients
+        if let Err(e) = self
+            .transport_service
+            .send_bill_is_signed_event(&BillChainEvent::new(
+                &bill,
+                &chain_after_issue, // after issue, in case we auto-accept
+                &bill_keys,
+                true,
+                &identity.identity.node_id,
+            )?)
+            .await
+        {
+            error!("Error propagating bill via Nostr {e}");
+        }
+
+        // propagate auto-accept blocks and notifications
+        if let Some((_accept_block, accept_signer_blocks)) = &auto_accept {
+            self.propagate_prepared_signer_blocks(accept_signer_blocks, &identity)
+                .await?;
+            let contacts = self.contact_store.get_map().await?;
+            self.notify_for_block_action(
+                &chain,
+                &bill_keys,
+                &BillAction::Accept,
+                &identity.identity,
+                &contacts,
+                &data.drawer_public_data.node_id(),
+            )
+            .await?;
+        }
+
+        debug!("issued bill with id {bill_id}");
+
+        // cleanup
 
         // clean up temporary file uploads, if there are any, logging any errors
         for file_upload_id in data.file_upload_ids.iter() {
@@ -288,36 +435,6 @@ impl BillService {
                     file_upload_id
                 );
             }
-        }
-
-        // send notification and blocks to all required recipients
-        if let Err(e) = self
-            .transport_service
-            .send_bill_is_signed_event(&BillChainEvent::new(
-                &bill,
-                &chain,
-                &bill_keys,
-                true,
-                &identity.identity.node_id,
-            )?)
-            .await
-        {
-            error!("Error propagating bill via Nostr {e}");
-        }
-
-        debug!("issued bill with id {bill_id}");
-
-        // If we're the drawee, we immediately accept the bill with timestamp increased by 1 sec
-        if bill.drawer.node_id == bill.drawee.node_id {
-            debug!("we are drawer and drawee of bill: {bill_id} - immediately accepting");
-            self.execute_bill_action(
-                &bill_id,
-                BillAction::Accept,
-                &data.drawer_public_data,
-                &data.drawer_keys,
-                data.timestamp + 1,
-            )
-            .await?;
         }
 
         Ok(bill)
