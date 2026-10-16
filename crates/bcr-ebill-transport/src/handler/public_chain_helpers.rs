@@ -43,6 +43,28 @@ pub fn compare_chains(a: &[EventContainer], b: &[EventContainer]) -> std::cmp::O
         })
 }
 
+/// Same as compare chains, but on a block-chain level
+/// Precedence is:
+/// 1. Longer chain wins
+/// 2. Earlier tip  wins
+/// 3. Fork point at divergent hash
+pub fn compare_block_chains<B: Block>(a: &[B], b: &[B]) -> std::cmp::Ordering {
+    b.len()
+        .cmp(&a.len())
+        .then_with(|| match (a.last(), b.last()) {
+            (Some(a_tip), Some(b_tip)) => a_tip.timestamp().cmp(&b_tip.timestamp()),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => std::cmp::Ordering::Equal,
+        })
+        .then_with(|| match (a.last(), b.last()) {
+            (Some(a_tip), Some(b_tip)) => a_tip.hash().cmp(b_tip.hash()),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => std::cmp::Ordering::Equal,
+        })
+}
+
 /// Compares two unpacked chains for sorting, fork detection and fork point extraction. Returns
 /// whether remote chain should be preferred over local chain and if remote is a fork an optional
 /// fork point. When this function is changed we also need to change the `compare_chains` function
@@ -52,25 +74,7 @@ pub fn compare_chains(a: &[EventContainer], b: &[EventContainer]) -> std::cmp::O
 /// 2. Earlier tip  wins
 /// 3. Fork point at divergent hash
 pub fn resolve_fork<B: Block>(local: &[B], remote: &[B]) -> (bool, Option<BlockId>) {
-    let remote_preferred = {
-        let local_len = local.len();
-        let remote_len = remote.len();
-        if remote_len != local_len {
-            remote_len > local_len
-        } else {
-            match (remote.last(), local.last()) {
-                (Some(remote_tip), Some(local_tip)) => {
-                    match remote_tip.timestamp().cmp(&local_tip.timestamp()) {
-                        std::cmp::Ordering::Less => true,
-                        std::cmp::Ordering::Greater => false,
-                        std::cmp::Ordering::Equal => remote_tip.hash() < local_tip.hash(),
-                    }
-                }
-                (Some(_), None) => true,
-                _ => false,
-            }
-        }
-    };
+    let remote_preferred = compare_block_chains(remote, local) == std::cmp::Ordering::Less;
 
     if !remote_preferred {
         return (false, None);

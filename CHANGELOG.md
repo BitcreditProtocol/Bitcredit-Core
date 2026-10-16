@@ -37,6 +37,7 @@
         * The active instance can be gotten via `getActiveInstance`
         * An instance can be reset using `resetEbillInstance` and can then be initialized again
 * Remove SurrealDB
+* Improved chain selection for identity resync-chain and recovery in the cases of longer chains with invalid tails
 
 # 0.5.16
 
