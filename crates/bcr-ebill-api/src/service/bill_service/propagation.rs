@@ -1,19 +1,51 @@
 use std::collections::HashMap;
 
+use crate::service::bill_service::blocks::PreparedSignerBlocks;
+
 use super::{BillAction, Result, service::BillService};
 use bcr_common::core::NodeId;
 use bcr_ebill_core::{
-    application::contact::Contact,
-    application::identity::Identity,
+    application::{
+        contact::Contact,
+        identity::{Identity, IdentityWithAll},
+    },
     protocol::{
         blockchain::bill::{BillBlockchain, RecourseReason},
         crypto::BcrKeys,
-        event::ActionType,
-        event::BillChainEvent,
+        event::{ActionType, BillChainEvent, CompanyChainEvent, IdentityChainEvent},
     },
 };
 
 impl BillService {
+    pub(super) async fn propagate_prepared_signer_blocks(
+        &self,
+        prepared: &PreparedSignerBlocks,
+        identity: &IdentityWithAll,
+    ) -> Result<()> {
+        if let Some(company) = &prepared.company_block {
+            self.transport_service
+                .block_transport()
+                .send_company_chain_events(CompanyChainEvent::new(
+                    &company.company_id,
+                    &company.chain,
+                    &company.company_keys,
+                    None,
+                    true,
+                ))
+                .await?;
+        }
+
+        self.transport_service
+            .block_transport()
+            .send_identity_chain_events(IdentityChainEvent::new(
+                &identity.identity.node_id,
+                &prepared.identity_block,
+                &identity.key_pair,
+            ))
+            .await?;
+
+        Ok(())
+    }
     pub(super) async fn notify_for_block_action(
         &self,
         blockchain: &BillBlockchain,

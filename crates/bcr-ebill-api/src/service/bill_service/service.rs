@@ -35,7 +35,7 @@ use bcr_ebill_core::protocol::blockchain::bill::{
 };
 use bcr_ebill_core::protocol::blockchain::{Blockchain, identity::IdentityType};
 use bcr_ebill_core::protocol::crypto::{self, BcrKeys};
-use bcr_ebill_core::protocol::event::ActionType;
+use bcr_ebill_core::protocol::event::{ActionType, BillEventType};
 use bcr_ebill_core::protocol::mint::{MintRequest, MintRequestState, MintRequestStatus};
 use bcr_ebill_core::protocol::{BitcoinAddress, Email};
 use bcr_ebill_core::protocol::{BlockId, PublicKey};
@@ -758,6 +758,34 @@ impl BillService {
 
         Ok(file_urls)
     }
+
+    pub(super) async fn create_local_notification_for_bill_action(
+        &self,
+        bill: &BitcreditBill,
+        bill_action: &BillAction,
+        signer_node_id: &NodeId,
+    ) -> Result<()> {
+        let event_type = match bill_action {
+            BillAction::Sell(_) => Some(BillEventType::BillSold),
+            BillAction::Recourse(_) => Some(BillEventType::BillRecoursePaid),
+            _ => None,
+        };
+
+        if let Some(event_type) = event_type {
+            self.transport_service
+                .notification_transport()
+                .create_local_bill_notification(
+                    signer_node_id,
+                    &bill.id,
+                    event_type,
+                    Some(ActionType::CheckBill),
+                    Some(bill.sum.clone()),
+                )
+                .await?;
+        }
+
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -1208,31 +1236,92 @@ impl BillServiceApi for BillService {
         .validate()?;
 
         // create and sign blocks
-        self.create_blocks_for_bill_action(
-            &bill,
-            &mut blockchain,
-            &bill_keys,
-            &bill_action,
-            &signer_public_data.clone(),
-            signer_keys,
-            &identity,
-            timestamp,
-        )
-        .await?;
+        let bill_block = self
+            .prepare_bill_action_block(
+                &bill,
+                &mut blockchain,
+                &bill_keys,
+                &bill_action,
+                &signer_public_data.clone(),
+                signer_keys,
+                &identity,
+                timestamp,
+            )
+            .await?;
 
-        // Calculate bill and persist it to cache
-        self.recalculate_and_persist_bill(
-            bill_id,
-            &blockchain,
-            &bill_keys,
-            &identity.identity,
+        let mut identity_chain = self.identity_blockchain_store.get_chain().await?;
+        let mut company_chain = match signer_public_data {
+            BillParticipant::Ident(signer) if signer.t == ContactType::Company => Some(
+                self.company_blockchain_store
+                    .get_chain(&signer.node_id)
+                    .await?,
+            ),
+            _ => None,
+        };
+
+        let signer_blocks = self.prepare_signer_blocks(
             signer_public_data,
+            bill_id,
+            &bill_block,
+            &identity,
             signer_keys,
+            &mut identity_chain,
+            company_chain.as_mut(),
             timestamp,
-        )
-        .await?;
+            None,
+        )?;
 
-        // notify and propagate blocks
+        // Calculate bill for caching
+        let calculated_bill = self
+            .calculate_full_bill(
+                &blockchain,
+                &bill_keys,
+                &identity.identity,
+                signer_public_data,
+                signer_keys,
+                timestamp,
+            )
+            .await?;
+
+        // persist - TODO (tx): make transactional
+
+        self.blockchain_store
+            .add_block(bill_id, &bill_block)
+            .await?;
+
+        if let Some(company) = &signer_blocks.company_block {
+            self.company_blockchain_store
+                .add_block(&company.company_id, &company.block)
+                .await?;
+        }
+
+        self.identity_blockchain_store
+            .add_block(&signer_blocks.identity_block)
+            .await?;
+
+        self.store
+            .save_bill_to_cache(bill_id, &signer_public_data.node_id(), &calculated_bill)
+            .await?;
+
+        // effects & propagation
+
+        if let Err(e) = self
+            .create_local_notification_for_bill_action(
+                &bill,
+                &bill_action,
+                &signer_public_data.node_id(),
+            )
+            .await
+        {
+            error!(
+                "Couldn't create local notification for bill action {:?} for bill {bill_id}: {e}",
+                bill_action
+            );
+        }
+
+        self.propagate_prepared_signer_blocks(&signer_blocks, &identity)
+            .await?;
+
         self.notify_for_block_action(
             &blockchain,
             &bill_keys,
