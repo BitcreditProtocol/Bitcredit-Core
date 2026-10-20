@@ -140,6 +140,12 @@ pub trait CompanyChainEventProcessorApi: ServiceTraitBounds {
     /// then try to find the chain data for the given company id. Will add all potentially missing
     /// blocks to the chain.
     async fn resync_chain(&self, company_id: &NodeId, mode: ResyncMode) -> Result<()>;
+    async fn valid_chain_prefix_len(
+        &self,
+        company_id: &NodeId,
+        blocks: &[CompanyBlock],
+        keys: &BcrKeys,
+    ) -> Result<usize>;
 }
 
 #[cfg(test)]

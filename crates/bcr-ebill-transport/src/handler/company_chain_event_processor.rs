@@ -514,6 +514,28 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
             }
         }
     }
+
+    async fn valid_chain_prefix_len(
+        &self,
+        company_id: &NodeId,
+        blocks: &[CompanyBlock],
+        keys: &BcrKeys,
+    ) -> Result<usize> {
+        let identity = self
+            .identity_store
+            .get()
+            .await
+            .map_err(|e| Error::Persistence(e.to_string()))?
+            .node_id;
+        let prepared = self.prepare_company_chain_valid_prefix(blocks, keys, &identity)?;
+        if &prepared.company_id != company_id {
+            return Err(Error::Blockchain(format!(
+                "Company chain belongs to {}, expected {}",
+                prepared.company_id, company_id,
+            )));
+        }
+        Ok(prepared.chain.blocks().len())
+    }
 }
 
 impl CompanyChainEventProcessor {
