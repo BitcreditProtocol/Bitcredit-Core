@@ -1,5 +1,6 @@
 # 0.6.0
 
+* CI: Dependabot checks Pub dependencies in the Flutter plugin and example; vendored Cargokit is excluded
 * Remove `bcr-ebill-wasm` - the PWA version of this is now deprecated, the last published version is 0.5.16 (and potential hotfixes)
 * Add `bcr-ebill-flutter-ffi` - the Native Flutter FFI Library version, which will be the main entry point going forward
 * Create a flutter test harness in the `example` folder
