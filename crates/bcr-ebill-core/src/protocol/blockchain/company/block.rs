@@ -152,7 +152,7 @@ pub struct CompanyIdentityProofBlockData {
                                           // optional because for changing email, there's no reference block
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VerifyAndGetSignerData {
     pub signer: NodeId,
     pub invitee: Option<NodeId>,
@@ -160,7 +160,7 @@ pub struct VerifyAndGetSignerData {
     pub identity_proof_data: Option<(SignedIdentityProof, EmailIdentityProofData, Option<BlockId>)>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum CompanyBlockPayload {
     Create(CompanyCreateBlockData),
     Update(CompanyUpdateBlockData),

@@ -3,8 +3,8 @@ use crate::{
     handler::{
         NotificationHandlerApi,
         public_chain_helpers::{
-            BlockData, chain_matches_local, find_first_difference, is_fork_block,
-            resolve_event_chains, resolve_fork,
+            BlockData, chain_matches_local, compare_block_chains, find_first_difference,
+            is_fork_block, resolve_event_chains, resolve_fork,
         },
     },
 };
@@ -22,10 +22,12 @@ use bcr_ebill_core::{
         notification::{Notification, NotificationLevel, NotificationType},
     },
     protocol::{
-        EditOptionalFieldMode, Validate,
+        EditOptionalFieldMode, EmailIdentityProofData, File, SignedIdentityProof, Timestamp,
+        Validate,
         blockchain::{Block, bill::ContactType, company::CompanyValidateActionData},
         crypto::BcrKeys,
         event::{ChainInvite, Event},
+        file_reference::FileReferenceContext,
     },
 };
 use log::{debug, error, info, trace, warn};
@@ -65,6 +67,38 @@ pub struct CompanyChainEventProcessor {
     contact_store: Arc<dyn ContactStoreApi>,
     bitcoin_network: bitcoin::Network,
     config: Arc<Config>,
+}
+
+#[derive(Debug, Clone)]
+struct PreparedCompanyBlock {
+    block_id: BlockId,
+    timestamp: Timestamp,
+    payload: CompanyBlockPayload,
+    company_changed: bool,
+    email_confirmation: Option<PreparedCompanyEmailConfirmation>,
+    files_to_anchor: Vec<PreparedFileAnchor>,
+}
+
+#[derive(Debug, Clone)]
+struct PreparedCompanyEmailConfirmation {
+    proof: SignedIdentityProof,
+    data: EmailIdentityProofData,
+}
+
+#[derive(Debug, Clone)]
+struct PreparedFileAnchor {
+    file: File,
+    context: FileReferenceContext,
+}
+
+#[derive(Debug, Clone)]
+struct PreparedCompanyChain {
+    company_id: NodeId,
+    initial_company: Company, // state after create
+    company: Company,         // final company, aggregated from all state changes
+    chain: CompanyBlockchain,
+    blocks: Vec<PreparedCompanyBlock>,
+    create_files_to_anchor: Vec<PreparedFileAnchor>,
 }
 
 #[async_trait]
@@ -133,8 +167,24 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
             self.blockchain_store.get_chain(company_id).await,
             self.company_store.get_key_pair(company_id).await,
         ) {
-            (Ok(mut existing_chain), Ok(company_keys)) => {
+            (Ok(existing_chain), Ok(company_keys)) => {
                 debug!("starting company chain resync for company {company_id}");
+
+                let expected_local_tip = existing_chain.get_latest_block().clone();
+
+                let Ok(chain_data) = resolve_event_chains(
+                    self.transport.clone(),
+                    &company_id.to_string(),
+                    BlockchainType::Company,
+                    &Some(company_keys.to_owned()),
+                )
+                .await
+                else {
+                    let message =
+                        format!("Could not refetch chain data from Nostr for company {company_id}");
+                    error!("{message}");
+                    return Err(Error::Network(message));
+                };
 
                 // Pre-fetch identity needed for block processing
                 let identity = self
@@ -144,15 +194,18 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
                     .map_err(|e| Error::Persistence(e.to_string()))?
                     .node_id;
 
-                if let Ok(chain_data) = resolve_event_chains(
-                    self.transport.clone(),
-                    &company_id.to_string(),
-                    BlockchainType::Company,
-                    &Some(company_keys.to_owned()),
-                )
-                .await
-                {
-                    for data in chain_data.iter() {
+                if let ResyncMode::OnlyMissingMetadata { ref up_to_hash } = mode {
+                    let Some(local_chain_end) = existing_chain
+                        .blocks()
+                        .iter()
+                        .position(|block| block.hash() == up_to_hash)
+                    else {
+                        return Err(Error::Blockchain(format!(
+                            "Could not restore Nostr metadata for company {company_id}: block with hash {up_to_hash} does not exist in the local chain"
+                        )));
+                    };
+                    let local_blocks = &existing_chain.blocks()[..=local_chain_end];
+                    for data in &chain_data {
                         let blocks: Vec<CompanyBlock> = data
                             .iter()
                             .filter_map(|d| match d.block.clone() {
@@ -160,97 +213,62 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
                                 _ => None,
                             })
                             .collect();
-
                         if blocks.is_empty() {
                             continue;
                         }
+                        // we're only interested in remote chains with the same blocks we have locally
+                        if !chain_matches_local(local_blocks, &blocks) {
+                            continue;
+                        }
 
-                        let fork_point = match mode {
-                            ResyncMode::Normal => {
-                                let (is_preferred, fork_point) =
-                                    resolve_fork(existing_chain.blocks(), &blocks);
-
-                                if !is_preferred {
-                                    continue;
-                                }
-
-                                fork_point
+                        let existing_events = match self
+                            .chain_event_store
+                            .find_chain_events(&company_id.to_string(), BlockchainType::Company)
+                            .await
+                        {
+                            Ok(ev) => ev,
+                            Err(e) => {
+                                error!(
+                                    "Failed to fetch chain events for company {company_id}: {e}"
+                                );
+                                return Err(Error::Persistence(format!(
+                                    "Failed to fetch chain events for company {company_id}: {e}"
+                                )));
                             }
-                            // In this mode, we want to find the point where the local chain diverges from the Nostr chain
-                            ResyncMode::NostrAuthoritative => {
-                                find_first_difference(existing_chain.blocks(), &blocks)
+                        };
+
+                        let existing_block_hashes: HashSet<_> = existing_events
+                            .iter()
+                            .map(|event| event.block_hash.clone())
+                            .collect();
+
+                        let mut events_added = 0;
+                        // match local blocks and event containers - these are guaranteed to match because of
+                        // the chain_matches_local check above
+                        for (local_block, event_container) in
+                            local_blocks
+                                .iter()
+                                .zip(data.iter().filter(|event_container| {
+                                    matches!(event_container.block, BlockData::Company(_))
+                                }))
+                        {
+                            let BlockData::Company(remote_block) = &event_container.block else {
+                                continue;
+                            };
+
+                            // if we have the block as a chain event - continue
+                            if existing_block_hashes.contains(&local_block.hash) {
+                                continue;
                             }
 
-                            // In this mode, we don't care about local, or remote chain divergences, we're just adding missing metadata for local, unpublished blocks
-                            ResyncMode::OnlyMissingMetadata { ref up_to_hash } => {
-                                let Some(local_chain_end) = existing_chain
-                                    .blocks()
-                                    .iter()
-                                    .position(|block| block.hash() == up_to_hash)
-                                else {
-                                    return Err(Error::Blockchain(format!(
-                                        "Could not restore Nostr metadata for company {company_id}: block with hash {up_to_hash} does not exist in the local chain"
-                                    )));
-                                };
-                                let local_blocks = &existing_chain.blocks()[..=local_chain_end];
+                            // otherwise, add it
+                            let event = event_container.as_chain_store_event(
+                                &company_id.to_string(),
+                                BlockchainType::Company,
+                                remote_block.id.inner() as usize,
+                            );
 
-                                // we're only interested in remote chains with the same blocks we have locally
-                                if !chain_matches_local(local_blocks, &blocks) {
-                                    continue;
-                                }
-
-                                let existing_events = match self
-                                    .chain_event_store
-                                    .find_chain_events(
-                                        &company_id.to_string(),
-                                        BlockchainType::Company,
-                                    )
-                                    .await
-                                {
-                                    Ok(ev) => ev,
-                                    Err(e) => {
-                                        error!(
-                                            "Failed to fetch chain events for company {company_id}: {e}"
-                                        );
-                                        return Err(Error::Persistence(format!(
-                                            "Failed to fetch chain events for company {company_id}: {e}"
-                                        )));
-                                    }
-                                };
-
-                                let existing_block_hashes: HashSet<_> = existing_events
-                                    .iter()
-                                    .map(|event| event.block_hash.clone())
-                                    .collect();
-
-                                let mut events_added = 0;
-                                // match local blocks and event containers - these are guaranteed to match because of
-                                // the chain_matches_local check above
-                                for (local_block, event_container) in
-                                    local_blocks
-                                        .iter()
-                                        .zip(data.iter().filter(|event_container| {
-                                            matches!(event_container.block, BlockData::Company(_))
-                                        }))
-                                {
-                                    let BlockData::Company(remote_block) = &event_container.block
-                                    else {
-                                        continue;
-                                    };
-
-                                    // if we have the block as a chain event - continue
-                                    if existing_block_hashes.contains(&local_block.hash) {
-                                        continue;
-                                    }
-
-                                    // otherwise, add it
-                                    let event = event_container.as_chain_store_event(
-                                        &company_id.to_string(),
-                                        BlockchainType::Company,
-                                        remote_block.id.inner() as usize,
-                                    );
-
-                                    self.chain_event_store
+                            self.chain_event_store
                                             .add_chain_event(event)
                                             .await
                                             .map_err(|e| {
@@ -265,134 +283,227 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
                                                 ))
                                             })?;
 
-                                    events_added += 1;
-                                }
-
-                                if events_added > 0 {
-                                    info!(
-                                        "Restored {events_added} missing Nostr chain event(s) for company {company_id} up to block hash {up_to_hash}"
-                                    );
-                                }
-
-                                return Ok(());
-                            }
-                        };
-
-                        if matches!(mode, ResyncMode::NostrAuthoritative)
-                            && fork_point == Some(BlockId::first())
-                        {
-                            return Err(Error::Blockchain(
-                                    "Nostr-authoritative resync cannot replace a differing genesis block".to_string(),
-                            ));
+                            events_added += 1;
                         }
 
-                        let mut test_chain = existing_chain.clone();
-                        if let Some(fork_id) = &fork_point {
-                            test_chain.truncate_from(*fork_id);
+                        if events_added > 0 {
+                            info!(
+                                "Restored {events_added} missing Nostr chain event(s) for company {company_id} up to block hash {up_to_hash}"
+                            );
                         }
 
-                        match self.validate_company_blocks_for_chain(
-                            &mut test_chain,
-                            &blocks,
-                            &company_keys,
-                        ) {
-                            Ok(()) => {
-                                if let Some(fork_id) = fork_point {
-                                    info!(
-                                        "Fork resolution for company {company_id}: replacing blocks from height {fork_id} with preferred remote chain"
-                                    );
-                                    if let Err(e) = self
-                                        .blockchain_store
-                                        .remove_blocks_from_height(company_id, fork_id)
-                                        .await
-                                    {
-                                        error!(
-                                            "Failed to remove blocks from height for company {company_id}: {e}"
-                                        );
-                                        return Err(Error::Persistence(
-                                            "Failed to remove blocks from height for fork resolution"
-                                                .to_string(),
-                                        ));
-                                    }
-                                    existing_chain.truncate_from(fork_id);
-                                }
+                        return Ok(());
+                    }
 
-                                if let Err(e) = self
-                                    .add_company_blocks(
-                                        company_id,
-                                        &mut existing_chain,
-                                        blocks,
-                                        &identity,
-                                        true,
-                                    )
-                                    .await
-                                {
-                                    error!(
-                                        "Failed to add blocks after truncation for company {company_id}: {e}"
-                                    );
-                                    return Err(e);
-                                }
+                    let message = format!(
+                        "Could not restore Nostr metadata for company {company_id}: no Nostr chain matches the local company chain"
+                    );
+                    error!("{message}");
+                    return Err(Error::Blockchain(message));
+                }
 
-                                if let Err(e) = self
-                                    .chain_event_store
-                                    .remove_chain_events(
-                                        &company_id.to_string(),
-                                        BlockchainType::Company,
-                                    )
-                                    .await
-                                {
-                                    error!(
-                                        "Failed to invalidate old company chain events during resync: {e}"
-                                    );
-                                }
+                let mut candidates: Vec<(usize, PreparedCompanyChain, Option<BlockId>)> =
+                    Vec::new();
 
-                                for event_container in data.iter() {
-                                    let event = event_container.as_chain_store_event(
-                                        &company_id.to_string(),
-                                        BlockchainType::Company,
-                                        event_container.block.get_block_height() as usize,
-                                    );
-                                    if let Err(e) =
-                                        self.chain_event_store.add_chain_event(event).await
-                                    {
-                                        error!(
-                                            "Failed to store company chain event during resync: {e}"
-                                        );
-                                    }
-                                }
+                let mut saw_authoritative_genesis_mismatch = false;
 
-                                debug!(
-                                    "resynced company {company_id} with {} remote events",
-                                    data.len()
-                                );
-                                return Ok(());
-                            }
-                            Err(e) => {
-                                debug!(
-                                    "Chain candidate failed validation for company {company_id}: {e}"
-                                );
+                for (data_index, data) in chain_data.iter().enumerate() {
+                    let blocks: Vec<CompanyBlock> = data
+                        .iter()
+                        .filter_map(|d| match d.block.clone() {
+                            BlockData::Company(block) => Some(block),
+                            _ => None,
+                        })
+                        .collect();
+                    if blocks.is_empty() {
+                        continue;
+                    }
+                    // turn raw Nostr chain into longest protocol-valid prefix chain
+                    let prepared = match self.prepare_company_chain_valid_prefix(
+                        &blocks,
+                        &company_keys,
+                        &identity,
+                    ) {
+                        Ok(prepared) => prepared,
+                        Err(e) => {
+                            debug!(
+                                "Company chain candidate could not produce a valid genesis for {company_id}: {e}"
+                            );
+                            continue;
+                        }
+                    };
+
+                    if &prepared.company_id != company_id {
+                        debug!(
+                            "Ignoring company chain candidate for {}, expected {company_id}",
+                            prepared.company_id
+                        );
+                        continue;
+                    }
+
+                    let replace_from = match mode {
+                        ResyncMode::Normal => {
+                            let (is_preferred, fork_point) =
+                                resolve_fork(existing_chain.blocks(), prepared.chain.blocks());
+                            if !is_preferred {
                                 continue;
                             }
+                            fork_point
+                        }
+                        ResyncMode::NostrAuthoritative => {
+                            let difference = find_first_difference(
+                                existing_chain.blocks(),
+                                prepared.chain.blocks(),
+                            );
+                            if difference == Some(BlockId::first()) {
+                                saw_authoritative_genesis_mismatch = true;
+                                continue;
+                            }
+                            difference
+                        }
+                        ResyncMode::OnlyMissingMetadata { .. } => {
+                            // metadata-only resync handled above
+                            return Ok(());
+                        }
+                    };
+                    candidates.push((data_index, prepared, replace_from));
+                }
+
+                // sort candidates by their protocol-valid chains
+                candidates.sort_by(|(_, a, _), (_, b, _)| {
+                    compare_block_chains(a.chain.blocks(), b.chain.blocks())
+                });
+
+                // select the best chain
+                let Some((selected_data_index, prepared, replace_from)) =
+                    candidates.into_iter().next()
+                else {
+                    if matches!(mode, ResyncMode::NostrAuthoritative)
+                        && saw_authoritative_genesis_mismatch
+                    {
+                        return Err(Error::Blockchain(
+                            "Nostr-authoritative resync could not find a valid company chain with matching genesis".to_string(),
+                        ));
+                    }
+                    debug!(
+                        "finished company chain resync for {company_id} - no preferred valid remote chain found"
+                    );
+
+                    return Ok(());
+                };
+
+                let data = &chain_data[selected_data_index];
+                // the point from which the chain is different
+                // normal:
+                // local:   1 2 3
+                // remote:  1 2 3 4 5
+                // replace_from = None
+                // changed_from = 4
+                //
+                // fork:
+                // local:   1 2 3A 4A
+                // remote:  1 2 3B 4B 5B
+                // replace_from = Some(3)
+                // changed_from = 3
+                let changed_from = replace_from.unwrap_or_else(|| {
+                    BlockId::next_from_previous_block_id(&expected_local_tip.id)
+                });
+
+                let replacement_blocks: Vec<CompanyBlock> = prepared
+                    .chain
+                    .blocks()
+                    .iter()
+                    .filter(|block| block.id >= changed_from)
+                    .cloned()
+                    .collect();
+
+                let canonical_chain_changed = replace_from.is_some()
+                    || prepared.chain.blocks().len() != existing_chain.blocks().len();
+
+                // persist - TODO (tx): make transactional
+                if canonical_chain_changed {
+                    if let Some(replace_from) = replace_from {
+                        self.blockchain_store
+                            .remove_blocks_from_height(company_id, replace_from)
+                            .await
+                            .map_err(|e| Error::Persistence(e.to_string()))?;
+                    }
+
+                    for block in &replacement_blocks {
+                        self.save_block(company_id, block).await?;
+                    }
+
+                    // Rebuild company from the winning chain
+                    self.company_store
+                        .update(company_id, &prepared.company)
+                        .await
+                        .map_err(|e| Error::Persistence(e.to_string()))?;
+
+                    for prepared_block in prepared
+                        .blocks
+                        .iter()
+                        .filter(|prepared_block| prepared_block.block_id >= changed_from)
+                    {
+                        if let Some(confirmation) = &prepared_block.email_confirmation {
+                            self.company_store
+                                .set_email_confirmation(
+                                    company_id,
+                                    &confirmation.proof,
+                                    &confirmation.data,
+                                )
+                                .await
+                                .map_err(|e| Error::Persistence(e.to_string()))?;
+                        }
+                        for anchor in &prepared_block.files_to_anchor {
+                            anchor_important_file(
+                                &self.file_reference_store,
+                                &anchor.file,
+                                anchor.context.clone(),
+                            )
+                            .await?;
                         }
                     }
-
-                    // if we get here, that means we didn't find a matching chain on nostr to update metadata
-                    if matches!(mode, ResyncMode::OnlyMissingMetadata { .. }) {
-                        let message = format!(
-                            "Could not restore Nostr metadata for company {company_id}: no Nostr chain matches the local company chain"
-                        );
-                        error!("{message}");
-                        return Err(Error::Blockchain(message));
-                    }
-
-                    debug!("finished company chain resync for {company_id}");
-                    Ok(())
-                } else {
-                    let message =
-                        format!("Could not refetch chain data from Nostr for company {company_id}");
-                    error!("{message}");
-                    Err(Error::Network(message))
                 }
+
+                // nostr-event updates
+                let accepted_block_count = prepared.chain.blocks().len();
+
+                if let Err(e) = self
+                    .chain_event_store
+                    .remove_chain_events(&company_id.to_string(), BlockchainType::Company)
+                    .await
+                {
+                    error!("Failed to invalidate old company chain events during resync: {e}");
+                }
+
+                // only save nostr events up to the last valid event
+                for event_container in data
+                    .iter()
+                    .filter(|event_container| {
+                        matches!(event_container.block, BlockData::Company(_))
+                    })
+                    .take(accepted_block_count)
+                {
+                    let event = event_container.as_chain_store_event(
+                        &company_id.to_string(),
+                        BlockchainType::Company,
+                        event_container.block.get_block_height() as usize,
+                    );
+                    if let Err(e) = self.chain_event_store.add_chain_event(event).await {
+                        error!("Failed to store company chain event during resync: {e}");
+                    }
+                }
+
+                // post-persistence effects for changed blocks
+                self.replay_prepared_company_effects(&prepared, &identity, Some(changed_from))
+                    .await?;
+
+                debug!(
+                    "finished company chain resync for {company_id} to valid remote block height {} from {} raw remote events",
+                    prepared.chain.get_latest_block().id,
+                    data.len(),
+                );
+                Ok(())
             }
             _ => {
                 let message = format!(
@@ -444,106 +555,116 @@ impl CompanyChainEventProcessor {
         keys: &BcrKeys,
         identity: &NodeId,
     ) -> Result<()> {
-        let (company_id, mut company, mut chain, we_are_signatory_or_invited) =
-            self.get_valid_chain(blocks.clone(), keys, identity)?;
-        if we_are_signatory_or_invited {
-            debug!(
-                "adding new chain and company {company_id} with {} blocks",
-                blocks.len()
-            );
-            // add the company
-            self.company_store.insert(&company).await.map_err(|e| {
+        let prepared = self.prepare_company_chain_valid_prefix(&blocks, keys, identity)?;
+        let company_id = prepared.company_id.clone();
+        let we_are_signatory_or_invited = matches!(
+            prepared.company.status,
+            CompanyStatus::Active | CompanyStatus::Invited
+        );
+        if !we_are_signatory_or_invited {
+            info!("We are not a signatory for company {company_id} so skipping chain");
+            return Ok(());
+        }
+
+        // persist - TODO (tx): make transactional
+
+        self.company_store
+            .insert(&prepared.company)
+            .await
+            .map_err(|e| {
                 error!("Failed to insert company {company_id}: {e}");
                 Error::Persistence(e.to_string())
             })?;
+        self.save_keys(&company_id, keys).await?;
 
-            // save keys
-            self.save_keys(&company_id, keys).await?;
+        // Save the first block of the chain as it is the create block
+        self.save_block(&company_id, prepared.chain.get_first_block())
+            .await?;
 
-            self.transport
-                .add_identity(company_id.clone(), keys.clone())
-                .await?;
+        // anchored files from create
+        for anchor in &prepared.create_files_to_anchor {
+            anchor_important_file(
+                &self.file_reference_store,
+                &anchor.file,
+                anchor.context.clone(),
+            )
+            .await?;
+        }
 
-            // save the first block
-            self.save_block(&company_id, chain.get_first_block())
-                .await?;
-
-            if let Some(file) = &company.logo_file {
-                anchor_important_file(
-                    &self.file_reference_store,
-                    file,
-                    company_file_context(&company.id, "logo_file"),
-                )
-                .await?;
-            }
-
-            if let Some(file) = &company.proof_of_registration_file {
-                anchor_important_file(
-                    &self.file_reference_store,
-                    file,
-                    company_file_context(&company.id, "proof_of_registration_file"),
-                )
-                .await?;
-            }
-
-            // save all blocks
-            for block in blocks.iter().skip(1) {
-                self.add_company_block(
-                    &company_id,
-                    keys,
-                    &mut company,
-                    &mut chain,
-                    block,
-                    identity,
-                )
-                .await?;
-            }
-
-            // also add the company to our nostr contacts
-            self.nostr_contact_processor
-                .ensure_nostr_contact(&company_id)
-                .await;
-
-            // as well as all the company signatories
-            for signatory in company.signatories.iter() {
-                self.nostr_contact_processor
-                    .ensure_nostr_contact(&signatory.node_id)
-                    .await;
-            }
-
-            // add to contacts without files if it's not there already, but don't fail
-            if let Ok(None) = self.contact_store.get(&company_id).await
-                && let Err(e) = self
-                    .contact_store
-                    .insert(
-                        &company_id,
-                        Contact {
-                            t: ContactType::Company,
-                            node_id: company_id.to_owned(),
-                            name: company.name.clone(),
-                            email: Some(company.email.clone()),
-                            postal_address: Some(company.postal_address.clone()),
-                            date_of_birth_or_registration: company.registration_date.clone(),
-                            country_of_birth_or_registration: company
-                                .country_of_registration
-                                .clone(),
-                            city_of_birth_or_registration: company.city_of_registration.clone(),
-                            identification_number: company.registration_number.clone(),
-                            avatar_file: None,
-                            proof_document_file: None,
-                            nostr_relays: self.config.nostr_config.relays.clone(),
-                            is_logical: false,
-                            mint_url: Some(self.config.mint_config.default_mint_url.clone()),
-                        },
-                    )
+        // remaining blocks and state derived from them
+        for (block, prepared_block) in prepared.chain.blocks().iter().skip(1).zip(&prepared.blocks)
+        {
+            self.save_block(&company_id, block).await?;
+            if let Some(confirmation) = &prepared_block.email_confirmation {
+                self.company_store
+                    .set_email_confirmation(&company_id, &confirmation.proof, &confirmation.data)
                     .await
-            {
-                error!(
-                    "Could not create contact for company {company_id} identity {identity} was added for: {e}"
-                );
+                    .map_err(|e| Error::Persistence(e.to_string()))?;
             }
-        } else {
-            info!("We are not a signatory for company {company_id} so skipping chain");
+            for anchor in &prepared_block.files_to_anchor {
+                anchor_important_file(
+                    &self.file_reference_store,
+                    &anchor.file,
+                    anchor.context.clone(),
+                )
+                .await?;
+            }
+        }
+
+        // effects
+        self.transport
+            .add_identity(company_id.clone(), keys.clone())
+            .await?;
+
+        self.replay_prepared_company_effects(&prepared, identity, None)
+            .await?;
+
+        // also add the company to our nostr contacts
+        self.nostr_contact_processor
+            .ensure_nostr_contact(&company_id)
+            .await;
+
+        // as well as all the company signatories
+        for signatory in prepared.company.signatories.iter() {
+            self.nostr_contact_processor
+                .ensure_nostr_contact(&signatory.node_id)
+                .await;
+        }
+
+        // add to contacts without files if it's not there already, but don't fail
+        if let Ok(None) = self.contact_store.get(&company_id).await
+            && let Err(e) = self
+                .contact_store
+                .insert(
+                    &company_id,
+                    Contact {
+                        t: ContactType::Company,
+                        node_id: company_id.to_owned(),
+                        name: prepared.company.name.clone(),
+                        email: Some(prepared.company.email.clone()),
+                        postal_address: Some(prepared.company.postal_address.clone()),
+                        date_of_birth_or_registration: prepared.company.registration_date.clone(),
+                        country_of_birth_or_registration: prepared
+                            .company
+                            .country_of_registration
+                            .clone(),
+                        city_of_birth_or_registration: prepared
+                            .company
+                            .city_of_registration
+                            .clone(),
+                        identification_number: prepared.company.registration_number.clone(),
+                        avatar_file: None,
+                        proof_document_file: None,
+                        nostr_relays: self.config.nostr_config.relays.clone(),
+                        is_logical: false,
+                        mint_url: Some(self.config.mint_config.default_mint_url.clone()),
+                    },
+                )
+                .await
+        {
+            error!(
+                "Could not create contact for company {company_id} identity {identity} was added for: {e}"
+            );
         }
         Ok(())
     }
@@ -577,6 +698,7 @@ impl CompanyChainEventProcessor {
                             "Split chain detected for company {company_id} at height {} - resyncing",
                             block.id
                         );
+                        // resync potentially changed the complete chain - don't continue
                         self.resync_chain(company_id, ResyncMode::Normal).await?;
                         return Ok(());
                     }
@@ -607,7 +729,8 @@ impl CompanyChainEventProcessor {
                             block.id
                         );
                         self.resync_chain(company_id, ResyncMode::Normal).await?;
-                        break;
+                        // resync potentially changed the complete chain - don't continue
+                        return Ok(());
                     } else {
                         error!("Error adding block for company {company_id}: {e}");
                         Err(e)
@@ -620,76 +743,125 @@ impl CompanyChainEventProcessor {
     }
 
     /// Validates a single company block for a chain WITHOUT persisting or processing side effects.
-    /// Returns true if the block was validated and added to the in-memory chain.
-    /// Returns false if the block should be skipped (already exists, etc.).
+    /// Returns the candidate chain if the block was validated
     fn validate_company_block_for_chain(
         &self,
-        chain: &mut CompanyBlockchain,
+        chain: &CompanyBlockchain,
         block: &CompanyBlock,
         company_keys: &BcrKeys,
-    ) -> Result<bool> {
-        let block_height = chain.get_latest_block().id;
+    ) -> Result<CompanyBlockchain> {
+        let company_id = block.company_id.clone();
+        let block_id = block.id;
 
-        // if we already have the block, we skip it
-        if block.id <= block_height {
-            return Ok(false);
-        }
-        let chain_clone_for_validation = chain.clone();
+        // structural validation is only done against the clone
+        let mut candidate_chain = chain.clone();
 
-        // do cheap integrity checks (mutates chain in-memory)
-        if !chain.try_add_block(block.clone()) {
+        if !candidate_chain.try_add_block(block.clone()) {
             error!("Received invalid company block");
             return Err(Error::Blockchain(
                 "Received invalid company block".to_string(),
             ));
         }
-        let company_id = block.company_id.clone();
-        let block_id = block.id;
 
-        // then, verify signature and signer of the block and get data to validate
-        let verify_and_get_signer = match block.verify_and_get_signer(company_keys) {
-            Ok(d) => d,
-            Err(e) => {
-                error!(
-                    "Received invalid block {block_id} for company {company_id} - could not verify signature from block data signer"
-                );
-                return Err(Error::Blockchain(e.to_string()));
-            }
-        };
+        let verify_and_get_signer = block.verify_and_get_signer(company_keys).map_err(|e| {
+            error!("Received invalid block {block_id} for company {company_id} - could not verify signature from block data signer");
+            Error::Blockchain(e.to_string())
+        })?;
 
-        if let Err(e) = (CompanyValidateActionData {
-            blockchain: chain_clone_for_validation,
+        // validation the chain before this block
+        (CompanyValidateActionData {
+            blockchain: chain.clone(),
             company_id: company_id.clone(),
             signer_node_id: verify_and_get_signer.signer,
             op: block.op_code().clone(),
-            company_keys: company_keys.to_owned(),
+            company_keys: company_keys.clone(),
             invitee: verify_and_get_signer.invitee,
             removee: verify_and_get_signer.removee,
             identity_proof_data: verify_and_get_signer.identity_proof_data,
         })
         .validate()
-        {
+        .map_err(|e| {
             error!(
-                "Received invalid block {block_id} for company {company_id}, company action validation failed: {e}"
+                "Received invalid block {block_id} for company \
+             {company_id}, company action validation failed: {e}"
             );
-            return Err(Error::Blockchain(e.to_string()));
-        }
 
-        Ok(true)
+            Error::Blockchain(e.to_string())
+        })?;
+
+        Ok(candidate_chain)
     }
 
-    /// Validates multiple company blocks for a chain WITHOUT persisting or processing side effects.
-    /// Returns Ok(()) if all blocks are valid, Err otherwise.
-    fn validate_company_blocks_for_chain(
-        &self,
-        chain: &mut CompanyBlockchain,
-        blocks: &[CompanyBlock],
-        company_keys: &BcrKeys,
-    ) -> Result<()> {
-        for block in blocks {
-            self.validate_company_block_for_chain(chain, block, company_keys)?;
+    fn apply_company_payload(
+        company: &mut Company,
+        payload: &CompanyBlockPayload,
+        identity_node_id: &NodeId,
+        timestamp: Timestamp,
+    ) -> bool {
+        match payload {
+            CompanyBlockPayload::Create(_) | CompanyBlockPayload::SignBill(_) => false,
+            _ => {
+                company.apply_block_data(payload, identity_node_id, timestamp);
+                true
+            }
         }
-        Ok(())
+    }
+
+    fn prepare_company_block(
+        &self,
+        chain: &CompanyBlockchain,
+        company: &Company,
+        block: &CompanyBlock,
+        keys: &BcrKeys,
+        identity_node_id: &NodeId,
+    ) -> Result<(PreparedCompanyBlock, CompanyBlockchain, Company)> {
+        let candidate_chain = self.validate_company_block_for_chain(chain, block, keys)?;
+        let payload = block
+            .get_block_data(keys)
+            .map_err(|e| Error::Blockchain(e.to_string()))?;
+        let mut candidate_company = company.clone();
+        let mut email_confirmation = None;
+        let mut files_to_anchor = Vec::new();
+        if let CompanyBlockPayload::Update(data) = &payload {
+            if let EditOptionalFieldMode::Set(file) = &data.logo_file {
+                files_to_anchor.push(PreparedFileAnchor {
+                    file: file.clone(),
+                    context: company_file_context(&company.id, "logo_file"),
+                });
+            }
+            if let EditOptionalFieldMode::Set(file) = &data.proof_of_registration_file {
+                files_to_anchor.push(PreparedFileAnchor {
+                    file: file.clone(),
+                    context: company_file_context(&company.id, "proof_of_registration_file"),
+                });
+            }
+        }
+        if let CompanyBlockPayload::IdentityProof(data) = &payload
+            && &data.data.node_id == identity_node_id
+        {
+            email_confirmation = Some(PreparedCompanyEmailConfirmation {
+                proof: data.proof.clone(),
+                data: data.data.clone(),
+            });
+        }
+        let company_changed = Self::apply_company_payload(
+            &mut candidate_company,
+            &payload,
+            identity_node_id,
+            block.timestamp(),
+        );
+        Ok((
+            PreparedCompanyBlock {
+                block_id: block.id,
+                timestamp: block.timestamp(),
+                payload,
+                company_changed,
+                email_confirmation,
+                files_to_anchor,
+            },
+            candidate_chain,
+            candidate_company,
+        ))
     }
 
     async fn add_company_block(
@@ -701,88 +873,77 @@ impl CompanyChainEventProcessor {
         block: &CompanyBlock,
         identity_node_id: &NodeId,
     ) -> Result<()> {
-        if self.validate_company_block_for_chain(chain, block, keys)? {
-            let data = block
-                .get_block_data(keys)
-                .map_err(|e| Error::Blockchain(e.to_string()))?;
+        let (prepared, candidate_chain, candidate_company) =
+            self.prepare_company_block(chain, company, block, keys, identity_node_id)?;
 
-            // process effects
-            self.process_company_block_effects(
-                company_id,
-                company,
-                data,
-                identity_node_id,
-                block.timestamp(),
+        // persist - TODO (tx): make transactional
+
+        if prepared.company_changed {
+            self.company_store
+                .update(company_id, &candidate_company)
+                .await
+                .map_err(|e| Error::Persistence(e.to_string()))?;
+        }
+
+        if let Some(confirmation) = &prepared.email_confirmation {
+            self.company_store
+                .set_email_confirmation(company_id, &confirmation.proof, &confirmation.data)
+                .await
+                .map_err(|e| Error::Persistence(e.to_string()))?;
+        }
+
+        for anchor in &prepared.files_to_anchor {
+            anchor_important_file(
+                &self.file_reference_store,
+                &anchor.file,
+                anchor.context.clone(),
             )
             .await?;
-
-            // persist data
-            self.save_block(company_id, block).await?;
         }
+
+        self.save_block(company_id, block).await?;
+
+        // mutate after persistence succeeded
+        *company = candidate_company;
+        *chain = candidate_chain;
+
+        // effects
+
+        self.process_company_block_post_commit_effects(
+            company_id,
+            company,
+            &prepared.payload,
+            identity_node_id,
+        )
+        .await?;
         Ok(())
     }
 
     /// Processes side effects for a company block (contacts, updates, invites, etc.) WITHOUT persisting the block itself.
-    async fn process_company_block_effects(
+    async fn process_company_block_post_commit_effects(
         &self,
         company_id: &NodeId,
-        company: &mut Company,
-        data: CompanyBlockPayload,
+        company: &Company,
+        payload: &CompanyBlockPayload,
         identity_node_id: &NodeId,
-        timestamp: bcr_ebill_core::protocol::Timestamp,
     ) -> Result<()> {
-        match data {
-            CompanyBlockPayload::Create(_) => { /* creates are handled on validation */ }
-            update @ CompanyBlockPayload::Update(_) => {
-                let files_to_anchor = match &update {
-                    CompanyBlockPayload::Update(payload) => vec![
-                        match &payload.logo_file {
-                            EditOptionalFieldMode::Set(file) => {
-                                Some((file.clone(), company_file_context(company_id, "logo_file")))
-                            }
-                            _ => None,
-                        },
-                        match &payload.proof_of_registration_file {
-                            EditOptionalFieldMode::Set(file) => Some((
-                                file.clone(),
-                                company_file_context(company_id, "proof_of_registration_file"),
-                            )),
-                            _ => None,
-                        },
-                    ],
-                    _ => vec![],
-                };
-                info!("Updating company {company_id} from block data");
-                company.apply_block_data(&update, identity_node_id, timestamp);
-                self.company_store
-                    .update(company_id, company)
-                    .await
-                    .map_err(|e| Error::Persistence(e.to_string()))?;
-
-                for (file, context) in files_to_anchor.into_iter().flatten() {
-                    anchor_important_file(&self.file_reference_store, &file, context).await?;
-                }
+        match payload {
+            CompanyBlockPayload::Create(_)
+            | CompanyBlockPayload::Update(_)
+            | CompanyBlockPayload::IdentityProof(_) => {
+                // Canonical state already handled.
             }
             CompanyBlockPayload::InviteSignatory(payload) => {
                 info!("Signatory invited to company {company_id}, adding to contacts");
                 self.nostr_contact_processor
                     .ensure_nostr_contact(&payload.invitee)
                     .await;
-                company.apply_block_data(
-                    &CompanyBlockPayload::InviteSignatory(payload.clone()),
-                    identity_node_id,
-                    timestamp,
-                );
-                self.company_store
-                    .update(company_id, company)
-                    .await
-                    .map_err(|e| Error::Persistence(e.to_string()))?;
 
                 // if we're invited, create a notification
                 if &payload.invitee == identity_node_id
                     && let Err(e) = self
-                        .create_notification(
-                            company_id,
+                        .create_notification_for_company(
+                            company,
                             identity_node_id,
                             &CompanyBlockPayload::InviteSignatory(payload.clone()),
                         )
@@ -806,7 +967,7 @@ impl CompanyChainEventProcessor {
                                     "{} invited {} to become a signatory",
                                     payload.inviter, payload.invitee
                                 ),
-                                Some(serde_json::to_value(&company)?),
+                                Some(serde_json::to_value(company)?),
                                 NotificationLevel::Informational,
                             )
                             .await
@@ -835,15 +996,6 @@ impl CompanyChainEventProcessor {
                 self.nostr_contact_processor
                     .ensure_nostr_contact(&payload.accepter)
                     .await;
-                company.apply_block_data(
-                    &CompanyBlockPayload::SignatoryAcceptInvite(payload.clone()),
-                    identity_node_id,
-                    timestamp,
-                );
-                self.company_store
-                    .update(company_id, company)
-                    .await
-                    .map_err(|e| Error::Persistence(e.to_string()))?;
 
                 if let Some(inviter) = company
                     .signatories
@@ -868,7 +1020,7 @@ impl CompanyChainEventProcessor {
                                     company_id,
                                     &signatory.node_id,
                                     &desc,
-                                    Some(serde_json::to_value(&company)?),
+                                    Some(serde_json::to_value(company)?),
                                     NotificationLevel::Informational,
                                 )
                                 .await
@@ -881,15 +1033,6 @@ impl CompanyChainEventProcessor {
             }
             CompanyBlockPayload::SignatoryRejectInvite(payload) => {
                 info!("Signatory rejected invite to company {company_id}");
-                company.apply_block_data(
-                    &CompanyBlockPayload::SignatoryRejectInvite(payload.clone()),
-                    identity_node_id,
-                    timestamp,
-                );
-                self.company_store
-                    .update(company_id, company)
-                    .await
-                    .map_err(|e| Error::Persistence(e.to_string()))?;
 
                 if let Some(inviter) = company
                     .signatories
@@ -914,7 +1057,7 @@ impl CompanyChainEventProcessor {
                                     company_id,
                                     &signatory.node_id,
                                     &desc,
-                                    Some(serde_json::to_value(&company)?),
+                                    Some(serde_json::to_value(company)?),
                                     NotificationLevel::Informational,
                                 )
                                 .await
@@ -928,15 +1071,6 @@ impl CompanyChainEventProcessor {
             CompanyBlockPayload::RemoveSignatory(payload) => {
                 let removee = payload.removee.clone();
                 info!("Removing signatory from company {company_id}");
-                company.apply_block_data(
-                    &CompanyBlockPayload::RemoveSignatory(payload.clone()),
-                    identity_node_id,
-                    timestamp,
-                );
-                self.company_store
-                    .update(company_id, company)
-                    .await
-                    .map_err(|e| Error::Persistence(e.to_string()))?;
 
                 // if we're being removed and current identity is that company - change it
                 if &removee == identity_node_id
@@ -960,8 +1094,8 @@ impl CompanyChainEventProcessor {
                 }
 
                 if let Err(e) = self
-                    .create_notification(
-                        company_id,
+                    .create_notification_for_company(
+                        company,
                         &payload.removee,
                         &CompanyBlockPayload::RemoveSignatory(payload.clone()),
                     )
@@ -981,8 +1115,8 @@ impl CompanyChainEventProcessor {
                             CompanySignatoryStatus::InviteAcceptedIdentityProven { .. }
                         )
                         && let Err(e) = self
-                            .create_notification(
-                                company_id,
+                            .create_notification_for_company(
+                                company,
                                 &signatory.node_id,
                                 &CompanyBlockPayload::RemoveSignatory(payload.clone()),
                             )
@@ -1019,85 +1153,94 @@ impl CompanyChainEventProcessor {
                     }
                 }
             }
-            CompanyBlockPayload::IdentityProof(payload) => {
-                info!("Received identity proof for company {company_id}");
-                // if it's our own block - update our local confirmation state
-                if &payload.data.node_id == identity_node_id {
-                    self.company_store
-                        .set_email_confirmation(company_id, &payload.proof, &payload.data)
-                        .await
-                        .map_err(|e| Error::Persistence(e.to_string()))?;
-                }
-
-                // update company data
-                company.apply_block_data(
-                    &CompanyBlockPayload::IdentityProof(payload),
-                    identity_node_id,
-                    timestamp,
-                );
-                self.company_store
-                    .update(company_id, company)
-                    .await
-                    .map_err(|e| Error::Persistence(e.to_string()))?;
-            }
         }
         Ok(())
     }
-    fn get_valid_chain(
+
+    fn prepare_company_chain_valid_prefix(
         &self,
-        blocks: Vec<CompanyBlock>,
+        blocks: &[CompanyBlock],
         keys: &BcrKeys,
         identity_node_id: &NodeId,
-    ) -> Result<(NodeId, Company, CompanyBlockchain, bool)> {
-        match CompanyBlockchain::new_from_blocks(blocks.clone()) {
-            Ok(chain) if chain.is_chain_valid() => {
-                let first_block = chain.get_first_block();
-                // create block is where we build up the company from
-                let payload = match first_block
-                    .get_block_data(keys)
-                    .map_err(|e| Error::Blockchain(e.to_string()))?
-                {
-                    CompanyBlockPayload::Create(payload) => payload,
-                    _ => {
-                        error!("First block of newly received company chain is not a Create block");
-                        return Err(Error::Blockchain(
-                            "First block of newly received company chain is not a Create block"
-                                .to_string(),
-                        ));
-                    }
-                };
+    ) -> Result<PreparedCompanyChain> {
+        let Some(first_block) = blocks.first() else {
+            return Err(Error::Blockchain(
+                "Received empty company chain".to_string(),
+            ));
+        };
+        // first block needs to be valid, otherwise we can't recover a valid prefix chain
+        let (company_id, initial_company, mut chain) =
+            self.get_valid_chain(first_block, keys, identity_node_id)?;
 
-                // extracted node_id
-                let node_id = payload.id.clone();
+        let mut company = initial_company.clone();
+        let mut create_files_to_anchor = Vec::new();
+        if let Some(file) = &company.logo_file {
+            create_files_to_anchor.push(PreparedFileAnchor {
+                file: file.clone(),
+                context: company_file_context(&company_id, "logo_file"),
+            });
+        }
+        if let Some(file) = &company.proof_of_registration_file {
+            create_files_to_anchor.push(PreparedFileAnchor {
+                file: file.clone(),
+                context: company_file_context(&company_id, "proof_of_registration_file"),
+            });
+        }
 
-                // initialize company from payload
-                let company = Company::from_block_data(payload, identity_node_id);
+        let mut prepared_blocks = Vec::new();
+        for block in blocks.iter().skip(1) {
+            match self.prepare_company_block(&chain, &company, block, keys, identity_node_id) {
+                Ok((prepared, candidate_chain, candidate_company)) => {
+                    chain = candidate_chain;
+                    company = candidate_company;
+                    prepared_blocks.push(prepared);
+                }
+                Err(e) => {
+                    warn!(
+                        "Ignoring invalid company chain tail starting at block {} for {}: {e}",
+                        block.id, company_id
+                    );
 
-                // check if we are a signatory, or to be invited as a signatory
-                let we_are_signatory_or_invited = {
-                    let mut aggregate = company.clone();
-                    for block in blocks.iter().skip(1) {
-                        if let Ok(data) = &block.get_block_data(keys) {
-                            aggregate.apply_block_data(data, identity_node_id, block.timestamp());
-                        }
-                    }
-                    aggregate.status == CompanyStatus::Active
-                        || aggregate.status == CompanyStatus::Invited
-                };
-
-                // chain with just the create block
-                let return_chain = CompanyBlockchain::new_from_blocks(vec![first_block.clone()])
-                    .map_err(|e| Error::Blockchain(e.to_string()))?;
-
-                Ok((node_id, company, return_chain, we_are_signatory_or_invited))
-            }
-            _ => {
-                error!("Newly received company chain is not valid");
-                Err(Error::Blockchain(
-                    "Newly received company chain is not valid".to_string(),
-                ))
+                    // keep the valid chain up to, but excluding, this invalid block
+                    break;
+                }
             }
         }
+        Ok(PreparedCompanyChain {
+            company_id,
+            initial_company,
+            company,
+            chain,
+            blocks: prepared_blocks,
+            create_files_to_anchor,
+        })
+    }
+
+    fn get_valid_chain(
+        &self,
+        first_block: &CompanyBlock,
+        keys: &BcrKeys,
+        identity_node_id: &NodeId,
+    ) -> Result<(NodeId, Company, CompanyBlockchain)> {
+        let chain = CompanyBlockchain::new_from_blocks(vec![first_block.clone()])
+            .map_err(|e| Error::Blockchain(e.to_string()))?;
+        if !chain.is_chain_valid() {
+            return Err(Error::Blockchain(
+                "Newly received company chain has invalid Create block".to_string(),
+            ));
+        }
+        let payload = first_block
+            .get_block_data(keys)
+            .map_err(|e| Error::Blockchain(e.to_string()))?;
+        let CompanyBlockPayload::Create(payload) = payload else {
+            error!("First block of newly received company chain is not a Create block");
+            return Err(Error::Blockchain(
+                "First block of newly received company chain is not a Create block".to_string(),
+            ));
+        };
+        let company = Company::from_block_data(payload, identity_node_id);
+        let company_id = company.id.clone();
+        Ok((company_id, company, chain))
     }
 
     async fn save_block(&self, company_id: &NodeId, block: &CompanyBlock) -> Result<()> {
@@ -1120,44 +1263,36 @@ impl CompanyChainEventProcessor {
         Ok(())
     }
 
-    async fn create_notification(
+    async fn create_notification_for_company(
         &self,
-        company_id: &NodeId,
+        company: &Company,
         node_id: &NodeId,
         payload: &CompanyBlockPayload,
     ) -> Result<()> {
-        let company = self
-            .company_store
-            .get(company_id)
-            .await
-            .map_err(|e| Error::Persistence(e.to_string()))?;
+        let company_id = &company.id;
         let (description, event, level) = match payload {
-            CompanyBlockPayload::InviteSignatory(_) => {
-                let desc = format!(
+            CompanyBlockPayload::InviteSignatory(_) => (
+                format!(
                     "{} have requested you to become an authorised signer",
                     company.name
-                );
-                (
-                    desc,
-                    Some(serde_json::to_value(&company)?),
-                    NotificationLevel::ActionRequired,
-                )
-            }
+                ),
+                Some(serde_json::to_value(company)?),
+                NotificationLevel::ActionRequired,
+            ),
             CompanyBlockPayload::RemoveSignatory(payload) => {
-                let desc = if node_id == &payload.removee {
+                let description = if node_id == &payload.removee {
                     format!("You were removed from {}", company.name)
                 } else {
                     format!("{} was removed from {}", payload.removee, company.name)
                 };
                 (
-                    desc,
-                    Some(serde_json::to_value(&company)?),
+                    description,
+                    Some(serde_json::to_value(company)?),
                     NotificationLevel::Informational,
                 )
             }
-            _ => return Ok(()), // no notifications for these yet
+            _ => return Ok(()),
         };
-
         self.save_company_notification(company_id, node_id, &description, event, level)
             .await
     }
@@ -1233,6 +1368,40 @@ impl CompanyChainEventProcessor {
         }
         Ok(())
     }
+
+    // helper to apply payloads to a given company
+    async fn replay_prepared_company_effects(
+        &self,
+        prepared: &PreparedCompanyChain,
+        identity_node_id: &NodeId,
+        changed_from: Option<BlockId>,
+    ) -> Result<()> {
+        let mut company = prepared.initial_company.clone();
+        for prepared_block in &prepared.blocks {
+            if prepared_block.company_changed {
+                Self::apply_company_payload(
+                    &mut company,
+                    &prepared_block.payload,
+                    identity_node_id,
+                    prepared_block.timestamp,
+                );
+            }
+            let should_process = match changed_from {
+                Some(changed_from) => prepared_block.block_id >= changed_from,
+                None => true,
+            };
+            if should_process {
+                self.process_company_block_post_commit_effects(
+                    &prepared.company_id,
+                    &company,
+                    &prepared_block.payload,
+                    identity_node_id,
+                )
+                .await?;
+            }
+        }
+        Ok(())
+    }
 }
 
 impl ServiceTraitBounds for CompanyChainEventProcessor {}
@@ -1256,7 +1425,6 @@ pub mod tests {
     use bcr_ebill_core::protocol::{EditOptionalFieldMode, File, Name};
     use bcr_ebill_core::{
         application::company::Company,
-        application::identity::ActiveIdentityState,
         application::notification::{Notification, NotificationLevel},
         protocol::Sha256Hash,
         protocol::Timestamp,
@@ -1785,7 +1953,7 @@ pub mod tests {
             .expect_get_key_pair()
             .with(eq(node_id.clone()))
             .returning(move |_| Ok(keys.clone()))
-            .times(3);
+            .times(2);
 
         // get the current company state
         let expected_company = company.clone();
@@ -1793,7 +1961,7 @@ pub mod tests {
             .expect_get()
             .with(eq(node_id.clone()))
             .returning(move |_| Ok(expected_company.clone()))
-            .times(2);
+            .once();
 
         // and queries the chain from the transport
         transport
@@ -1802,25 +1970,12 @@ pub mod tests {
             .returning(move |_, _| Ok(nostr_chain.clone()))
             .once();
 
-        // apply changes from skipped block and update the company
         let expected_node = node_id.clone();
         store
             .expect_update()
             .withf(move |n, c| {
-                n == &expected_node.clone()
-                    && c.id == expected_node.clone()
-                    && c.name == Name::new("new_name").unwrap()
-            })
-            .returning(|_, _| Ok(()))
-            .once();
-
-        // apply changes from last block and update the company
-        let expected_node = node_id.clone();
-        store
-            .expect_update()
-            .withf(move |n, c| {
-                n == &expected_node.clone()
-                    && c.id == expected_node.clone()
+                n == &expected_node
+                    && c.id == expected_node
                     && c.name == Name::new("another_name").unwrap()
             })
             .returning(|_, _| Ok(()))
@@ -1854,7 +2009,7 @@ pub mod tests {
         chain_event_store
             .expect_add_chain_event()
             .returning(|_| Ok(()))
-            .times(0..);
+            .times(4);
 
         let handler = CompanyChainEventProcessor::new(
             Arc::new(chain_store),
@@ -2352,7 +2507,7 @@ pub mod tests {
             .expect_get()
             .with(eq(node_id.clone()))
             .returning(move |_| Ok(expected_company.clone()))
-            .times(2);
+            .once();
 
         // apply changes from block with the signatory
         let expected_node = node_id.clone();
@@ -2734,36 +2889,17 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn test_process_company_block_effects_does_not_persist_block() {
-        // Verify that process_company_block_effects updates company data
-        // but does NOT call blockchain_store.add_block
-        let (mut chain_store, mut store, _, _, _, mut identity_store, _, _, _, _) = create_mocks();
-
+    async fn test_process_company_block_post_commit_effects_does_not_persist_canonical_state() {
+        let (mut chain_store, mut store, _, _, _, identity_store, _, _, _, _) = create_mocks();
         let (_, (company, _)) = get_company_data();
-        let identity_full = get_baseline_identity();
-        let identity_node_id = identity_full.identity.node_id.clone();
-        let identity_node_id_for_closure = identity_node_id.clone();
-
+        let identity_node_id = get_baseline_identity().identity.node_id;
         let update_data = CompanyBlockPayload::Update(update_company_block_with_name(Some(
             Name::new("Updated Company").unwrap(),
         )));
-
-        // CRITICAL: add_block should NEVER be called during side effect processing
+        // post-commit effects must not persist canonical state
         chain_store.expect_add_block().times(0);
-
-        // Company CAN be updated
-        store.expect_update().times(1).returning(|_, _| Ok(()));
-
-        // Identity store is needed for getting current identity
-        identity_store
-            .expect_get_current_identity()
-            .returning(move || {
-                Ok(ActiveIdentityState {
-                    personal: identity_node_id_for_closure.clone(),
-                    company: None,
-                })
-            });
-
+        store.expect_update().times(0);
+        store.expect_set_email_confirmation().times(0);
         let handler = CompanyChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
@@ -2779,37 +2915,30 @@ pub mod tests {
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
-
-        let mut test_company = company.clone();
-
-        // Call the side effect processing method directly
         let result = handler
-            .process_company_block_effects(
+            .process_company_block_post_commit_effects(
                 &company.id,
-                &mut test_company,
-                update_data,
+                &company,
+                &update_data,
                 &identity_node_id,
-                test_ts(),
             )
             .await;
-
-        // Should succeed without persisting block
         assert!(result.is_ok());
-        // Test passes if add_block was never called (mock verifies this)
     }
 
     #[tokio::test]
-    async fn test_process_company_block_effects_anchors_inbound_files() {
+    async fn test_add_company_block_anchors_inbound_files() {
         let mut chain_store = MockCompanyChainStore::new();
         let mut store = MockCompanyStore::new();
         let mut file_reference_store = MockFileReferenceStore::new();
-        let company_id = node_id_test();
-        let identity_node_id = node_id_test_another();
-        let (_, (company, _)) = get_company_data();
 
-        chain_store.expect_add_block().times(0);
-        store.expect_update().times(1).returning(|_, _| Ok(()));
-
+        let (company_id, (company, company_keys)) = get_company_data();
+        let identity_node_id = get_baseline_identity().identity.node_id;
+        let create_block =
+            get_company_create_block(company_id.clone(), company.clone(), &company_keys);
+        let mut chain = CompanyBlockchain::new_from_blocks(vec![create_block])
+            .expect("could not create company chain");
+        chain = add_creator_identity_proof_block(chain);
         let logo_file = File {
             name: Name::new("logo.png").unwrap(),
             hash: Sha256Hash::new("company_logo_file_hash_123456789012"),
@@ -2817,9 +2946,45 @@ pub mod tests {
                 .parse()
                 .unwrap(),
         };
+
         let expected_hash = logo_file.hash.clone();
         let expected_name = logo_file.name.clone();
+        let update_data = CompanyUpdateBlockData {
+            name: None,
+            email: None,
+            country: None,
+            city: None,
+            zip: EditOptionalFieldMode::Ignore,
+            address: None,
+            country_of_registration: EditOptionalFieldMode::Ignore,
+            city_of_registration: EditOptionalFieldMode::Ignore,
+            registration_number: EditOptionalFieldMode::Ignore,
+            registration_date: EditOptionalFieldMode::Ignore,
+            logo_file: EditOptionalFieldMode::Set(logo_file),
+            proof_of_registration_file: EditOptionalFieldMode::Ignore,
+        };
+        let update_block = get_company_update_block(
+            company_id.clone(),
+            chain.get_latest_block(),
+            &BcrKeys::from_private_key(&private_key_test()),
+            &company_keys,
+            &update_data,
+        );
 
+        // company state is updated here
+        store
+            .expect_update()
+            .with(eq(company_id.clone()), always())
+            .once()
+            .returning(|_, _| Ok(()));
+        chain_store
+            .expect_add_block()
+            .with(eq(company_id.clone()), always())
+            .once()
+            .returning(|_, _| Ok(()));
+
+        // inbound file is anchored as part of persistence
+        let company_id_clone = company_id.clone();
         file_reference_store
             .expect_upsert()
             .withf(
@@ -2835,25 +3000,20 @@ pub mod tests {
                         && *is_important == Some(true)
                         && context
                             == &vec![FileReferenceContext::Company {
-                                company_id: company_id.to_string(),
+                                company_id: company_id_clone.to_string(),
                                 field: "logo_file".to_string(),
                             }]
                 },
             )
-            .returning(
-                |hash: &Sha256Hash,
-                 nostr_hash: &bitcoin::hashes::sha256::Hash,
-                 name: Option<Name>,
-                 _: Vec<url::Url>,
-                 is_important: Option<bool>,
-                 context: Vec<FileReferenceContext>| {
-                    let mut file_ref = FileReference::new(hash.clone(), *nostr_hash, name);
-                    file_ref.is_important = is_important.unwrap_or(false);
-                    file_ref.context = context;
-                    Ok(file_ref)
-                },
-            )
-            .once();
+            .once()
+            .returning(|hash, nostr_hash, name, _, is_important, context| {
+                let mut file_ref = FileReference::new(hash.clone(), *nostr_hash, name);
+
+                file_ref.is_important = is_important.unwrap_or(false);
+                file_ref.context = context;
+
+                Ok(file_ref)
+            });
 
         let handler = CompanyChainEventProcessor::new(
             Arc::new(chain_store),
@@ -2871,33 +3031,18 @@ pub mod tests {
             Arc::new(test_cfg()),
         );
 
-        let mut test_company = company.clone();
-        let update_data = CompanyBlockPayload::Update(CompanyUpdateBlockData {
-            name: None,
-            email: None,
-            country: None,
-            city: None,
-            zip: EditOptionalFieldMode::Ignore,
-            address: None,
-            country_of_registration: EditOptionalFieldMode::Ignore,
-            city_of_registration: EditOptionalFieldMode::Ignore,
-            registration_number: EditOptionalFieldMode::Ignore,
-            registration_date: EditOptionalFieldMode::Ignore,
-            logo_file: EditOptionalFieldMode::Set(logo_file),
-            proof_of_registration_file: EditOptionalFieldMode::Ignore,
-        });
-
-        let result = handler
-            .process_company_block_effects(
-                &company.id,
-                &mut test_company,
-                update_data,
+        let mut current_company = company.clone();
+        handler
+            .add_company_block(
+                &company_id,
+                &company_keys,
+                &mut current_company,
+                &mut chain,
+                &update_block,
                 &identity_node_id,
-                test_ts(),
             )
-            .await;
-
-        assert!(result.is_ok());
+            .await
+            .expect("company block should be added");
     }
 
     fn create_mocks() -> (
@@ -3178,5 +3323,508 @@ pub mod tests {
             )
             .await
             .expect("company metadata recovery should ignore the unpublished local tip");
+    }
+
+    #[tokio::test]
+    async fn test_add_new_chain_persists_valid_prefix_before_invalid_tail() {
+        let (
+            mut chain_store,
+            mut store,
+            notification_store,
+            mut contact,
+            bill,
+            identity_store,
+            chain_event_store,
+            mut transport,
+            push_service,
+            mut contact_store,
+        ) = create_mocks();
+        let (company_id, (company, keys)) = get_company_data();
+        let identity_node_id = get_baseline_identity().identity.node_id;
+        let create_block = get_company_create_block(company_id.clone(), company.clone(), &keys);
+        let base_chain = CompanyBlockchain::new_from_blocks(vec![create_block.clone()])
+            .expect("could not create company chain");
+        let valid_chain = add_creator_identity_proof_block(base_chain);
+        let proof_block = valid_chain.get_latest_block().clone();
+        let expected_name = Name::new("valid-prefix").unwrap();
+        let valid_update_data = update_company_block_with_name(Some(expected_name.clone()));
+        let valid_update = get_company_update_block(
+            company_id.clone(),
+            &proof_block,
+            &BcrKeys::from_private_key(&private_key_test()),
+            &keys,
+            &valid_update_data,
+        );
+
+        // Correct height and previous hash, but signed by somebody who is not allowed to update this company
+        let wrong_signer = BcrKeys::new();
+        let invalid_update_data =
+            update_company_block_with_name(Some(Name::new("invalid-tail").unwrap()));
+        let invalid_update = get_company_update_block(
+            company_id.clone(),
+            &valid_update,
+            &wrong_signer,
+            &keys,
+            &invalid_update_data,
+        );
+
+        // final company must represent the last VALID block
+        let expected_company_id = company_id.clone();
+        store
+            .expect_insert()
+            .withf(move |company| {
+                company.id == expected_company_id && company.name == expected_name
+            })
+            .once()
+            .returning(|_| Ok(()));
+        store
+            .expect_save_key_pair()
+            .with(eq(company_id.clone()), eq(keys.clone()))
+            .once()
+            .returning(|_, _| Ok(()));
+        // creator identity proof is part of the valid prefix
+        store
+            .expect_set_email_confirmation()
+            .once()
+            .returning(|_, _, _| Ok(()));
+        // final aggregate is inserted only once
+        store.expect_update().times(0);
+        // Create + Proof + valid Update may be persisted
+        let allowed_hashes = [
+            create_block.hash.clone(),
+            proof_block.hash.clone(),
+            valid_update.hash.clone(),
+        ];
+
+        let invalid_hash = invalid_update.hash.clone();
+        chain_store
+            .expect_add_block()
+            .withf(move |_, block| {
+                allowed_hashes.contains(&block.hash) && block.hash != invalid_hash
+            })
+            .times(3)
+            .returning(|_, _| Ok(()));
+        transport
+            .expect_add_identity()
+            .with(eq(company_id.clone()), eq(keys.clone()))
+            .once()
+            .returning(|_, _| Ok(()));
+        // the company itself + creator/signatory
+        contact
+            .expect_ensure_nostr_contact()
+            .times(2)
+            .returning(|_| ());
+        contact_store
+            .expect_get()
+            .with(eq(company_id.clone()))
+            .once()
+            .returning(|_| Ok(None));
+        contact_store
+            .expect_insert()
+            .once()
+            .returning(|_, _| Ok(()));
+        let handler = CompanyChainEventProcessor::new(
+            Arc::new(chain_store),
+            Arc::new(store),
+            Arc::new(MockFileReferenceStore::new()),
+            Arc::new(identity_store),
+            Arc::new(notification_store),
+            Arc::new(contact),
+            Arc::new(bill),
+            Arc::new(push_service),
+            Arc::new(chain_event_store),
+            Arc::new(transport),
+            Arc::new(contact_store),
+            bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
+        );
+        handler
+            .add_new_chain(
+                vec![create_block, proof_block, valid_update, invalid_update],
+                &keys,
+                &identity_node_id,
+            )
+            .await
+            .expect("valid company prefix should be restored even when the remote tail is invalid");
+    }
+
+    #[tokio::test]
+    async fn test_resync_chain_recovers_valid_prefix_before_invalid_tail() {
+        let (
+            mut chain_store,
+            mut store,
+            notification_store,
+            contact,
+            bill,
+            mut identity_store,
+            mut chain_event_store,
+            mut transport,
+            push_service,
+            contact_store,
+        ) = create_mocks();
+        let (company_id, (company, keys)) = get_company_data();
+        // Create -> Proof -> Update #3
+        let create_block = get_company_create_block(company_id.clone(), company, &keys);
+        let base_chain = CompanyBlockchain::new_from_blocks(vec![create_block.clone()])
+            .expect("could not create company chain");
+        let mut local_chain = add_creator_identity_proof_block(base_chain);
+        let proof_block = local_chain.get_latest_block().clone();
+        let local_update_data = update_company_block_with_name(Some(Name::new("local-3").unwrap()));
+        let local_update = get_company_update_block(
+            company_id.clone(),
+            &proof_block,
+            &BcrKeys::from_private_key(&private_key_test()),
+            &keys,
+            &local_update_data,
+        );
+        assert!(local_chain.try_add_block(local_update.clone()));
+
+        // valid remote #4 -> #5
+        let valid_4_data = update_company_block_with_name(Some(Name::new("valid-4").unwrap()));
+        let valid_block_4 = get_company_update_block(
+            company_id.clone(),
+            &local_update,
+            &BcrKeys::from_private_key(&private_key_test()),
+            &keys,
+            &valid_4_data,
+        );
+        let expected_final_name = Name::new("valid-5").unwrap();
+        let valid_5_data = update_company_block_with_name(Some(expected_final_name.clone()));
+        let valid_block_5 = get_company_update_block(
+            company_id.clone(),
+            &valid_block_4,
+            &BcrKeys::from_private_key(&private_key_test()),
+            &keys,
+            &valid_5_data,
+        );
+
+        // invalid #6
+        let wrong_signer = BcrKeys::new();
+        let invalid_6_data = update_company_block_with_name(Some(Name::new("invalid-6").unwrap()));
+        let invalid_block_6 = get_company_update_block(
+            company_id.clone(),
+            &valid_block_5,
+            &wrong_signer,
+            &keys,
+            &invalid_6_data,
+        );
+
+        // nostr events are valid company events
+        let event_1 = generate_test_event(
+            &keys,
+            None,
+            None,
+            as_event_payload(&company_id, &create_block),
+            &company_id,
+        );
+        let event_2 = generate_test_event(
+            &keys,
+            Some(event_1.clone()),
+            Some(event_1.clone()),
+            as_event_payload(&company_id, &proof_block),
+            &company_id,
+        );
+        let event_3 = generate_test_event(
+            &keys,
+            Some(event_2.clone()),
+            Some(event_1.clone()),
+            as_event_payload(&company_id, &local_update),
+            &company_id,
+        );
+        let event_4 = generate_test_event(
+            &keys,
+            Some(event_3.clone()),
+            Some(event_1.clone()),
+            as_event_payload(&company_id, &valid_block_4),
+            &company_id,
+        );
+        let event_5 = generate_test_event(
+            &keys,
+            Some(event_4.clone()),
+            Some(event_1.clone()),
+            as_event_payload(&company_id, &valid_block_5),
+            &company_id,
+        );
+        let event_6 = generate_test_event(
+            &keys,
+            Some(event_5.clone()),
+            Some(event_1.clone()),
+            as_event_payload(&company_id, &invalid_block_6),
+            &company_id,
+        );
+        let nostr_events = vec![event_1, event_2, event_3, event_4, event_5, event_6];
+        let local_chain_clone = local_chain.clone();
+        chain_store
+            .expect_get_chain()
+            .with(eq(company_id.clone()))
+            .once()
+            .returning(move |_| Ok(local_chain_clone.clone()));
+        // extension, not a fork
+        chain_store.expect_remove_blocks_from_height().times(0);
+
+        // only #4 and #5 are new valid blocks
+        let valid_4_hash = valid_block_4.hash.clone();
+        let valid_5_hash = valid_block_5.hash.clone();
+        chain_store
+            .expect_add_block()
+            .withf(move |_, block| block.hash == valid_4_hash || block.hash == valid_5_hash)
+            .times(2)
+            .returning(|_, _| Ok(()));
+
+        let keys_clone = keys.clone();
+        store
+            .expect_get_key_pair()
+            .with(eq(company_id.clone()))
+            .once()
+            .returning(move |_| Ok(keys_clone.clone()));
+        identity_store
+            .expect_get()
+            .once()
+            .returning(|| Ok(get_baseline_identity().identity));
+        // must stop at valid #5
+        store
+            .expect_update()
+            .withf(move |_, company| company.name == expected_final_name)
+            .once()
+            .returning(|_, _| Ok(()));
+
+        store.expect_set_email_confirmation().times(0);
+        transport
+            .expect_resolve_public_chain()
+            .with(eq(company_id.to_string()), eq(BlockchainType::Company))
+            .once()
+            .returning(move |_, _| Ok(nostr_events.clone()));
+        chain_event_store
+            .expect_remove_chain_events()
+            .once()
+            .returning(|_, _| Ok(()));
+
+        // metadata until #5 only
+        let allowed_hashes = [
+            create_block.hash.clone(),
+            proof_block.hash.clone(),
+            local_update.hash.clone(),
+            valid_block_4.hash.clone(),
+            valid_block_5.hash.clone(),
+        ];
+
+        let invalid_hash = invalid_block_6.hash.clone();
+        chain_event_store
+            .expect_add_chain_event()
+            .withf(move |event| {
+                allowed_hashes.contains(&event.block_hash) && event.block_hash != invalid_hash
+            })
+            .times(5)
+            .returning(|_| Ok(()));
+        let handler = CompanyChainEventProcessor::new(
+            Arc::new(chain_store),
+            Arc::new(store),
+            Arc::new(MockFileReferenceStore::new()),
+            Arc::new(identity_store),
+            Arc::new(notification_store),
+            Arc::new(contact),
+            Arc::new(bill),
+            Arc::new(push_service),
+            Arc::new(chain_event_store),
+            Arc::new(transport),
+            Arc::new(contact_store),
+            bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
+        );
+
+        handler
+            .resync_chain(&company_id, ResyncMode::Normal)
+            .await
+            .expect("resync should recover valid company blocks before an invalid remote tail");
+    }
+
+    #[tokio::test]
+    async fn test_resync_chain_selects_best_valid_prefix_not_longest_raw_branch() {
+        let (
+            mut chain_store,
+            mut store,
+            notification_store,
+            contact,
+            bill,
+            mut identity_store,
+            mut chain_event_store,
+            mut transport,
+            push_service,
+            contact_store,
+        ) = create_mocks();
+        let (company_id, (company, keys)) = get_company_data();
+        // Create -> Proof
+        let create_block = get_company_create_block(company_id.clone(), company, &keys);
+        let base_chain = CompanyBlockchain::new_from_blocks(vec![create_block.clone()])
+            .expect("could not create company chain");
+        let local_chain = add_creator_identity_proof_block(base_chain);
+        let proof_block = local_chain.get_latest_block().clone();
+
+        // Candidate A
+        // Create -> Proof -> A3 -> BAD4 -> BAD5
+        // Valid prefix length = 3
+        let a3_data = update_company_block_with_name(Some(Name::new("candidate-a").unwrap()));
+        let a3 = get_company_update_block(
+            company_id.clone(),
+            &proof_block,
+            &BcrKeys::from_private_key(&private_key_test()),
+            &keys,
+            &a3_data,
+        );
+
+        let wrong_signer = BcrKeys::new();
+        let bad4_data = update_company_block_with_name(Some(Name::new("bad-4").unwrap()));
+        let bad4 =
+            get_company_update_block(company_id.clone(), &a3, &wrong_signer, &keys, &bad4_data);
+        let bad5_data = update_company_block_with_name(Some(Name::new("bad-5").unwrap()));
+        let bad5 =
+            get_company_update_block(company_id.clone(), &bad4, &wrong_signer, &keys, &bad5_data);
+
+        // Candidate B
+        // Create -> Proof -> B3 -> B4
+        // Valid prefix length = 4, B must win
+        let b3_data = update_company_block_with_name(Some(Name::new("good-3").unwrap()));
+        let b3 = get_company_update_block(
+            company_id.clone(),
+            &proof_block,
+            &BcrKeys::from_private_key(&private_key_test()),
+            &keys,
+            &b3_data,
+        );
+        let expected_name = Name::new("good-4").unwrap();
+        let b4_data = update_company_block_with_name(Some(expected_name.clone()));
+        let b4 = get_company_update_block(
+            company_id.clone(),
+            &b3,
+            &BcrKeys::from_private_key(&private_key_test()),
+            &keys,
+            &b4_data,
+        );
+        let event_1 = generate_test_event(
+            &keys,
+            None,
+            None,
+            as_event_payload(&company_id, &create_block),
+            &company_id,
+        );
+        let event_2 = generate_test_event(
+            &keys,
+            Some(event_1.clone()),
+            Some(event_1.clone()),
+            as_event_payload(&company_id, &proof_block),
+            &company_id,
+        );
+        let event_a3 = generate_test_event(
+            &keys,
+            Some(event_2.clone()),
+            Some(event_1.clone()),
+            as_event_payload(&company_id, &a3),
+            &company_id,
+        );
+        let event_bad4 = generate_test_event(
+            &keys,
+            Some(event_a3.clone()),
+            Some(event_1.clone()),
+            as_event_payload(&company_id, &bad4),
+            &company_id,
+        );
+        let event_bad5 = generate_test_event(
+            &keys,
+            Some(event_bad4.clone()),
+            Some(event_1.clone()),
+            as_event_payload(&company_id, &bad5),
+            &company_id,
+        );
+        let event_b3 = generate_test_event(
+            &keys,
+            Some(event_2.clone()),
+            Some(event_1.clone()),
+            as_event_payload(&company_id, &b3),
+            &company_id,
+        );
+        let event_b4 = generate_test_event(
+            &keys,
+            Some(event_b3.clone()),
+            Some(event_1.clone()),
+            as_event_payload(&company_id, &b4),
+            &company_id,
+        );
+        // A has 5 blocks, B only 4
+        let nostr_events = vec![
+            event_1, event_2, event_a3, event_bad4, event_bad5, event_b3, event_b4,
+        ];
+        let local_chain_clone = local_chain.clone();
+        chain_store
+            .expect_get_chain()
+            .once()
+            .returning(move |_| Ok(local_chain_clone.clone()));
+        chain_store.expect_remove_blocks_from_height().times(0);
+
+        // only B3 + B4 may be persisted
+        let b3_hash = b3.hash.clone();
+        let b4_hash = b4.hash.clone();
+
+        chain_store
+            .expect_add_block()
+            .withf(move |_, block| block.hash == b3_hash || block.hash == b4_hash)
+            .times(2)
+            .returning(|_, _| Ok(()));
+
+        let keys_clone = keys.clone();
+        store
+            .expect_get_key_pair()
+            .once()
+            .returning(move |_| Ok(keys_clone.clone()));
+        identity_store
+            .expect_get()
+            .once()
+            .returning(|| Ok(get_baseline_identity().identity));
+        store
+            .expect_update()
+            .withf(move |_, company| company.name == expected_name)
+            .once()
+            .returning(|_, _| Ok(()));
+        store.expect_set_email_confirmation().times(0);
+        transport
+            .expect_resolve_public_chain()
+            .once()
+            .returning(move |_, _| Ok(nostr_events.clone()));
+
+        chain_event_store
+            .expect_remove_chain_events()
+            .once()
+            .returning(|_, _| Ok(()));
+
+        // selected B: Create + Proof + B3 + B4
+        let selected_hashes = [
+            create_block.hash.clone(),
+            proof_block.hash.clone(),
+            b3.hash.clone(),
+            b4.hash.clone(),
+        ];
+        chain_event_store
+            .expect_add_chain_event()
+            .withf(move |event| selected_hashes.contains(&event.block_hash))
+            .times(4)
+            .returning(|_| Ok(()));
+        let handler = CompanyChainEventProcessor::new(
+            Arc::new(chain_store),
+            Arc::new(store),
+            Arc::new(MockFileReferenceStore::new()),
+            Arc::new(identity_store),
+            Arc::new(notification_store),
+            Arc::new(contact),
+            Arc::new(bill),
+            Arc::new(push_service),
+            Arc::new(chain_event_store),
+            Arc::new(transport),
+            Arc::new(contact_store),
+            bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
+        );
+        handler
+            .resync_chain(&company_id, ResyncMode::Normal)
+            .await
+            .expect("the longest protocol-valid prefix must win, not the longest raw Nostr branch");
     }
 }
