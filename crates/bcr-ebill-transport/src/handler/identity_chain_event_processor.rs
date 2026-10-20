@@ -50,9 +50,7 @@ use super::{IdentityChainEventProcessorApi, NostrContactProcessorApi, Notificati
 
 #[derive(Debug, Clone)]
 struct PreparedIdentityBlock {
-    block: IdentityBlock,
-    chain: IdentityBlockchain,
-    identity: Identity,
+    block_id: BlockId,
     identity_changed: bool,
     email_confirmation: Option<PreparedEmailConfirmation>,
     files_to_anchor: Vec<PreparedFileAnchor>,
@@ -420,7 +418,7 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
                     for prepared_block in prepared
                         .blocks
                         .iter()
-                        .filter(|prepared_block| prepared_block.block.id >= changed_from)
+                        .filter(|prepared_block| prepared_block.block_id >= changed_from)
                     {
                         if let Some(confirmation) = &prepared_block.email_confirmation {
                             self.identity_store
@@ -441,7 +439,7 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
                 }
 
                 // nostr-event updates
-                let valid_tip_height = prepared.chain.get_latest_block().id.inner();
+                let accepted_block_count = prepared.chain.blocks().len();
 
                 if let Err(e) = self
                     .chain_event_store
@@ -452,10 +450,13 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
                 }
 
                 // only save nostr events up to the last valid event
-                for event_container in data.iter().filter(|event_container| {
-                    matches!(event_container.block, BlockData::Identity(_))
-                        && event_container.block.get_block_height() <= valid_tip_height
-                }) {
+                for event_container in data
+                    .iter()
+                    .filter(|event_container| {
+                        matches!(event_container.block, BlockData::Identity(_))
+                    })
+                    .take(accepted_block_count)
+                {
                     let event = event_container.as_chain_store_event(
                         &identity.node_id.to_string(),
                         BlockchainType::Identity,
@@ -471,7 +472,7 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
                 for prepared_block in prepared
                     .blocks
                     .into_iter()
-                    .filter(|prepared_block| prepared_block.block.id >= changed_from)
+                    .filter(|prepared_block| prepared_block.block_id >= changed_from)
                 {
                     self.process_post_commit_effects(
                         &identity.node_id,
@@ -494,6 +495,22 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
                 Err(Error::Persistence(message))
             }
         }
+    }
+
+    fn valid_chain_prefix_len(
+        &self,
+        node_id: &NodeId,
+        blocks: &[IdentityBlock],
+        keys: &BcrKeys,
+    ) -> Result<usize> {
+        let prepared = self.prepare_identity_chain_valid_prefix(blocks, keys)?;
+        if &prepared.node_id != node_id {
+            return Err(Error::Blockchain(format!(
+                "Identity chain belongs to {}, expected {}",
+                prepared.node_id, node_id,
+            )));
+        }
+        Ok(prepared.chain.blocks().len())
     }
 }
 
@@ -557,8 +574,9 @@ impl IdentityChainEventProcessor {
         }
 
         // remaining blocks and state derived from them
-        for prepared_block in &prepared.blocks {
-            self.save_block(&prepared_block.block).await?;
+        for (block, prepared_block) in prepared.chain.blocks().iter().skip(1).zip(&prepared.blocks)
+        {
+            self.save_block(block).await?;
             if let Some(confirmation) = &prepared_block.email_confirmation {
                 self.identity_store
                     .set_email_confirmation(&confirmation.proof, &confirmation.data)
@@ -652,9 +670,9 @@ impl IdentityChainEventProcessor {
         let mut prepared_blocks = Vec::new();
         for block in blocks.iter().skip(1) {
             match self.prepare_identity_block(&chain, &identity, block, keys) {
-                Ok(prepared) => {
-                    identity = prepared.identity.clone();
-                    chain = prepared.chain.clone();
+                Ok((prepared, candidate_chain, candidate_identity)) => {
+                    chain = candidate_chain;
+                    identity = candidate_identity;
                     prepared_blocks.push(prepared);
                 }
                 Err(e) => {
@@ -799,13 +817,14 @@ impl IdentityChainEventProcessor {
         block: &IdentityBlock,
     ) -> Result<()> {
         // prepare & validate
-        let prepared = self.prepare_identity_block(chain, identity, block, keys)?;
+        let (prepared, candidate_chain, candidate_identity) =
+            self.prepare_identity_block(chain, identity, block, keys)?;
 
         // persist - TODO (tx): make transactional
 
         if prepared.identity_changed {
             self.identity_store
-                .save(&prepared.identity)
+                .save(&candidate_identity)
                 .await
                 .map_err(|e| Error::Persistence(e.to_string()))?;
         }
@@ -826,11 +845,11 @@ impl IdentityChainEventProcessor {
             .await?;
         }
 
-        self.save_block(&prepared.block).await?;
+        self.save_block(block).await?;
 
         // mutate after persistence succeeded
-        *identity = prepared.identity;
-        *chain = prepared.chain;
+        *identity = candidate_identity;
+        *chain = candidate_chain;
 
         // effects
 
@@ -886,7 +905,7 @@ impl IdentityChainEventProcessor {
         identity: &Identity,
         block: &IdentityBlock,
         keys: &BcrKeys,
-    ) -> Result<PreparedIdentityBlock> {
+    ) -> Result<(PreparedIdentityBlock, IdentityBlockchain, Identity)> {
         let candidate_chain =
             self.validate_identity_block_for_chain(chain, block, keys, &identity.node_id)?;
         let data = block
@@ -941,15 +960,17 @@ impl IdentityChainEventProcessor {
             }
             _ => {}
         }
-        Ok(PreparedIdentityBlock {
-            block: block.clone(),
-            chain: candidate_chain,
-            identity: candidate_identity,
-            identity_changed,
-            email_confirmation,
-            files_to_anchor,
-            post_commit_effects,
-        })
+        Ok((
+            PreparedIdentityBlock {
+                block_id: block.id,
+                identity_changed,
+                email_confirmation,
+                files_to_anchor,
+                post_commit_effects,
+            },
+            candidate_chain,
+            candidate_identity,
+        ))
     }
 
     /// Validates all blocks in the given chain and returns the the chain with create block and the

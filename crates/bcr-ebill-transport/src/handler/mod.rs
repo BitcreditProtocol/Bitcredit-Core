@@ -169,6 +169,13 @@ pub trait IdentityChainEventProcessorApi: ServiceTraitBounds {
     /// Tries to resync the chain for the primary local identity. This will try to find the chain data for the current identity.
     /// Will add all potentially missing blocks to the chain.
     async fn resync_chain(&self, mode: ResyncMode) -> Result<()>;
+    /// Calculates the protocol-valid length of the chain within the given blocks
+    fn valid_chain_prefix_len(
+        &self,
+        node_id: &NodeId,
+        blocks: &[IdentityBlock],
+        keys: &BcrKeys,
+    ) -> Result<usize>;
 }
 
 #[cfg(test)]
