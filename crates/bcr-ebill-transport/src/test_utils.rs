@@ -611,6 +611,7 @@ mockall::mock! {
     #[async_trait]
     impl TransportClientApi for NotificationJsonTransport {
         async fn connect(&self) -> Result<()>;
+        async fn has_connected_write_relay(&self) -> bool;
         async fn send_private_event(&self, sender_node_id: &NodeId, recipient: &BillParticipant, event: EventEnvelope) -> Result<()>;
         async fn build_public_chain_event(
             &self,

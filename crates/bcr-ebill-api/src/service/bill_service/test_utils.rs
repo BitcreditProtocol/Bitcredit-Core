@@ -206,6 +206,9 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
                 tx_id: "80e4dc03b2ea934c97e265fa1855eba5c02788cb269e3f43a8e9a7bb0e114e2c".into(),
             }))
         });
+    ctx.transport_service
+        .expect_ensure_publish_ready()
+        .returning(|| Ok(()));
     ctx.nostr_contact_store
         .expect_by_node_id()
         .returning(|_| Ok(None));

@@ -441,6 +441,8 @@ impl IdentityServiceApi for IdentityService {
                 &mut changed,
             );
 
+            self.block_transport.ensure_publish_ready().await?;
+
             profile_picture_file = match profile_picture_file_upload_id {
                 EditOptionalFieldMode::Set(profile_picture_file_upload_id) => {
                     let profile_picture_file = self
@@ -625,6 +627,7 @@ impl IdentityServiceApi for IdentityService {
             )?;
             blocks.push(identity_proof_block);
         }
+        self.block_transport.ensure_publish_ready().await?;
 
         // persist - TODO (tx): make transactional
 
@@ -681,6 +684,7 @@ impl IdentityServiceApi for IdentityService {
         let node_id = NodeId::new(keys.pub_key(), self.config.bitcoin_network());
         validate_create_identity(t.clone(), &email, &postal_address)?;
         let email_confirmation = self.check_email_confirmed(&email, &t, &node_id).await?;
+        self.block_transport.ensure_publish_ready().await?;
 
         let identity = match t {
             IdentityType::Ident => {
@@ -875,6 +879,8 @@ impl IdentityServiceApi for IdentityService {
         let email_confirmation = self
             .check_email_confirmed(&email, &t, &existing_identity.node_id)
             .await?;
+
+        self.block_transport.ensure_publish_ready().await?;
 
         let profile_picture_file = self
             .process_upload_file(
@@ -1267,13 +1273,17 @@ mod tests {
     use mockall::predicate::eq;
 
     fn get_service(mock_storage: MockIdentityStoreApiMock) -> IdentityService {
+        let mut transport_service = MockTransportServiceApi::new();
+        transport_service
+            .expect_ensure_publish_ready()
+            .returning(|| Ok(()));
         IdentityService::new(
             Arc::new(mock_storage),
             Arc::new(MockFileUploadStoreApiMock::new()),
             Arc::new(MockFileStorageClientApi::new()),
             Arc::new(MockFileReferenceStoreApiMock::new()),
             Arc::new(MockIdentityChainStoreApiMock::new()),
-            Arc::new(MockTransportServiceApi::new()),
+            Arc::new(transport_service),
             Arc::new(MockEmailClientApi::new()),
             Arc::new(MockEmailNotificationStoreApiMock::new()),
             Arc::new(MockContactStoreApiMock::new()),
@@ -1284,11 +1294,12 @@ mod tests {
     fn get_service_with_chain_storage(
         mock_storage: MockIdentityStoreApiMock,
         mock_chain_storage: MockIdentityChainStoreApiMock,
-        transport: MockTransportServiceApi,
+        mut transport: MockTransportServiceApi,
     ) -> IdentityService {
         let mut contact_store = MockContactStoreApiMock::new();
         contact_store.expect_get().returning(|_| Ok(None));
         contact_store.expect_insert().returning(|_, _| Ok(()));
+        transport.expect_ensure_publish_ready().returning(|| Ok(()));
 
         IdentityService::new(
             Arc::new(mock_storage),

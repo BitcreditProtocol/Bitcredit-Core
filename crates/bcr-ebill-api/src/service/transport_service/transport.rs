@@ -36,6 +36,9 @@ pub trait TransportServiceApi: ServiceTraitBounds {
     /// Connects to the underlying network
     async fn connect(&self);
 
+    /// Checks that at least one write-relay is connected
+    async fn ensure_publish_ready(&self) -> Result<()>;
+
     /// Sent when: A bill is signed by: Drawer
     /// Receiver: Payer, Action: AcceptBill
     /// Receiver: Payee, Action: CheckBill
