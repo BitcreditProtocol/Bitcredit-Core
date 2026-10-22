@@ -102,6 +102,9 @@ pub trait TransportClientApi: ServiceTraitBounds {
     /// will only open the connection once.
     async fn connect(&self) -> Result<()>;
 
+    /// Checks if this client has at least one writable relay connected
+    async fn has_connected_write_relay(&self) -> bool;
+
     /// Adds a new identity (company keys) to the multi-identity client
     /// This will also add a subscription for direct messages to this identity
     async fn add_identity(&self, node_id: NodeId, keys: BcrKeys) -> Result<()>;

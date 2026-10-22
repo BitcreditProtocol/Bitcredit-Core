@@ -350,6 +350,7 @@ mod tests {
             fn contact_transport(&self) -> &std::sync::Arc<dyn crate::service::transport_service::ContactTransportServiceApi>;
             fn notification_transport(&self) -> &std::sync::Arc<dyn crate::service::transport_service::NotificationTransportServiceApi>;
             async fn connect(&self);
+            async fn ensure_publish_ready(&self) -> crate::service::transport_service::Result<()>;
             async fn send_bill_is_signed_event(&self, event: &bcr_ebill_core::protocol::event::BillChainEvent) -> crate::service::transport_service::Result<()>;
             async fn send_bill_is_accepted_event(&self, event: &bcr_ebill_core::protocol::event::BillChainEvent) -> crate::service::transport_service::Result<()>;
             async fn send_request_to_accept_event(&self, event: &bcr_ebill_core::protocol::event::BillChainEvent) -> crate::service::transport_service::Result<()>;

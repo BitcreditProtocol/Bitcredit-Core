@@ -68,6 +68,22 @@ impl TransportServiceApi for TransportService {
         self.nostr_transport.connect().await;
     }
 
+    async fn ensure_publish_ready(&self) -> Result<()> {
+        let available = self
+            .nostr_transport
+            .get_first_transport()
+            .has_connected_write_relay()
+            .await;
+
+        if !available {
+            return Err(crate::Error::Network(
+                "No connected Nostr write relays".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
     async fn add_identity(&self, node_id: &NodeId, keys: &BcrKeys) -> Result<()> {
         self.nostr_transport.add_identity(node_id, keys).await
     }

@@ -1109,6 +1109,12 @@ impl TransportClientApi for NostrClient {
 
         self.fetch_events(filter, Some(SortOrder::Desc), None).await
     }
+
+    async fn has_connected_write_relay(&self) -> bool {
+        self.client.relays().await.values().any(|relay| {
+            relay.status() == RelayStatus::Connected && relay.capabilities().has_write()
+        })
+    }
 }
 
 #[derive(Clone)]

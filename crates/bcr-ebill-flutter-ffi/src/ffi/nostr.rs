@@ -40,15 +40,29 @@ pub(super) fn start_subscription(
                 break;
             }
 
-            info!("[{network}] Connecting to Nostr transport..");
             // before subscription we ensure if we have a connection to the transports
-            ctx.transport_service.connect().await;
-            ensure_transport_contact_data_published(
-                ctx.clone(),
-                state.clone(),
-                &default_mint_node_id,
-            )
-            .await;
+            info!("[{network}] Connecting to Nostr transport..");
+            // connect, unless shutdown is requested
+            tokio::select! {
+                _ = cancel.cancelled() => {
+                    info!("[{network}] Nostr connection cancelled");
+                    break;
+                }
+                _ = ctx.transport_service.connect() => {}
+            }
+
+            // publish contacts, unless shutdown is requested
+            tokio::select! {
+                _ = cancel.cancelled() => {
+                    info!("[{network}] Contact publish cancelled");
+                    break;
+                }
+                _ = ensure_transport_contact_data_published(
+                    ctx.clone(),
+                    state.clone(),
+                    &default_mint_node_id,
+                ) => {}
+            }
 
             let mut handle = tokio::select! {
                 _ = cancel.cancelled() => {
@@ -79,8 +93,9 @@ pub(super) fn start_subscription(
             tokio::select! {
                 _ = cancel.cancelled() => {
                     info!("[{network}] Nostr consumer cancelled");
-                    handle.abort_all();
+                    handle.shutdown().await;
                     state.set_transport_connected(false);
+                    info!("[{network}] Nostr consumer shutdown completed");
                     break;
                 }
 

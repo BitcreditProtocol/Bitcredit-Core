@@ -339,6 +339,8 @@ impl BillService {
             )
             .await?;
 
+        self.transport_service.ensure_publish_ready().await?;
+
         // persist - TODO (tx): make transactional
 
         self.store.save_keys(&bill_id, &bill_keys).await?;
