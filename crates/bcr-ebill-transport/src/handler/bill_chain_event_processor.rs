@@ -1000,7 +1000,7 @@ impl BillChainEventProcessor {
         let first_difference = find_first_difference(existing_chain.blocks(), remote_blocks);
         let mut candidate_chain = existing_chain.clone();
 
-        let start_index = if let Some(difference) = first_difference {
+        let (start_index, truncate_from) = if let Some(difference) = first_difference {
             let index = existing_chain
                 .blocks()
                 .iter()
@@ -1010,12 +1010,28 @@ impl BillChainEventProcessor {
                         "Could not find bill fork point {difference} in local chain for {bill_id}"
                     ))
                 })?;
-            candidate_chain.truncate_from(difference);
-            index
+
+            (index, Some(difference))
         } else {
-            // remote is just an extension of local
-            existing_chain.blocks().len()
+            // remote is an extension of local
+            (existing_chain.blocks().len(), None)
         };
+
+        let remote_prefix = remote_blocks.get(..start_index).ok_or_else(|| {
+            Error::Blockchain(format!(
+                "Remote bill chain is shorter than expected canonical prefix for {bill_id}"
+            ))
+        })?;
+        let local_prefix = &existing_chain.blocks()[..start_index];
+        if remote_prefix != local_prefix {
+            return Err(Error::Blockchain(format!(
+                "Remote bill chain prefix does not exactly match the local canonical chain for {bill_id}"
+            )));
+        }
+
+        if let Some(difference) = truncate_from {
+            candidate_chain.truncate_from(difference);
+        }
 
         // start iterating from the divergence position
         for block in remote_blocks.iter().skip(start_index) {
@@ -4119,5 +4135,49 @@ mod tests {
                 "metadata recovery should only compare the local chain \
              through the requested predecessor",
             );
+    }
+
+    #[tokio::test]
+    async fn test_resync_rejects_tampered_remote_prefix_with_same_declared_hash() {
+        let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
+        let existing_chain = get_genesis_chain(Some(bill));
+        let bill_keys = BcrKeys::from_private_key(&private_key_test());
+        let bill_first_version = existing_chain.get_first_version_bill(&bill_keys).unwrap();
+        let canonical_issue = existing_chain.get_first_block().clone();
+
+        // clone block so id/hash still match, then alter some other block content
+        let mut tampered_issue = canonical_issue.clone();
+        tampered_issue.data.push(0x42);
+        assert_eq!(tampered_issue.id, canonical_issue.id);
+        assert_eq!(tampered_issue.hash, canonical_issue.hash);
+        assert_ne!(tampered_issue, canonical_issue);
+        let handler = BillChainEventProcessor::new(
+            Arc::new(MockBillChainStore::new()),
+            Arc::new(MockBillStore::new()),
+            Arc::new(MockFileReferenceStore::new()),
+            Arc::new(MockNostrContactProcessorApi::new()),
+            Arc::new(MockNostrChainEventStore::new()),
+            Arc::new(MockNotificationJsonTransport::new()),
+            Arc::new(MockMintClient::new()),
+            bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
+        );
+        let result = handler
+            .prepare_bill_resync_valid_prefix(
+                &bill_id_test(),
+                &existing_chain,
+                &[tampered_issue],
+                &bill_keys,
+                &bill_first_version,
+                false,
+            )
+            .await;
+
+        assert!(
+            result.is_err(),
+            "remote prefix with matching id/hash but different block contents must be rejected"
+        );
     }
 }
