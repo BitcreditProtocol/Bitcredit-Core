@@ -580,6 +580,7 @@ impl CompanyServiceApi for CompanyService {
             .add_identity(&id, &company_keys)
             .await?;
 
+        self.transport_service.ensure_publish_ready().await?;
         let proof_of_registration_file = self
             .process_upload_file(
                 &proof_of_registration_file_upload_id,
@@ -896,6 +897,8 @@ impl CompanyServiceApi for CompanyService {
             &mut changed,
         );
 
+        self.transport_service.ensure_publish_ready().await?;
+
         let logo_file = match logo_file_upload_id {
             EditOptionalFieldMode::Set(logo_file_upload_id) => {
                 let logo_file = self
@@ -1074,6 +1077,8 @@ impl CompanyServiceApi for CompanyService {
         }
         .validate()?;
 
+        self.transport_service.ensure_publish_ready().await?;
+
         let contacts = self.contact_store.get_map().await?;
         let is_in_contacts = contacts.iter().any(|(node_id, contact)| {
             *node_id == signatory_node_id && contact.t == ContactType::Person // only non-anon persons can be added
@@ -1225,6 +1230,8 @@ impl CompanyServiceApi for CompanyService {
             identity_proof_data: None,
         }
         .validate()?;
+
+        self.transport_service.ensure_publish_ready().await?;
 
         let signatory_idx = company
             .signatories
@@ -1516,6 +1523,7 @@ impl CompanyServiceApi for CompanyService {
             &mut company_chain,
             &None, // no reference block, just updating signatory email
         )?;
+        self.transport_service.ensure_publish_ready().await?;
 
         // persist - TODO (tx): make transactional
 
@@ -1656,6 +1664,7 @@ impl CompanyServiceApi for CompanyService {
             identity_proof_data: None,
         }
         .validate()?;
+        self.transport_service.ensure_publish_ready().await?;
 
         // check if we were invited
         let Some(signatory) = company
@@ -1858,6 +1867,7 @@ impl CompanyServiceApi for CompanyService {
             identity_proof_data: None,
         }
         .validate()?;
+        self.transport_service.ensure_publish_ready().await?;
 
         let Some(signatory) = company
             .signatories
@@ -2095,10 +2105,13 @@ pub mod tests {
         mock_nostr_contact_store: MockNostrContactStore,
         mock_identity_chain_storage: MockIdentityChainStoreApiMock,
         mock_company_chain_storage: MockCompanyChainStoreApiMock,
-        transport_service: MockTransportServiceApi,
+        mut transport_service: MockTransportServiceApi,
         mock_email_client: MockEmailClientApi,
         mock_email_notification_store: MockEmailNotificationStoreApiMock,
     ) -> CompanyService {
+        transport_service
+            .expect_ensure_publish_ready()
+            .returning(|| Ok(()));
         CompanyService::new(
             Arc::new(mock_storage),
             Arc::new(mock_file_upload_storage),

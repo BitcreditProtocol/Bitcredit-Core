@@ -1283,6 +1283,8 @@ impl BillServiceApi for BillService {
             )
             .await?;
 
+        self.transport_service.ensure_publish_ready().await?;
+
         // persist - TODO (tx): make transactional
 
         self.blockchain_store
