@@ -110,6 +110,13 @@ pub trait BillChainEventProcessorApi: ServiceTraitBounds {
 
     /// Invalidates the cached bill data for the given bill id.
     async fn invalidate_cache_for_bill(&self, bill_id: &BillId) -> Result<()>;
+    /// Calculates the protocol-valid length of the chain within the given blocks
+    async fn valid_chain_prefix_len(
+        &self,
+        bill_id: &BillId,
+        blocks: &[BillBlock],
+        keys: &BcrKeys,
+    ) -> Result<usize>;
 }
 
 #[cfg(test)]
@@ -140,6 +147,7 @@ pub trait CompanyChainEventProcessorApi: ServiceTraitBounds {
     /// then try to find the chain data for the given company id. Will add all potentially missing
     /// blocks to the chain.
     async fn resync_chain(&self, company_id: &NodeId, mode: ResyncMode) -> Result<()>;
+    /// Calculates the protocol-valid length of the chain within the given blocks
     async fn valid_chain_prefix_len(
         &self,
         company_id: &NodeId,
