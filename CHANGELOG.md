@@ -38,6 +38,9 @@
         * An instance can be reset using `resetEbillInstance` and can then be initialized again
 * Remove SurrealDB
 * Improved chain selection for identity resync-chain and recovery in the cases of longer chains with invalid tails
+* Implement clean shutdown, so after recovery, calling `resetEbillInstance` and `initEbillInstance` followed by `setActiveInstance` cleanly recover and set up the identity
+* Add check for block-operations (identity, company, bill), before persistence/effects, if we're connected to at least one write-relay, if not, the operation fails
+    * This decreases the likelihood for inconsistent states
 
 # 0.5.16
 

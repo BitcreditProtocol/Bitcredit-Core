@@ -611,15 +611,34 @@ class _HarnessPageState extends State<HarnessPage> {
       _field('Seed phrase', _seedPhrase, width: 620),
       _button('Seed recover', () async {
         final mnemonic = _required(_seedPhrase, 'Seed phrase');
+        final instanceId = _activeInstance;
+        final environment = _activeEnvironment;
 
+        // 1. Recover identity and account data
         await identity_api.seedRecover(
           seedPhrasePayload: identity_data.SeedPhrase(
             seedPhrase: mnemonic,
           ),
         );
 
-        // Only overwrite it after seedRecover succeeded
-        await _activeEnvironment.replaceMnemonic(mnemonic);
+        // 2. Persist the recovered mnemonic so the new runtime uses the correct keys
+        await environment.replaceMnemonic(mnemonic);
+
+        // 3. Shut down the existing instance runtime
+        await resetEbillInstance(
+          instanceId: instanceId,
+        );
+
+        // 4. Reinitialize with recovered mnemonic, existing DB, and original network configuration
+        await initEbillInstance(
+          instanceId: instanceId,
+          conf: environment.toConfig(),
+        );
+
+        // 5. Restore the selected instance
+        await setActiveInstance(
+          instanceId: instanceId,
+        );
 
         return 'OK - recovery mnemonic persisted '
         'for ${_activeInstance.name}';

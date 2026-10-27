@@ -13,8 +13,10 @@ use bcr_ebill_api::{
 use bcr_ebill_core::protocol::crypto::BcrKeys;
 use bcr_ebill_persistence::DbConfig;
 use flutter_rust_bridge::{JoinHandle, frb};
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use once_cell::sync::Lazy;
+use std::collections::HashMap;
+use std::time::Duration;
 use std::{
     panic,
     path::PathBuf,
@@ -24,6 +26,7 @@ use std::{
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
+use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
 pub mod api;
@@ -42,6 +45,9 @@ pub fn init_app() {
     flutter_rust_bridge::setup_default_user_utils();
 }
 
+const SHUTDOWN_GRACE_PERIOD: Duration = Duration::from_secs(10);
+const SHUTDOWN_ABORT_PERIOD: Duration = Duration::from_secs(2);
+
 static PROCESS_INIT: Once = Once::new();
 fn initialize_process_globals(log_level: &str) {
     PROCESS_INIT.call_once(|| {
@@ -57,9 +63,6 @@ pub enum InstanceId {
     Mainnet,
     Testnet,
 }
-
-use std::collections::HashMap;
-use tokio::sync::RwLock;
 
 struct InstanceManager {
     instances: HashMap<InstanceId, Arc<EbillRuntime>>,
@@ -171,9 +174,9 @@ struct EbillRuntime {
     ctx: Arc<Context>,
     state: Arc<InstanceRuntimeState>,
     jobs_cancel: CancellationToken,
-    jobs_handle: JoinHandle<()>,
+    jobs_handle: Mutex<Option<JoinHandle<()>>>,
     nostr_subscription_cancel: CancellationToken,
-    nostr_subscription_handle: JoinHandle<()>,
+    nostr_subscription_handle: Mutex<Option<JoinHandle<()>>>,
 }
 
 async fn create_runtime(conf: EbillConfig) -> Result<EbillRuntime, EbillFfiError> {
@@ -240,9 +243,9 @@ async fn create_runtime(conf: EbillConfig) -> Result<EbillRuntime, EbillFfiError
         ctx,
         state,
         jobs_cancel: cancel,
-        jobs_handle: handle,
+        jobs_handle: Mutex::new(Some(handle)),
         nostr_subscription_cancel: nostr_cancel,
-        nostr_subscription_handle: nostr_handle,
+        nostr_subscription_handle: Mutex::new(Some(nostr_handle)),
     })
 }
 
@@ -430,10 +433,61 @@ fn validate_instance_network(id: InstanceId, conf: &EbillConfig) -> Result<(), E
 }
 
 async fn shutdown_runtime(runtime: Arc<EbillRuntime>) {
+    info!("Shutting down Rust E-Bill FFI runtime");
+    // signal
     runtime.jobs_cancel.cancel();
     runtime.nostr_subscription_cancel.cancel();
-    runtime.jobs_handle.abort();
-    runtime.nostr_subscription_handle.abort();
+    // take handles
+    let jobs_handle = runtime.jobs_handle.lock().await.take();
+    let nostr_handle = runtime.nostr_subscription_handle.lock().await.take();
+    // wait for tasks, or abort
+    tokio::join!(
+        join_or_abort_task("E-Bill job runner", jobs_handle,),
+        join_or_abort_task("Nostr subscription", nostr_handle,),
+    );
+    // reset runtime status
+    runtime.state.set_transport_connected(false);
+    info!("Rust E-Bill FFI runtime shutdown sequence completed");
+}
+
+async fn join_or_abort_task(name: &str, handle: Option<JoinHandle<()>>) {
+    let Some(mut handle) = handle else {
+        debug!("{name} shutdown already handled");
+        return;
+    };
+    match tokio::time::timeout(SHUTDOWN_GRACE_PERIOD, &mut handle).await {
+        Ok(Ok(())) => {
+            info!("{name} stopped gracefully");
+        }
+        Ok(Err(err)) if err.is_cancelled() => {
+            warn!("{name} was cancelled: {err}");
+        }
+        Ok(Err(err)) => {
+            error!("{name} exited with error: {err}");
+        }
+        Err(_) => {
+            warn!(
+                "{name} did not stop within {}s; aborting",
+                SHUTDOWN_GRACE_PERIOD.as_secs()
+            );
+            handle.abort();
+            // wait until the aborted task has actually exited
+            match tokio::time::timeout(SHUTDOWN_ABORT_PERIOD, &mut handle).await {
+                Ok(Ok(())) => {
+                    info!("{name} finished during abort");
+                }
+                Ok(Err(err)) if err.is_cancelled() => {
+                    info!("{name} aborted and joined");
+                }
+                Ok(Err(err)) => {
+                    error!("{name} exited after abort: {err}");
+                }
+                Err(_) => {
+                    error!("{name} did not stop after abort - shutdown may be incomplete");
+                }
+            }
+        }
+    }
 }
 
 struct InstanceSnapshot {

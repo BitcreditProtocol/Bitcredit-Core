@@ -15,6 +15,9 @@ feature-depth = 1
 # More documentation for the advisories section can be found here:
 # https://embarkstudios.github.io/cargo-deny/checks/advisories/cfg.html
 [advisories]
+ignore = [
+    { id = "RUSTSEC-2026-0387", reason = "ecies 0.2.11 requires k256 0.13; pending dependency migration" },
+]
 unmaintained = "workspace"
 
 # This section is considered when running `cargo deny check licenses`
@@ -68,4 +71,6 @@ allow-git = []
 github = ["BitcreditProtocol"]
 gitlab = []
 bitbucket = []
+
+
 
