@@ -7,3 +7,4 @@ pub mod identity;
 pub mod mint;
 pub mod nostr;
 pub mod notification;
+pub mod transaction;

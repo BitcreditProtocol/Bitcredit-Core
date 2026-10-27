@@ -42,6 +42,7 @@ use bcr_ebill_core::protocol::{File, OptionalPostalAddress, Validate, event::Ide
 use bcr_ebill_persistence::traits::file_upload::FileUploadStoreApi;
 use bcr_ebill_persistence::traits::identity::{IdentityChainStoreApi, IdentityStoreApi};
 use bcr_ebill_persistence::traits::notification::EmailNotificationStoreApi;
+use bcr_ebill_persistence::traits::transaction::TransactionManagerApi;
 use bcr_ebill_persistence::{ContactStoreApi, FileReferenceStoreApi};
 use bitcoin::base58;
 use bitcoin::secp256k1::{PublicKey, SecretKey};
@@ -163,6 +164,7 @@ pub struct IdentityService {
     email_client: Arc<dyn EmailClientApi>,
     email_notification_store: Arc<dyn EmailNotificationStoreApi>,
     contact_store: Arc<dyn ContactStoreApi>,
+    transaction_mgr: Arc<dyn TransactionManagerApi>,
     config: Arc<Config>,
 }
 
@@ -177,6 +179,7 @@ impl IdentityService {
         email_client: Arc<dyn EmailClientApi>,
         email_notification_store: Arc<dyn EmailNotificationStoreApi>,
         contact_store: Arc<dyn ContactStoreApi>,
+        transaction_mgr: Arc<dyn TransactionManagerApi>,
         config: Arc<Config>,
     ) -> Self {
         Self {
@@ -189,6 +192,7 @@ impl IdentityService {
             email_client,
             email_notification_store,
             contact_store,
+            transaction_mgr,
             config,
         }
     }
@@ -330,6 +334,27 @@ impl IdentityService {
             }
             IdentityType::Anon => Ok(None),
         }
+    }
+
+    // helper for transactional persistence
+    async fn persist_identity_change(
+        &self,
+        expected_latest: Option<&IdentityBlock>,
+        blocks: &[IdentityBlock],
+        identity: &Identity,
+        email_confirmation: Option<&PreparedEmailConfirmation>,
+    ) -> Result<()> {
+        let mut tx = self.transaction_mgr.begin().await?;
+        tx.append_identity_blocks(expected_latest, blocks).await?;
+        tx.save_identity(identity).await?;
+        if let Some(confirmation) = email_confirmation
+            && confirmation.needs_persisting
+        {
+            tx.set_identity_email_confirmation(&confirmation.proof, &confirmation.data)
+                .await?;
+        }
+        tx.commit().await?;
+        Ok(())
     }
 }
 
@@ -530,16 +555,21 @@ impl IdentityServiceApi for IdentityService {
                 .swap_value(identity_document_file),
         };
         block_data.validate()?;
+        let expected_latest = identity_chain.get_latest_block().clone();
 
         let new_block =
             IdentityBlock::create_block_for_update(previous_block, &block_data, &keys, timestamp)
                 .map_err(|e| Error::Protocol(e.into()))?;
         validate_and_append_block(&mut identity_chain, new_block.clone())?;
 
-        // persist - TODO (tx): make transactional
-
-        self.blockchain_store.add_block(&new_block).await?;
-        self.store.save(&identity).await?;
+        // persist atomically
+        self.persist_identity_change(
+            Some(&expected_latest),
+            std::slice::from_ref(&new_block),
+            &identity,
+            None,
+        )
+        .await?;
 
         // effects & propagation
 
@@ -602,6 +632,7 @@ impl IdentityServiceApi for IdentityService {
             identity_document_file: EditOptionalFieldMode::Ignore,
         };
         block_data.validate()?;
+        let expected_latest = identity_chain.get_latest_block().clone();
         let update_block =
             IdentityBlock::create_block_for_update(previous_block, &block_data, &keys, timestamp)
                 .map_err(|e| Error::Protocol(e.into()))?;
@@ -629,20 +660,15 @@ impl IdentityServiceApi for IdentityService {
         }
         self.block_transport.ensure_publish_ready().await?;
 
-        // persist - TODO (tx): make transactional
+        // persist atomically
 
-        for block in &blocks {
-            self.blockchain_store.add_block(block).await?;
-        }
-        self.store.save(&identity).await?;
-
-        if let Some(confirmation) = &email_confirmation
-            && confirmation.needs_persisting
-        {
-            self.store
-                .set_email_confirmation(&confirmation.proof, &confirmation.data)
-                .await?;
-        }
+        self.persist_identity_change(
+            Some(&expected_latest),
+            &blocks,
+            &identity,
+            email_confirmation.as_ref(),
+        )
+        .await?;
 
         // effects & propagation
 
@@ -770,20 +796,10 @@ impl IdentityServiceApi for IdentityService {
             blocks.push(identity_proof_block);
         }
 
-        // persist - TODO (tx): make transactional
+        // persist atomically
 
-        for block in &blocks {
-            self.blockchain_store.add_block(block).await?;
-        }
-        self.store.save(&identity).await?;
-
-        if let Some(confirmation) = &email_confirmation
-            && confirmation.needs_persisting
-        {
-            self.store
-                .set_email_confirmation(&confirmation.proof, &confirmation.data)
-                .await?;
-        }
+        self.persist_identity_change(None, &blocks, &identity, email_confirmation.as_ref())
+            .await?;
 
         // effects & propagation
 
@@ -952,6 +968,7 @@ impl IdentityServiceApi for IdentityService {
             ),
         };
         block_data.validate()?;
+        let expected_latest = identity_chain.get_latest_block().clone();
         let deanon_block =
             IdentityBlock::create_block_for_update(previous_block, &block_data, &keys, timestamp)
                 .map_err(|e| Error::Protocol(e.into()))?;
@@ -977,21 +994,15 @@ impl IdentityServiceApi for IdentityService {
             blocks.push(identity_proof_block);
         }
 
-        // persist - TODO (tx): make transactional
+        // persist atomically
 
-        for block in &blocks {
-            self.blockchain_store.add_block(block).await?;
-        }
-
-        self.store.save(&identity).await?;
-
-        if let Some(confirmation) = &email_confirmation
-            && confirmation.needs_persisting
-        {
-            self.store
-                .set_email_confirmation(&confirmation.proof, &confirmation.data)
-                .await?;
-        }
+        self.persist_identity_change(
+            Some(&expected_latest),
+            &blocks,
+            &identity,
+            email_confirmation.as_ref(),
+        )
+        .await?;
 
         // effects & propagation
 
@@ -1265,12 +1276,48 @@ mod tests {
         tests::tests::{
             MockContactStoreApiMock, MockEmailNotificationStoreApiMock,
             MockFileReferenceStoreApiMock, MockFileUploadStoreApiMock,
-            MockIdentityChainStoreApiMock, MockIdentityStoreApiMock, empty_identity,
+            MockIdentityChainStoreApiMock, MockIdentityStoreApiMock,
+            MockPersistenceTransactionApiMock, MockTransactionManagerApiMock, empty_identity,
             empty_optional_address, filled_optional_address, node_id_test, private_key_test,
             signed_identity_proof_test, test_cfg, test_ts,
         },
     };
     use mockall::predicate::eq;
+
+    fn successful_identity_transaction()
+    -> Box<dyn bcr_ebill_persistence::traits::transaction::PersistenceTransactionApi> {
+        let mut tx = MockPersistenceTransactionApiMock::new();
+        tx.expect_append_identity_blocks().returning(|_, _| Ok(()));
+        tx.expect_save_identity().returning(|_| Ok(()));
+        tx.expect_set_identity_email_confirmation()
+            .returning(|_, _| Ok(()));
+        tx.expect_commit().return_once(|| Ok(()));
+        Box::new(tx)
+    }
+
+    fn successful_transaction_manager() -> MockTransactionManagerApiMock {
+        let mut manager = MockTransactionManagerApiMock::new();
+        manager
+            .expect_begin()
+            .returning(|| Ok(successful_identity_transaction()));
+        manager
+    }
+
+    fn failing_save_identity_transaction_manager() -> MockTransactionManagerApiMock {
+        let mut manager = MockTransactionManagerApiMock::new();
+        manager.expect_begin().once().returning(|| {
+            let mut tx = MockPersistenceTransactionApiMock::new();
+            tx.expect_append_identity_blocks()
+                .once()
+                .returning(|_, _| Ok(()));
+            tx.expect_save_identity()
+                .once()
+                .returning(|_| Err(bcr_ebill_persistence::Error::EncodingError));
+            tx.expect_commit().never();
+            Ok(Box::new(tx))
+        });
+        manager
+    }
 
     fn get_service(mock_storage: MockIdentityStoreApiMock) -> IdentityService {
         let mut transport_service = MockTransportServiceApi::new();
@@ -1287,6 +1334,7 @@ mod tests {
             Arc::new(MockEmailClientApi::new()),
             Arc::new(MockEmailNotificationStoreApiMock::new()),
             Arc::new(MockContactStoreApiMock::new()),
+            Arc::new(successful_transaction_manager()),
             Arc::new(test_cfg()),
         )
     }
@@ -1311,6 +1359,7 @@ mod tests {
             Arc::new(MockEmailClientApi::new()),
             Arc::new(MockEmailNotificationStoreApiMock::new()),
             Arc::new(contact_store),
+            Arc::new(successful_transaction_manager()),
             Arc::new(test_cfg()),
         )
     }
@@ -1330,6 +1379,7 @@ mod tests {
             Arc::new(mock_email_client),
             Arc::new(mock_notif_store),
             Arc::new(MockContactStoreApiMock::new()),
+            Arc::new(MockTransactionManagerApiMock::new()),
             Arc::new(test_cfg()),
         )
     }
@@ -1343,12 +1393,10 @@ mod tests {
         storage
             .expect_get_email_confirmations()
             .returning(|| Ok(vec![signed_identity_proof_test()]));
-        storage.expect_save().returning(move |_| Ok(()));
         storage
             .expect_get_key_pair()
             .returning(|| Ok(BcrKeys::new()));
-        let mut chain_storage = MockIdentityChainStoreApiMock::new();
-        chain_storage.expect_add_block().returning(|_| Ok(()));
+        let chain_storage = MockIdentityChainStoreApiMock::new();
         let mut transport = MockTransportServiceApi::new();
         transport.expect_on_block_transport(|t| {
             t.expect_send_identity_chain_events()
@@ -1393,12 +1441,10 @@ mod tests {
         storage
             .expect_get_key_pair()
             .returning(|| Ok(BcrKeys::from_private_key(&private_key_test())));
-        storage.expect_save().returning(move |_| Ok(()));
         storage
             .expect_get_key_pair()
             .returning(|| Ok(BcrKeys::new()));
-        let mut chain_storage = MockIdentityChainStoreApiMock::new();
-        chain_storage.expect_add_block().returning(|_| Ok(()));
+        let chain_storage = MockIdentityChainStoreApiMock::new();
         let mut transport = MockTransportServiceApi::new();
         transport.expect_on_block_transport(|t| {
             t.expect_send_identity_chain_events()
@@ -1441,7 +1487,6 @@ mod tests {
         storage
             .expect_get_key_pair()
             .returning(|| Ok(BcrKeys::from_private_key(&private_key_test())));
-        storage.expect_save().returning(move |_| Ok(()));
         storage
             .expect_get_key_pair()
             .returning(|| Ok(BcrKeys::from_private_key(&private_key_test())));
@@ -1455,7 +1500,6 @@ mod tests {
             .expect_get_email_confirmations()
             .returning(|| Ok(vec![signed_identity_proof_test()]));
         let mut chain_storage = MockIdentityChainStoreApiMock::new();
-        chain_storage.expect_add_block().returning(|_| Ok(()));
         chain_storage
             .expect_get_chain()
             .returning(|| Ok(get_genesis_chain(None)));
@@ -1593,7 +1637,6 @@ mod tests {
     async fn update_identity_calls_storage() {
         let keys = BcrKeys::from_private_key(&private_key_test());
         let mut storage = MockIdentityStoreApiMock::new();
-        storage.expect_save().returning(|_| Ok(()));
         storage
             .expect_get_key_pair()
             .returning(move || Ok(keys.clone()));
@@ -1605,7 +1648,6 @@ mod tests {
         chain_storage
             .expect_get_chain()
             .returning(|| Ok(get_genesis_chain(None)));
-        chain_storage.expect_add_block().returning(|_| Ok(()));
         let mut transport = MockTransportServiceApi::new();
         transport.expect_on_block_transport(|t| {
             t.expect_send_identity_chain_events()
@@ -1678,35 +1720,39 @@ mod tests {
 
     #[tokio::test]
     async fn update_identity_propagates_errors() {
+        let keys = BcrKeys::from_private_key(&private_key_test());
         let mut storage = MockIdentityStoreApiMock::new();
         storage
             .expect_get_key_pair()
-            .returning(|| Ok(BcrKeys::from_private_key(&private_key_test())));
-        storage
-            .expect_get_key_pair()
-            .returning(|| Ok(BcrKeys::from_private_key(&private_key_test())));
-        storage.expect_get().returning(move || {
-            let identity = empty_identity();
-            Ok(identity)
-        });
-        storage
-            .expect_save()
-            .returning(|_| Err(bcr_ebill_persistence::Error::EncodingError))
-            .times(1);
+            .returning(move || Ok(keys.clone()));
+        storage.expect_get().returning(move || Ok(empty_identity()));
         let mut chain_storage = MockIdentityChainStoreApiMock::new();
         chain_storage
             .expect_get_chain()
             .returning(|| Ok(get_genesis_chain(None)));
-        chain_storage
-            .expect_add_block()
-            .returning(|_| Ok(()))
-            .once();
         let mut transport = MockTransportServiceApi::new();
         transport.expect_on_block_transport(|t| {
             t.expect_send_identity_chain_events().never();
         });
+        transport.expect_ensure_publish_ready().returning(|| Ok(()));
+        let mut contact_store = MockContactStoreApiMock::new();
+        contact_store.expect_get().returning(|_| Ok(None));
+        contact_store.expect_insert().returning(|_, _| Ok(()));
 
-        let service = get_service_with_chain_storage(storage, chain_storage, transport);
+        let service = IdentityService::new(
+            Arc::new(storage),
+            Arc::new(MockFileUploadStoreApiMock::new()),
+            Arc::new(MockFileStorageClientApi::new()),
+            Arc::new(MockFileReferenceStoreApiMock::new()),
+            Arc::new(chain_storage),
+            Arc::new(transport),
+            Arc::new(MockEmailClientApi::new()),
+            Arc::new(MockEmailNotificationStoreApiMock::new()),
+            Arc::new(contact_store),
+            Arc::new(failing_save_identity_transaction_manager()),
+            Arc::new(test_cfg()),
+        );
+
         let res = service
             .update_identity(
                 Some(Name::new("new_name").unwrap()),
@@ -1902,6 +1948,71 @@ mod tests {
             .confirm_email(&Email::new("test@example.com").unwrap())
             .await;
         assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn update_identity_does_not_propagate_if_transaction_commit_fails() {
+        let keys = BcrKeys::from_private_key(&private_key_test());
+        let mut storage = MockIdentityStoreApiMock::new();
+        storage
+            .expect_get_key_pair()
+            .returning(move || Ok(keys.clone()));
+        storage.expect_get().returning(|| Ok(empty_identity()));
+        let mut chain_storage = MockIdentityChainStoreApiMock::new();
+        chain_storage
+            .expect_get_chain()
+            .returning(|| Ok(get_genesis_chain(None)));
+        let mut tx_manager = MockTransactionManagerApiMock::new();
+        tx_manager.expect_begin().once().returning(|| {
+            let mut tx = MockPersistenceTransactionApiMock::new();
+            tx.expect_append_identity_blocks()
+                .once()
+                .returning(|_, _| Ok(()));
+            tx.expect_save_identity().once().returning(|_| Ok(()));
+            tx.expect_commit()
+                .once()
+                .return_once(|| Err(bcr_ebill_persistence::Error::EncodingError));
+
+            Ok(Box::new(tx))
+        });
+        let mut transport = MockTransportServiceApi::new();
+        transport.expect_ensure_publish_ready().returning(|| Ok(()));
+        transport.expect_on_block_transport(|t| {
+            t.expect_send_identity_chain_events().never();
+        });
+        transport.expect_on_contact_transport(|t| {
+            t.expect_publish_contact().never();
+        });
+        let service = IdentityService::new(
+            Arc::new(storage),
+            Arc::new(MockFileUploadStoreApiMock::new()),
+            Arc::new(MockFileStorageClientApi::new()),
+            Arc::new(MockFileReferenceStoreApiMock::new()),
+            Arc::new(chain_storage),
+            Arc::new(transport),
+            Arc::new(MockEmailClientApi::new()),
+            Arc::new(MockEmailNotificationStoreApiMock::new()),
+            Arc::new(MockContactStoreApiMock::new()),
+            Arc::new(tx_manager),
+            Arc::new(test_cfg()),
+        );
+        let result = service
+            .update_identity(
+                Some(Name::new("new_name").unwrap()),
+                None,
+                None,
+                EditOptionalFieldMode::Ignore,
+                None,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                EditOptionalFieldMode::Ignore,
+                test_ts(),
+            )
+            .await;
+        assert!(result.is_err());
     }
 
     fn add_identity_proof_block(mut chain: IdentityBlockchain) -> IdentityBlockchain {

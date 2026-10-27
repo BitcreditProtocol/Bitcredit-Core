@@ -3,15 +3,15 @@ use bcr_ebill_core::{
     application::identity::{ActiveIdentityState, Identity},
     protocol::{
         Address, City, Country, Date, Email, EmailIdentityProofData, Identification, Name,
-        OptionalPostalAddress, Sha256Hash, SignedIdentityProof, Zip,
+        OptionalPostalAddress, Sha256Hash, SignedIdentityProof, Zip, crypto::BcrKeys,
     },
 };
-use bitcoin::hashes::sha256::Hash as Sha256HexHash;
+use bitcoin::{base58, hashes::sha256::Hash as Sha256HexHash};
 use sqlx::{FromRow, types::Text};
 use url::Url;
 
 use crate::{
-    Error, Result,
+    EncryptionContext, Error, Result,
     sql::{
         decode_file, identity_type_from_db, identity_type_to_db, timestamp_from_db, timestamp_to_db,
     },
@@ -405,4 +405,15 @@ pub(crate) fn email_confirmation_from_row(
             created_at: timestamp_from_db(row.created_at)?,
         },
     ))
+}
+
+pub(crate) fn identity_key_pair_from_row(
+    row: IdentityKeysRow,
+    encryption_ctx: &EncryptionContext,
+) -> Result<BcrKeys> {
+    let decoded_private_key = base58::decode(&row.key)?;
+    let decrypted_private_key = encryption_ctx.decrypt(&decoded_private_key)?;
+    let private_key = String::from_utf8(decrypted_private_key)
+        .map_err(|e| Error::InvalidData(format!("Invalid decrypted private key: {e}")))?;
+    Ok(BcrKeys::from_private_key_string(&private_key)?)
 }

@@ -19,7 +19,7 @@ use crate::{
         SELECT_ACTIVE_IDENTITY, SELECT_EMAIL_CONFIRMATIONS, SELECT_IDENTITY, SELECT_KEYS,
         SELECT_NETWORK, UPSERT_ACTIVE_IDENTITY, UPSERT_EMAIL_CONFIRMATION, UPSERT_IDENTITY,
         UPSERT_KEYS, bind_identity, email_confirmation_from_row, email_confirmation_to_row,
-        identity_to_row,
+        identity_key_pair_from_row, identity_to_row,
     },
     traits::identity::IdentityStoreApi,
 };
@@ -116,14 +116,7 @@ impl IdentityStoreApi for SqliteIdentityStore {
                 "identity key pair".to_owned(),
                 String::new(),
             )),
-            Some(row) => {
-                let encoded_private_key = row.key;
-                let decoded_private_key = base58::decode(&encoded_private_key)?;
-                let decrypted_private_key = self.encryption_ctx.decrypt(&decoded_private_key)?;
-                let private_key = String::from_utf8(decrypted_private_key)
-                    .map_err(|e| Error::InvalidData(format!("Invalid private key: {e}")))?;
-                Ok(BcrKeys::from_private_key_string(&private_key)?)
-            }
+            Some(row) => identity_key_pair_from_row(row, &self.encryption_ctx),
         }
     }
 
