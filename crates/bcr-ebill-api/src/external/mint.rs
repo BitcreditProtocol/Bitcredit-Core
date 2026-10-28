@@ -178,6 +178,7 @@ pub trait MintClientApi: ServiceTraitBounds {
 #[derive(Debug, Clone)]
 pub struct MintClient {
     config: Arc<Config>,
+    pub(super) identity_cache: super::mint_identity::IdentityCache,
 }
 
 const REISSUE_ENQUIRE_SCHEMA_VERSION: &str = "credit-quote-reissue-enquiry-v1";
@@ -443,7 +444,10 @@ impl ServiceTraitBounds for MockMintClientApi {}
 
 impl MintClient {
     pub fn new(config: Arc<Config>) -> Self {
-        Self { config }
+        Self {
+            config,
+            identity_cache: Default::default(),
+        }
     }
 
     pub fn client(&self, mint_url: &url::Url) -> Result<ExternalMintClient> {
@@ -455,37 +459,7 @@ impl MintClient {
 #[async_trait]
 impl MintClientApi for MintClient {
     async fn verify_mint_identity(&self, mint_url: &url::Url, mint_node_id: &NodeId) -> Result<()> {
-        // This is the eBill identity used as quote counterparty, NOT Clowder's node key.
-        // Existing Wildcat quote replies are unsigned by this key. The configured URL
-        // remains the trust anchor and must expose this identity endpoint to the caller.
-        #[derive(Deserialize)]
-        struct AdvertisedIdentity {
-            node_id: NodeId,
-        }
-        let endpoint = mint_url
-            .join("/v1/admin/identity/detail")
-            .map_err(|_| Error::InvalidMintUrl)?;
-        let builder = reqwest::Client::builder();
-        #[cfg(not(target_arch = "wasm32"))]
-        let builder = builder
-            .redirect(reqwest::redirect::Policy::none())
-            .timeout(std::time::Duration::from_secs(15));
-        let identity: AdvertisedIdentity = builder
-            .build()
-            .map_err(|_| Error::QuoteClient)?
-            .get(endpoint)
-            .send()
-            .await
-            .map_err(|_| Error::QuoteClient)?
-            .error_for_status()
-            .map_err(|_| Error::QuoteClient)?
-            .json()
-            .await
-            .map_err(|_| Error::QuoteClient)?;
-        if &identity.node_id != mint_node_id {
-            return Err(Error::MintIdentityMismatch.into());
-        }
-        Ok(())
+        self.identity_cache.verify(mint_url, mint_node_id).await
     }
 
     async fn check_if_proofs_are_spent(
@@ -1203,38 +1177,5 @@ mod quote_reissue_tests {
                 .is_err()
         );
         response.assert_async().await;
-    }
-    #[tokio::test]
-    async fn advertised_ebill_identity_must_match_key_and_network_and_endpoint_must_exist() {
-        let expected = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Regtest);
-        for (status, advertised, valid) in [
-            (200, expected.clone(), true),
-            (
-                200,
-                NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Regtest),
-                false,
-            ),
-            (
-                200,
-                NodeId::new(expected.pub_key(), bitcoin::Network::Testnet),
-                false,
-            ),
-            (404, expected.clone(), false),
-        ] {
-            let mut server = mockito::Server::new_async().await;
-            let endpoint = server
-                .mock("GET", "/v1/admin/identity/detail")
-                .with_status(status)
-                .with_header("content-type", "application/json")
-                .with_body(serde_json::json!({"node_id":advertised}).to_string())
-                .expect(1)
-                .create_async()
-                .await;
-            let result = MintClient::new()
-                .verify_mint_identity(&server.url().parse().unwrap(), &expected)
-                .await;
-            assert_eq!(result.is_ok(), valid);
-            endpoint.assert_async().await;
-        }
     }
 }

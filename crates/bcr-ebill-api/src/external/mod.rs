@@ -3,6 +3,7 @@ pub mod court;
 pub mod email;
 pub mod file_storage;
 pub mod mint;
+mod mint_identity;
 
 use thiserror::Error;
 
