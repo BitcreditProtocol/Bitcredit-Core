@@ -1660,6 +1660,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_process_create_company_data() {
+        crate::test_utils::init_test_cfg();
         let (
             mut chain_store,
             mut store,

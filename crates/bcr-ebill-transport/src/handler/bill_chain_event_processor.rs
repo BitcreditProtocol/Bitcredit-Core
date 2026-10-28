@@ -818,7 +818,7 @@ impl BillChainEventProcessor {
         address_to_check: &BitcoinAddress,
         holder_is_mint: &Option<BillParticipant>,
     ) -> Result<()> {
-        if let Some(_mint_holder) = holder_is_mint
+        if let Some(mint_holder) = holder_is_mint
             && matches!(payment_op, BillOpCode::RequestToPay)
         {
             if !address_to_check.is_valid_for_network(btc_network) {
@@ -829,7 +829,10 @@ impl BillChainEventProcessor {
 
             self.mint_client
                 .validate_payment_address_from_mint(
-                    &self.config.mint_config.default_mint_url,
+                    self.config
+                        .mint_config
+                        .url_for(&mint_holder.node_id())
+                        .ok_or_else(|| Error::Crypto("Unconfigured Mint holder".to_owned()))?,
                     address_to_check,
                     bill_id,
                     *block_id,
@@ -3336,6 +3339,9 @@ mod tests {
         let mut mock_mint_client = MockMintClient::new();
         mock_mint_client
             .expect_validate_payment_address_from_mint()
+            .withf(|url, _, _, _, _| {
+                url == &bcr_ebill_api::get_config().mint_config.default_mint_url
+            })
             .returning(|_, _, _, _, _| Ok(()))
             .times(1);
         let handler = BillChainEventProcessor::new(
@@ -3367,8 +3373,14 @@ mod tests {
                 &holder_pub,
                 network,
                 &address,
-                &Some(BillParticipant::Ident(
-                    BillIdentParticipant::new(get_baseline_identity().identity).unwrap(),
+                &Some(BillParticipant::Anon(
+                    bcr_ebill_core::protocol::blockchain::bill::participant::BillAnonParticipant {
+                        node_id: bcr_ebill_api::get_config()
+                            .mint_config
+                            .default_mint_node_id
+                            .clone(),
+                        nostr_relays: vec![],
+                    },
                 )),
             )
             .await;

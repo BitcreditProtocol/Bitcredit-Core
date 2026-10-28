@@ -41,6 +41,7 @@
 * Implement clean shutdown, so after recovery, calling `resetEbillInstance` and `initEbillInstance` followed by `setActiveInstance` cleanly recover and set up the identity
 * Add check for block-operations (identity, company, bill), before persistence/effects, if we're connected to at least one write-relay, if not, the operation fails
     * This decreases the likelihood for inconsistent states
+* Add optional `MintConfig::with_mints` (`ConfiguredMint {name, node_id, url}`) alongside the existing service-Mint defaults. Route quote creation, polling, resolution, cancellation and Mint-holder payment validation by the configured Mint; share encrypted attachments with that Mint’s Blossom endpoints. Bill, quote, proof and settlement states remain separate.
 
 # 0.5.16
 

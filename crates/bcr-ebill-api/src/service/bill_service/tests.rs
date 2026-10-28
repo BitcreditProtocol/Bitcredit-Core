@@ -8604,3 +8604,330 @@ async fn get_local_bill_chain_baseline() {
     assert!(res.is_ok());
     assert_eq!(res.as_ref().unwrap().blocks(), chain.blocks());
 }
+
+#[tokio::test]
+async fn req_to_second_mint_routes_its_http_and_shared_bill() {
+    init_test_cfg();
+    let mut ctx = get_ctx();
+    let identity = get_baseline_identity();
+    let mut bill = get_baseline_bill(&bill_id_test());
+    bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
+        identity.identity.node_id.clone(),
+    ));
+    ctx.bill_store
+        .expect_save_bill_to_cache()
+        .returning(|_, _, _| Ok(()));
+    ctx.bill_blockchain_store
+        .expect_get_chain()
+        .returning(move |_| {
+            let mut chain = get_genesis_chain(Some(bill.clone()));
+            chain.try_add_block(accept_block(&bill.id, chain.get_latest_block()));
+            Ok(chain)
+        });
+    ctx.mint_store
+        .expect_get_requests()
+        .returning(|_, _, _| Ok(vec![]));
+    ctx.mint_client
+        .expect_enquire_mint_quote()
+        .withf(|url, _, _| url.as_str() == "http://localhost:5242/")
+        .times(1)
+        .returning(|_, _, _| Ok(get_uuid_v4()));
+    ctx.mint_store
+        .expect_add_request()
+        .withf(|_, _, mint, _, _| mint == &node_id_test_other())
+        .times(1)
+        .returning(|_, _, _, _, _| Ok(()));
+    // Asset request to mint event is sent
+    ctx.transport_service
+        .expect_send_request_to_mint_event()
+        .returning(|_, _, _| Ok(()));
+    ctx.transport_service.expect_on_contact_transport(|t| {
+        t.expect_resolve_contact().returning(|_| Ok(None));
+    });
+
+    let service = get_service(ctx);
+
+    let res = service
+        .request_to_mint(
+            &bill_id_test(),
+            &node_id_test_other(),
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
+            test_ts(),
+        )
+        .await;
+    assert!(res.is_ok());
+}
+
+#[tokio::test]
+async fn cancel_second_mint_uses_quote_mint_url() {
+    init_test_cfg();
+    let mut ctx = get_ctx();
+    let identity = get_baseline_identity();
+
+    ctx.mint_client
+        .expect_cancel_quote_for_mint()
+        .withf(|url, _| url.as_str() == "http://localhost:5242/")
+        .times(1)
+        .returning(|_, _| Ok(()));
+    let req_node_id = identity.identity.node_id.clone();
+    ctx.mint_store.expect_get_request().returning(move |_| {
+        Ok(Some(MintRequest {
+            requester_node_id: req_node_id.clone(),
+            bill_id: bill_id_test(),
+            mint_node_id: node_id_test_other(),
+            mint_request_id: get_uuid_v4(),
+            timestamp: test_ts(),
+            status: MintRequestStatus::Pending,
+        }))
+    });
+    ctx.mint_store
+        .expect_update_request()
+        .returning(|_, _| Ok(()));
+
+    let service = get_service(ctx);
+    let res = service
+        .cancel_request_to_mint(&get_uuid_v4(), &identity.identity.node_id)
+        .await;
+    assert!(res.is_ok());
+}
+
+#[tokio::test]
+async fn accept_second_mint_uses_quote_mint_url() {
+    init_test_cfg();
+    let mut ctx = get_ctx();
+    let mut identity = IdentityWithAll {
+        identity: empty_identity(),
+        key_pair: BcrKeys::new(),
+    };
+    identity.identity.node_id = NodeId::new(identity.key_pair.pub_key(), bitcoin::Network::Testnet);
+    identity.identity.postal_address.country = Some(Country::AT);
+    identity.identity.postal_address.city = Some(City::new("Vienna").unwrap());
+    identity.identity.postal_address.address = Some(Address::new("Hayekweg 5").unwrap());
+
+    let mut bill = get_baseline_bill(&bill_id_test());
+    bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
+        identity.identity.node_id.clone(),
+    ));
+    ctx.bill_store
+        .expect_save_bill_to_cache()
+        .returning(|_, _, _| Ok(()));
+    ctx.bill_blockchain_store
+        .expect_get_chain()
+        .returning(move |_| {
+            let mut chain = get_genesis_chain(Some(bill.clone()));
+            chain.try_add_block(accept_block(&bill.id, chain.get_latest_block()));
+            Ok(chain)
+        });
+
+    // Populate identity block
+    expect_populates_identity_block(&mut ctx);
+
+    ctx.mint_client
+        .expect_resolve_quote_for_mint()
+        .withf(|url, _, _| url.as_str() == "http://localhost:5242/")
+        .times(1)
+        .returning(|_, _, _| Ok(()));
+    let req_node_id = identity.identity.node_id.clone();
+    ctx.mint_store.expect_get_request().returning(move |_| {
+        Ok(Some(MintRequest {
+            requester_node_id: req_node_id.clone(),
+            bill_id: bill_id_test(),
+            mint_node_id: node_id_test_other(),
+            mint_request_id: get_uuid_v4(),
+            timestamp: Timestamp::new(1731593938).unwrap(),
+            status: MintRequestStatus::Offered,
+        }))
+    });
+    ctx.mint_store
+        .expect_update_request()
+        .returning(|_, _| Ok(()));
+    ctx.mint_store
+        .expect_get_requests_for_bill()
+        .returning(|_, _| Ok(vec![]));
+    ctx.mint_store.expect_get_offer().returning(|_| {
+        Ok(Some(MintOffer {
+            mint_request_id: get_uuid_v4(),
+            keyset_id: "keyset_id".to_owned(),
+            expiration_timestamp: Timestamp::new(1731593938).unwrap(),
+            discounted_sum: Sum::new_sat(1500).unwrap(),
+            proofs: None,
+            proofs_spent: false,
+            recovery_data: None,
+        }))
+    });
+    ctx.identity_store
+        .expect_get_email_confirmations()
+        .returning(|| Ok(vec![signed_identity_proof_test()]));
+    // Asset request to mint event is sent
+    ctx.transport_service
+        .expect_send_bill_is_endorsed_event()
+        .returning(|_| Ok(()));
+    ctx.transport_service.expect_on_contact_transport(|t| {
+        t.expect_resolve_contact().returning(|_| Ok(None));
+    });
+
+    let service = get_service(ctx);
+    let res = service
+        .accept_mint_offer(
+            &get_uuid_v4(),
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
+            Timestamp::new(1731593930).unwrap(),
+        )
+        .await;
+    assert!(res.is_ok());
+}
+
+#[tokio::test]
+async fn reject_second_mint_uses_quote_mint_url() {
+    init_test_cfg();
+    let mut ctx = get_ctx();
+    let identity = get_baseline_identity();
+
+    ctx.mint_client
+        .expect_resolve_quote_for_mint()
+        .withf(|url, _, _| url.as_str() == "http://localhost:5242/")
+        .times(1)
+        .returning(|_, _, _| Ok(()));
+    let req_node_id = identity.identity.node_id.clone();
+    ctx.mint_store.expect_get_request().returning(move |_| {
+        Ok(Some(MintRequest {
+            requester_node_id: req_node_id.clone(),
+            bill_id: bill_id_test(),
+            mint_node_id: node_id_test_other(),
+            mint_request_id: get_uuid_v4(),
+            timestamp: test_ts(),
+            status: MintRequestStatus::Offered,
+        }))
+    });
+    ctx.mint_store
+        .expect_update_request()
+        .returning(|_, _| Ok(()));
+
+    let service = get_service(ctx);
+    let res = service
+        .reject_mint_offer(&get_uuid_v4(), &identity.identity.node_id)
+        .await;
+    assert!(res.is_ok());
+}
+
+#[tokio::test]
+async fn unconfigured_mint_is_rejected_before_any_external_request() {
+    init_test_cfg();
+    let service = get_service(get_ctx());
+    let identity = get_baseline_identity();
+    let result = service
+        .request_to_mint(
+            &bill_id_test(),
+            &node_id_test_another(),
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
+            &identity.key_pair,
+            test_ts(),
+        )
+        .await;
+    assert!(matches!(
+        result,
+        Err(Error::Validation(ValidationError::InvalidMint(_)))
+    ));
+}
+
+#[tokio::test]
+async fn poll_same_bill_at_two_mints_uses_distinct_quote_endpoints() {
+    init_test_cfg();
+    let mut ctx = get_ctx();
+    let quote_a = uuid::Uuid::new_v4();
+    let quote_b = uuid::Uuid::new_v4();
+    ctx.mint_client
+        .expect_lookup_quote_for_mint()
+        .times(2)
+        .returning(move |url, quote| {
+            assert_eq!(
+                url.port(),
+                Some(if *quote == quote_a { 4242 } else { 5242 })
+            );
+            assert!(*quote == quote_a || *quote == quote_b);
+            Ok(QuoteStatusReply::Pending.into())
+        });
+    ctx.transport_service.expect_on_notification_transport(|t| {
+        t.expect_reconcile_quote_applicant_action_notification()
+            .returning(|_, _, _, _| Ok(()));
+    });
+    let service = get_service(ctx);
+    for (mint_node_id, mint_request_id) in
+        [(node_id_test(), quote_a), (node_id_test_other(), quote_b)]
+    {
+        service
+            .check_mint_quote_and_update_bill_mint_state(&MintRequest {
+                requester_node_id: node_id_test(),
+                bill_id: bill_id_test(),
+                mint_node_id,
+                mint_request_id,
+                timestamp: test_ts(),
+                status: MintRequestStatus::Pending,
+            })
+            .await
+            .unwrap();
+    }
+}
+
+#[tokio::test]
+async fn second_mint_attachments_use_its_advertised_blossom_server() {
+    init_test_cfg();
+    let mut ctx = get_ctx();
+    let bill_keys = BcrKeys::from_private_key(&private_key_test());
+    let plaintext = b"second-mint-attachment".to_vec();
+    let encrypted =
+        bcr_ebill_core::protocol::crypto::encrypt_ecies(&plaintext, &bill_keys.pub_key()).unwrap();
+    ctx.identity_store
+        .expect_get_current_identity()
+        .returning(|| {
+            Ok(bcr_ebill_core::application::identity::ActiveIdentityState {
+                personal: node_id_test(),
+                company: None,
+            })
+        });
+    ctx.file_upload_client
+        .expect_download()
+        .once()
+        .returning(move |_, _| Ok(encrypted.clone()));
+    ctx.transport_service.expect_on_contact_transport(|t| {
+        t.expect_resolve_contact()
+            .with(eq(node_id_test_other()))
+            .once()
+            .returning(|_| {
+                Ok(Some(crate::service::transport_service::NostrContactData {
+                    metadata: Default::default(),
+                    relays: vec!["ws://mint-b.example/".parse().unwrap()],
+                    blossom_servers: vec!["http://mint-b.example/".parse().unwrap()],
+                }))
+            });
+    });
+    let hash = Sha256HexHash::from_str(&"b".repeat(64)).unwrap();
+    ctx.file_upload_client
+        .expect_upload()
+        .once()
+        .withf(|server, _| server.as_str() == "http://mint-b.example/")
+        .returning(move |_, _| {
+            Ok(UploadedBlob {
+                hash,
+                url: format!("http://mint-b.example/{hash}").parse().unwrap(),
+            })
+        });
+    let service = get_service(ctx);
+    let urls = service
+        .upload_bill_files_for_node_id(
+            &bill_id_test(),
+            &bill_keys.get_private_key(),
+            &node_id_test_other().pub_key(),
+            &bill_keys,
+            &[File {
+                name: Name::new("invoice.pdf").unwrap(),
+                hash: Sha256Hash::from_bytes(&plaintext),
+                nostr_hash: Sha256HexHash::from_str(&"a".repeat(64)).unwrap(),
+            }],
+        )
+        .await
+        .unwrap();
+    assert_eq!(urls[0].host_str(), Some("mint-b.example"));
+}

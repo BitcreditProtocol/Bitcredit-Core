@@ -160,7 +160,7 @@ impl BillService {
                 payment_deadline_timestamp,
                 optional_mint_payment_address,
             ) => {
-                let address_to_pay = if let Some(_mint_holder) = blockchain
+                let address_to_pay = if let Some(mint_holder) = blockchain
                     .holder_is_mint(bill_keys)
                     .map_err(|e| Error::Protocol(e.into()))?
                 {
@@ -175,7 +175,8 @@ impl BillService {
 
                         self.mint_client
                             .validate_payment_address_from_mint(
-                                &self.config.mint_config.default_mint_url,
+                                self.config.mint_config.url_for(&mint_holder.node_id())
+                                    .ok_or_else(|| Error::Validation(bcr_ebill_core::application::ValidationError::InvalidMint(mint_holder.node_id().to_string())))?,
                                 mint_payment_address,
                                 &bill.id,
                                 BlockId::next_from_previous_block_id(&previous_block.id()),

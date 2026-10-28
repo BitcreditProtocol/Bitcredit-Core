@@ -135,6 +135,7 @@ pub fn test_cfg() -> Config {
             relay_ack_threshold: 1,
         },
         mint_config: bcr_ebill_api::MintConfig {
+            mints: vec![],
             default_mint_url: url::Url::parse("http://localhost:4242/").unwrap(),
             default_mint_node_id: NodeId::from_str(
                 "bitcrt03f9f94d1fdc2090d46f3524807e3f58618c36988e69577d70d5d4d1e9e9645a4f",

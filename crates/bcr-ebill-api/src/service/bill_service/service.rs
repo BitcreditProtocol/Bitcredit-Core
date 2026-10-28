@@ -380,10 +380,13 @@ impl BillService {
             mint_request.mint_request_id
         );
         let mint_cfg = &self.config.mint_config;
-        // for now, we only support the default mint
-        if mint_request.mint_node_id != mint_cfg.default_mint_node_id {
-            return Ok(());
-        }
+        let mint_url = mint_cfg
+            .url_for(&mint_request.mint_node_id)
+            .ok_or_else(|| {
+                Error::Validation(ValidationError::InvalidMint(
+                    mint_request.mint_node_id.to_string(),
+                ))
+            })?;
 
         match mint_request.status {
             // If it's minting enabled, get the offer and, if it's not finished (i.e. has no proofs), attempt to get keyset and mint
@@ -404,7 +407,7 @@ impl BillService {
                         // check keyset and try to mint and create tokens and persist
                         match self
                             .mint_client
-                            .get_keyset_info(&mint_cfg.default_mint_url, &offer.keyset_id)
+                            .get_keyset_info(mint_url, &offer.keyset_id)
                             .await
                         {
                             // keyset info is available
@@ -483,7 +486,7 @@ impl BillService {
                                     .mint_client
                                     .mint(
                                         &mint_request.bill_id,
-                                        &mint_cfg.default_mint_url,
+                                        mint_url,
                                         keyset,
                                         &mint_request.mint_request_id,
                                         &private_key,
@@ -509,11 +512,7 @@ impl BillService {
                         if let Some(proofs) = offer.proofs {
                             match self
                                 .mint_client
-                                .check_if_proofs_are_spent(
-                                    &mint_cfg.default_mint_url,
-                                    &proofs,
-                                    &offer.keyset_id,
-                                )
+                                .check_if_proofs_are_spent(mint_url, &proofs, &offer.keyset_id)
                                 .await
                             {
                                 Ok(spent) => {
@@ -550,10 +549,7 @@ impl BillService {
                     applicant_action,
                 } = self
                     .mint_client
-                    .lookup_quote_for_mint(
-                        &mint_cfg.default_mint_url,
-                        &mint_request.mint_request_id,
-                    )
+                    .lookup_quote_for_mint(mint_url, &mint_request.mint_request_id)
                     .await?;
                 let authoritative_applicant_action =
                     authoritative_applicant_action_for_status(&updated_status, applicant_action);
@@ -707,8 +703,7 @@ impl BillService {
                 // only if we're the requester
                 if req.requester_node_id == *current_identity_node_id {
                     let mint_cfg = &self.config.mint_config;
-                    // only for the default mint for now
-                    if req.mint_node_id == mint_cfg.default_mint_node_id {
+                    if mint_cfg.url_for(&req.mint_node_id).is_some() {
                         Ok(req.to_owned())
                     } else {
                         Err(Error::NotFound)
@@ -739,7 +734,14 @@ impl BillService {
                 && let Err(e) = self
                     .mint_client
                     .resolve_quote_for_mint(
-                        &self.config.mint_config.default_mint_url,
+                        self.config
+                            .mint_config
+                            .url_for(&req.mint_node_id)
+                            .ok_or_else(|| {
+                                Error::Validation(ValidationError::InvalidMint(
+                                    req.mint_node_id.to_string(),
+                                ))
+                            })?,
                         &req.mint_request_id,
                         ResolveMintOffer::Reject,
                     )
@@ -792,7 +794,24 @@ impl BillService {
         if files.is_empty() {
             return Ok(vec![]);
         }
-        let blossom_servers = configured_blossom_servers(&self.config.nostr_config);
+        let receiver_node_id = NodeId::new(*receiver_public_key, self.config.bitcoin_network());
+        let mint_config = &self.config.mint_config;
+        let blossom_servers = if mint_config.url_for(&receiver_node_id).is_some() {
+            let contact = self
+                .transport_service
+                .contact_transport()
+                .resolve_contact(&receiver_node_id)
+                .await?;
+            match contact {
+                Some(contact) if !contact.blossom_servers.is_empty() => contact.blossom_servers,
+                _ if receiver_node_id == mint_config.default_mint_node_id => {
+                    configured_blossom_servers(&self.config.nostr_config)
+                }
+                _ => return Err(Error::NotFound),
+            }
+        } else {
+            configured_blossom_servers(&self.config.nostr_config)
+        };
 
         let mut file_urls = Vec::with_capacity(files.len());
         for file in files {
@@ -867,11 +886,9 @@ impl BillService {
         validate_node_id_network(mint_node_id, self.config.bitcoin_network())?;
         debug!("Executing request to mint with mint {mint_node_id} for bill {bill_id}");
         let mint_cfg = &self.config.mint_config;
-        if mint_cfg.default_mint_node_id != *mint_node_id {
-            return Err(Error::Validation(ValidationError::InvalidMint(
-                mint_node_id.to_string(),
-            )));
-        }
+        let mint_url = mint_cfg.url_for(mint_node_id).ok_or_else(|| {
+            Error::Validation(ValidationError::InvalidMint(mint_node_id.to_string()))
+        })?;
 
         let identity = self.identity_store.get().await?;
         let contacts = self.contact_store.get_map().await?;
@@ -944,17 +961,12 @@ impl BillService {
         let mint_request_id = match signed_reissue_permit_json {
             Some(signed_permit) => {
                 self.mint_client
-                    .enquire_mint_quote_reissue(
-                        &mint_cfg.default_mint_url,
-                        bill_to_share,
-                        signer_keys,
-                        signed_permit,
-                    )
+                    .enquire_mint_quote_reissue(mint_url, bill_to_share, signer_keys, signed_permit)
                     .await?
             }
             None => {
                 self.mint_client
-                    .enquire_mint_quote(&mint_cfg.default_mint_url, bill_to_share, signer_keys)
+                    .enquire_mint_quote(mint_url, bill_to_share, signer_keys)
                     .await?
             }
         };
@@ -1918,7 +1930,14 @@ impl BillServiceApi for BillService {
         if matches!(req.status, MintRequestStatus::Pending) {
             self.mint_client
                 .cancel_quote_for_mint(
-                    &self.config.mint_config.default_mint_url,
+                    self.config
+                        .mint_config
+                        .url_for(&req.mint_node_id)
+                        .ok_or_else(|| {
+                            Error::Validation(ValidationError::InvalidMint(
+                                req.mint_node_id.to_string(),
+                            ))
+                        })?,
                     &req.mint_request_id,
                 )
                 .await?;
@@ -2003,7 +2022,14 @@ impl BillServiceApi for BillService {
                 // accept the offer
                 self.mint_client
                     .resolve_quote_for_mint(
-                        &self.config.mint_config.default_mint_url,
+                        self.config
+                            .mint_config
+                            .url_for(&req.mint_node_id)
+                            .ok_or_else(|| {
+                                Error::Validation(ValidationError::InvalidMint(
+                                    req.mint_node_id.to_string(),
+                                ))
+                            })?,
                         &req.mint_request_id,
                         ResolveMintOffer::Accept,
                     )
@@ -2066,7 +2092,14 @@ impl BillServiceApi for BillService {
         if matches!(req.status, MintRequestStatus::Offered) {
             self.mint_client
                 .resolve_quote_for_mint(
-                    &self.config.mint_config.default_mint_url,
+                    self.config
+                        .mint_config
+                        .url_for(&req.mint_node_id)
+                        .ok_or_else(|| {
+                            Error::Validation(ValidationError::InvalidMint(
+                                req.mint_node_id.to_string(),
+                            ))
+                        })?,
                     &req.mint_request_id,
                     ResolveMintOffer::Reject,
                 )

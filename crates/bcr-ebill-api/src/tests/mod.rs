@@ -780,6 +780,11 @@ pub mod tests {
                 relay_ack_threshold: 1,
             },
             mint_config: MintConfig {
+                mints: vec![crate::ConfiguredMint {
+                    name: "Mint B".into(),
+                    node_id: node_id_test_other(),
+                    url: url::Url::parse("http://localhost:5242/").unwrap(),
+                }],
                 default_mint_url: url::Url::parse("http://localhost:4242/").unwrap(),
                 default_mint_node_id: node_id_test(),
             },

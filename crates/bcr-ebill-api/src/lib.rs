@@ -162,6 +162,15 @@ pub struct MintConfig {
     pub default_mint_url: url::Url,
     /// Node Id of the default mint
     pub default_mint_node_id: NodeId,
+    /// Explicit additional Mints. The default remains the service Mint.
+    pub mints: Vec<ConfiguredMint>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConfiguredMint {
+    pub name: String,
+    pub node_id: NodeId,
+    pub url: url::Url,
 }
 
 impl MintConfig {
@@ -171,7 +180,40 @@ impl MintConfig {
         Ok(Self {
             default_mint_url: url,
             default_mint_node_id,
+            mints: vec![],
         })
+    }
+
+    pub fn url_for(&self, node_id: &NodeId) -> Option<&url::Url> {
+        if node_id == &self.default_mint_node_id {
+            Some(&self.default_mint_url)
+        } else {
+            self.mints
+                .iter()
+                .find(|mint| &mint.node_id == node_id)
+                .map(|mint| &mint.url)
+        }
+    }
+
+    pub fn with_mints(mut self, mints: Vec<ConfiguredMint>) -> Result<Self> {
+        let mut seen = std::collections::HashSet::new();
+        for mint in &mints {
+            if mint.name.trim().is_empty()
+                || !matches!(mint.url.scheme(), "http" | "https")
+                || mint.url.host_str().is_none()
+                || !mint.url.username().is_empty()
+                || mint.url.password().is_some()
+                || !seen.insert(mint.node_id.clone())
+                || (mint.node_id == self.default_mint_node_id && mint.url != self.default_mint_url)
+            {
+                return Err(anyhow!(
+                    "Invalid or conflicting configured Mint: {}",
+                    mint.node_id
+                ));
+            }
+        }
+        self.mints = mints;
+        Ok(self)
     }
 }
 
@@ -298,4 +340,45 @@ pub async fn get_db_context(
         nostr_chain_event_store,
         transaction_mgr,
     })
+}
+
+#[cfg(test)]
+mod mint_config_tests {
+    use super::{ConfiguredMint, MintConfig};
+    use bcr_common::core::NodeId;
+    use bcr_ebill_core::protocol::crypto::BcrKeys;
+    use bitcoin::Network;
+
+    #[test]
+    fn keeps_service_default_and_routes_only_explicit_mints() {
+        let a = NodeId::new(BcrKeys::new().pub_key(), Network::Testnet);
+        let b = NodeId::new(BcrKeys::new().pub_key(), Network::Testnet);
+        let unknown = NodeId::new(BcrKeys::new().pub_key(), Network::Testnet);
+        let config = MintConfig::new("http://localhost:5343".into(), a.clone()).unwrap();
+        assert!(config.url_for(&b).is_none());
+        let config = config
+            .with_mints(vec![ConfiguredMint {
+                name: "Mint B".into(),
+                node_id: b.clone(),
+                url: "http://localhost:6343".parse().unwrap(),
+            }])
+            .unwrap();
+        assert_eq!(config.url_for(&a).unwrap().port(), Some(5343));
+        assert_eq!(config.url_for(&b).unwrap().port(), Some(6343));
+        assert!(config.url_for(&unknown).is_none());
+        assert_eq!(config.default_mint_node_id, a);
+    }
+
+    #[test]
+    fn rejects_conflicting_or_duplicate_registry_entries() {
+        let a = NodeId::new(BcrKeys::new().pub_key(), Network::Testnet);
+        let config = MintConfig::new("http://localhost:5343".into(), a.clone()).unwrap();
+        let mint = ConfiguredMint {
+            name: "A".into(),
+            node_id: a,
+            url: "http://localhost:6343".parse().unwrap(),
+        };
+        assert!(config.clone().with_mints(vec![mint.clone()]).is_err());
+        assert!(config.with_mints(vec![mint.clone(), mint]).is_err());
+    }
 }
