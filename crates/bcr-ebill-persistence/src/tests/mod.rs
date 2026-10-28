@@ -7,6 +7,7 @@ pub mod email_notification;
 pub mod file_reference;
 pub mod identity;
 pub mod identity_chain;
+pub mod identity_transaction;
 pub mod mint;
 pub mod nostr_chain_event;
 pub mod nostr_contact_store;

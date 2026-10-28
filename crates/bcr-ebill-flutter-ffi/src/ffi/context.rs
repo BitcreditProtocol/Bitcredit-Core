@@ -118,6 +118,7 @@ impl Context {
             email_client.clone(),
             db.email_notification_store.clone(),
             db.contact_store.clone(),
+            db.transaction_mgr.clone(),
             cfg.clone(),
         );
 

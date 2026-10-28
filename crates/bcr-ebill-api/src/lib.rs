@@ -5,13 +5,16 @@ use bcr_ebill_core::protocol::crypto::BcrKeys;
 use bcr_ebill_persistence::{
     ContactStoreApi, FileReferenceStoreApi, NostrChainEventStoreApi, NostrContactStoreApi,
     NostrEventOffsetStoreApi, NotificationStoreApi,
-    traits::bill::{BillChainStoreApi, BillStoreApi},
-    traits::company::{CompanyChainStoreApi, CompanyStoreApi},
-    traits::file_upload::FileUploadStoreApi,
-    traits::identity::{IdentityChainStoreApi, IdentityStoreApi},
-    traits::mint::MintStoreApi,
-    traits::nostr::NostrQueuedMessageStoreApi,
-    traits::notification::EmailNotificationStoreApi,
+    traits::{
+        bill::{BillChainStoreApi, BillStoreApi},
+        company::{CompanyChainStoreApi, CompanyStoreApi},
+        file_upload::FileUploadStoreApi,
+        identity::{IdentityChainStoreApi, IdentityStoreApi},
+        mint::MintStoreApi,
+        nostr::NostrQueuedMessageStoreApi,
+        notification::EmailNotificationStoreApi,
+        transaction::TransactionManagerApi,
+    },
 };
 use bcr_ebill_persistence::{DbConfig, EncryptionContext};
 use bitcoin::Network;
@@ -154,6 +157,7 @@ pub struct DbContext {
     pub nostr_contact_store: Arc<dyn NostrContactStoreApi>,
     pub mint_store: Arc<dyn MintStoreApi>,
     pub nostr_chain_event_store: Arc<dyn NostrChainEventStoreApi>,
+    pub transaction_mgr: Arc<dyn TransactionManagerApi>,
 }
 
 /// Creates a new instance of the DbContext with the given configuration
@@ -168,6 +172,10 @@ pub async fn get_db_context(
 
     #[cfg(all(not(feature = "sqlite"), feature = "postgres"))]
     let database = bcr_ebill_persistence::get_postgres_db(&conf.db_conf).await?;
+
+    #[cfg(any(feature = "sqlite", feature = "postgres"))]
+    let transaction_mgr: Arc<dyn TransactionManagerApi> =
+        { Arc::new(database.transaction_mgr(encryption_context.clone())) };
 
     #[cfg(any(feature = "sqlite", feature = "postgres"))]
     let company_store: Arc<dyn CompanyStoreApi> =
@@ -251,5 +259,6 @@ pub async fn get_db_context(
         nostr_contact_store,
         mint_store,
         nostr_chain_event_store,
+        transaction_mgr,
     })
 }

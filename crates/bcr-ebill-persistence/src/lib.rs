@@ -73,6 +73,9 @@ pub enum Error {
 
     #[error("Base58 decoding Error: {0}")]
     Base58(#[from] base58::InvalidCharacterError),
+
+    #[error("Concurrent Modification Error: {0}")]
+    ConcurrentModification(String),
 }
 
 #[derive(Clone, Debug)]

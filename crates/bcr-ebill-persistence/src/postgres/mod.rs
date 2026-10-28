@@ -9,6 +9,7 @@ use crate::{
         nostr_chain_event::PostgresNostrChainEventStore, nostr_contact_store::PostgresNostrStore,
         nostr_event_offset::PostgresNostrEventOffsetStore,
         nostr_send_queue::PostgresNostrEventQueueStore, notification::PostgresNotificationStore,
+        transaction::PostgresTransactionManager,
     },
 };
 use sqlx::{PgPool, postgres::PgPoolOptions};
@@ -29,6 +30,7 @@ pub mod nostr_contact_store;
 pub mod nostr_event_offset;
 pub mod nostr_send_queue;
 pub mod notification;
+pub mod transaction;
 
 #[derive(Clone)]
 pub struct PostgresPersistence {
@@ -139,6 +141,13 @@ impl PostgresPersistence {
 
     pub fn notification_store(&self) -> PostgresNotificationStore {
         PostgresNotificationStore::new(self.pool.clone())
+    }
+
+    pub fn transaction_mgr(
+        &self,
+        encryption_ctx: Arc<EncryptionContext>,
+    ) -> PostgresTransactionManager {
+        PostgresTransactionManager::new(self.pool.clone(), encryption_ctx)
     }
 }
 

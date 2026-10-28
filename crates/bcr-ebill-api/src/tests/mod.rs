@@ -45,6 +45,9 @@ pub mod tests {
     };
     use bcr_ebill_persistence::DbConfig;
     use bcr_ebill_persistence::traits::notification::EmailNotificationStoreApi;
+    use bcr_ebill_persistence::traits::transaction::{
+        IdentityTransactionApi, PersistenceTransactionApi, TransactionManagerApi,
+    };
     use bcr_ebill_persistence::{
         ContactStoreApi, FileReferenceStoreApi, NostrEventOffset, NostrEventOffsetStoreApi,
         NotificationStoreApi, PendingContactShare, Result, ShareDirection,
@@ -512,6 +515,88 @@ pub mod tests {
         }
     }
 
+    mockall::mock! {
+        pub TransactionManagerApiMock {}
+
+        impl ServiceTraitBounds for TransactionManagerApiMock{}
+
+        #[async_trait]
+        impl TransactionManagerApi for TransactionManagerApiMock{
+            async fn begin(&self) -> Result<Box<dyn bcr_ebill_persistence::traits::transaction::PersistenceTransactionApi>>;
+        }
+    }
+
+    // Workaround for https://github.com/asomers/mockall/issues/571 because of Option<&IdentityBlock>
+    mockall::mock! {
+        pub PersistenceTransactionApiMock {
+            pub async fn append_identity_blocks<'a>(
+                &'a mut self,
+                expected_latest: Option<&'a IdentityBlock>,
+                blocks: &[IdentityBlock],
+            ) -> Result<()>;
+            pub async fn replace_identity_blocks_from_height(
+                &mut self,
+                expected_latest: &IdentityBlock,
+                from_block_id: BlockId,
+                replacement_blocks: &[IdentityBlock],
+            ) -> Result<()>;
+            pub async fn save_identity(
+                &mut self,
+                identity: &Identity,
+            ) -> Result<()>;
+            pub async fn set_identity_email_confirmation(
+                &mut self,
+                proof: &SignedIdentityProof,
+                data: &EmailIdentityProofData,
+            ) -> Result<()>;
+        }
+
+        impl ServiceTraitBounds for PersistenceTransactionApiMock {}
+
+        #[async_trait]
+        impl PersistenceTransactionApi for PersistenceTransactionApiMock {
+            async fn commit(self: Box<Self>) -> Result<()>;
+        }
+    }
+
+    // Workaround for https://github.com/asomers/mockall/issues/571 because of Option<&IdentityBlock>
+    #[async_trait]
+    impl IdentityTransactionApi for MockPersistenceTransactionApiMock {
+        async fn append_identity_blocks(
+            &mut self,
+            expected_latest: Option<&IdentityBlock>,
+            blocks: &[IdentityBlock],
+        ) -> Result<()> {
+            MockPersistenceTransactionApiMock::append_identity_blocks(self, expected_latest, blocks)
+                .await
+        }
+        async fn replace_identity_blocks_from_height(
+            &mut self,
+            expected_latest: &IdentityBlock,
+            from_block_id: BlockId,
+            replacement_blocks: &[IdentityBlock],
+        ) -> Result<()> {
+            MockPersistenceTransactionApiMock::replace_identity_blocks_from_height(
+                self,
+                expected_latest,
+                from_block_id,
+                replacement_blocks,
+            )
+            .await
+        }
+        async fn save_identity(&mut self, identity: &Identity) -> Result<()> {
+            MockPersistenceTransactionApiMock::save_identity(self, identity).await
+        }
+        async fn set_identity_email_confirmation(
+            &mut self,
+            proof: &SignedIdentityProof,
+            data: &EmailIdentityProofData,
+        ) -> Result<()> {
+            MockPersistenceTransactionApiMock::set_identity_email_confirmation(self, proof, data)
+                .await
+        }
+    }
+
     #[allow(unused)]
     pub fn get_mock_db_ctx(nostr_contact_store: Option<MockNostrContactStore>) -> DbContext {
         DbContext {
@@ -531,6 +616,7 @@ pub mod tests {
             nostr_contact_store: Arc::new(nostr_contact_store.unwrap_or_default()),
             mint_store: Arc::new(MockMintStore::new()),
             nostr_chain_event_store: Arc::new(MockNostrChainEventStore::new()),
+            transaction_mgr: Arc::new(MockTransactionManagerApiMock::new()),
         }
     }
 

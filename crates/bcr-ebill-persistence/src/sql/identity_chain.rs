@@ -117,6 +117,23 @@ pub(crate) fn validate_block_append(
     Ok(())
 }
 
+pub(crate) fn validate_expected_identity_tip(
+    actual: Option<&IdentityBlock>,
+    expected: Option<&IdentityBlock>,
+) -> Result<()> {
+    match (actual, expected) {
+        (None, None) => Ok(()),
+        (Some(actual), Some(expected))
+            if actual.id == expected.id && actual.hash == expected.hash =>
+        {
+            Ok(())
+        }
+        _ => Err(Error::ConcurrentModification(
+            "identity chain changed while preparing transaction".to_string(),
+        )),
+    }
+}
+
 #[derive(Debug, Clone, FromRow)]
 pub(crate) struct IdentityBlockRow {
     pub block_id: i64,
