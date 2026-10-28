@@ -152,6 +152,31 @@ pub(crate) fn validate_block_append(
     Ok(())
 }
 
+pub(crate) fn validate_expected_company_tip(
+    company_id: &NodeId,
+    actual: Option<&CompanyBlock>,
+    expected: Option<&CompanyBlock>,
+) -> Result<()> {
+    if let Some(expected) = expected
+        && &expected.company_id != company_id
+    {
+        return Err(Error::InvalidData(
+            "expected company tip belongs to another company".to_owned(),
+        ));
+    }
+    match (actual, expected) {
+        (None, None) => Ok(()),
+        (Some(actual), Some(expected))
+            if actual.id == expected.id && actual.hash == expected.hash =>
+        {
+            Ok(())
+        }
+        _ => Err(Error::Conflict(format!(
+            "company chain {company_id} changed while preparing transaction"
+        ))),
+    }
+}
+
 #[derive(Debug, Clone, FromRow)]
 pub(crate) struct CompanyBlockRow {
     pub company_id: Text<NodeId>,

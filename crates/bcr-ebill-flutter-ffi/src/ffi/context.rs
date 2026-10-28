@@ -135,6 +135,7 @@ impl Context {
             transport_service.clone(),
             email_client.clone(),
             db.email_notification_store.clone(),
+            db.transaction_mgr.clone(),
             cfg.clone(),
         );
         let file_upload_service = FileUploadService::new(db.file_upload_store);

@@ -1,5 +1,5 @@
 use crate::{
-    Error, Result,
+    EncryptionContext, Error, Result,
     sql::{decode_file, timestamp_from_db, timestamp_to_db, unit_enum_from_db, unit_enum_to_db},
 };
 use bcr_common::core::NodeId;
@@ -7,10 +7,10 @@ use bcr_ebill_core::{
     application::company::{Company, CompanySignatory, CompanySignatoryStatus},
     protocol::{
         Address, City, Country, Date, Email, EmailIdentityProofData, Identification, Name,
-        PostalAddress, Sha256Hash, SignedIdentityProof, Timestamp, Zip,
+        PostalAddress, Sha256Hash, SignedIdentityProof, Timestamp, Zip, crypto::BcrKeys,
     },
 };
-use bitcoin::hashes::sha256::Hash as Sha256HexHash;
+use bitcoin::{base58, hashes::sha256::Hash as Sha256HexHash};
 use sqlx::types::Text;
 
 // SQL
@@ -688,4 +688,15 @@ impl TryFrom<CompanySignatoryRow> for CompanySignatory {
             status,
         })
     }
+}
+
+pub(crate) fn company_key_pair_from_db(
+    encoded_private_key: &str,
+    encryption_ctx: &EncryptionContext,
+) -> Result<BcrKeys> {
+    let decoded = base58::decode(encoded_private_key)?;
+    let decrypted = encryption_ctx.decrypt(&decoded)?;
+    let private_key = String::from_utf8(decrypted)
+        .map_err(|e| Error::InvalidData(format!("Invalid private key: {e}")))?;
+    Ok(BcrKeys::from_private_key_string(&private_key)?)
 }

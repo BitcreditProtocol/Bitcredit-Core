@@ -2,6 +2,7 @@ pub mod bill;
 pub mod bill_chain;
 pub mod company;
 pub mod company_chain;
+pub mod company_transaction;
 pub mod contact;
 pub mod email_notification;
 pub mod file_reference;

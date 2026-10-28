@@ -46,7 +46,8 @@ pub mod tests {
     use bcr_ebill_persistence::DbConfig;
     use bcr_ebill_persistence::traits::notification::EmailNotificationStoreApi;
     use bcr_ebill_persistence::traits::transaction::{
-        IdentityTransactionApi, PersistenceTransactionApi, TransactionManagerApi,
+        CompanyTransactionApi, IdentityTransactionApi, PersistenceTransactionApi,
+        TransactionManagerApi,
     };
     use bcr_ebill_persistence::{
         ContactStoreApi, FileReferenceStoreApi, NostrEventOffset, NostrEventOffsetStoreApi,
@@ -549,6 +550,27 @@ pub mod tests {
                 proof: &SignedIdentityProof,
                 data: &EmailIdentityProofData,
             ) -> Result<()>;
+            pub async fn append_company_blocks<'a>(
+                &'a mut self,
+                company_id: &NodeId,
+                expected_latest: Option<&'a CompanyBlock>,
+                blocks: &[CompanyBlock],
+            ) -> Result<()>;
+            pub async fn replace_company_blocks_from_height(
+                &mut self,
+                company_id: &NodeId,
+                expected_latest: &CompanyBlock,
+                from_block_id: BlockId,
+                replacement_blocks: &[CompanyBlock],
+            ) -> Result<()>;
+            pub async fn insert_company(&mut self, company: &Company) -> Result<()>;
+            pub async fn update_company(&mut self, company_id: &NodeId, company: &Company) -> Result<()>;
+            pub async fn set_company_email_confirmation(
+                &mut self,
+                company_id: &NodeId,
+                proof: &SignedIdentityProof,
+                data: &EmailIdentityProofData,
+            ) -> Result<()>;
         }
 
         impl ServiceTraitBounds for PersistenceTransactionApiMock {}
@@ -594,6 +616,57 @@ pub mod tests {
         ) -> Result<()> {
             MockPersistenceTransactionApiMock::set_identity_email_confirmation(self, proof, data)
                 .await
+        }
+    }
+
+    #[async_trait]
+    impl CompanyTransactionApi for MockPersistenceTransactionApiMock {
+        async fn append_company_blocks(
+            &mut self,
+            company_id: &NodeId,
+            expected_latest: Option<&CompanyBlock>,
+            blocks: &[CompanyBlock],
+        ) -> Result<()> {
+            MockPersistenceTransactionApiMock::append_company_blocks(
+                self,
+                company_id,
+                expected_latest,
+                blocks,
+            )
+            .await
+        }
+        async fn replace_company_blocks_from_height(
+            &mut self,
+            company_id: &NodeId,
+            expected_latest: &CompanyBlock,
+            from_block_id: BlockId,
+            replacement_blocks: &[CompanyBlock],
+        ) -> Result<()> {
+            MockPersistenceTransactionApiMock::replace_company_blocks_from_height(
+                self,
+                company_id,
+                expected_latest,
+                from_block_id,
+                replacement_blocks,
+            )
+            .await
+        }
+        async fn insert_company(&mut self, company: &Company) -> Result<()> {
+            MockPersistenceTransactionApiMock::insert_company(self, company).await
+        }
+        async fn update_company(&mut self, company_id: &NodeId, company: &Company) -> Result<()> {
+            MockPersistenceTransactionApiMock::update_company(self, company_id, company).await
+        }
+        async fn set_company_email_confirmation(
+            &mut self,
+            company_id: &NodeId,
+            proof: &SignedIdentityProof,
+            data: &EmailIdentityProofData,
+        ) -> Result<()> {
+            MockPersistenceTransactionApiMock::set_company_email_confirmation(
+                self, company_id, proof, data,
+            )
+            .await
         }
     }
 
