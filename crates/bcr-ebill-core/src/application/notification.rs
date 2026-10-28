@@ -15,6 +15,8 @@ pub const QUOTE_APPLICANT_ACTION_NOTIFICATION_SCHEMA_VERSION: &str =
 pub struct QuoteApplicantActionNotificationPayload {
     pub schema_version: String,
     pub bill_id: BillId,
+    #[serde(default)]
+    pub mint_node_id: Option<NodeId>,
     pub mint_request_id: Uuid,
     pub applicant_action: ApplicantActionProjection,
 }
@@ -22,12 +24,14 @@ pub struct QuoteApplicantActionNotificationPayload {
 impl QuoteApplicantActionNotificationPayload {
     pub fn new(
         bill_id: &BillId,
+        mint_node_id: &NodeId,
         mint_request_id: Uuid,
         applicant_action: ApplicantActionProjection,
     ) -> Self {
         Self {
             schema_version: QUOTE_APPLICANT_ACTION_NOTIFICATION_SCHEMA_VERSION.to_owned(),
             bill_id: bill_id.to_owned(),
+            mint_node_id: Some(mint_node_id.clone()),
             mint_request_id,
             applicant_action,
         }

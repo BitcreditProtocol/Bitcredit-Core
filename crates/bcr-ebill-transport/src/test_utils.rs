@@ -569,6 +569,7 @@ mockall::mock! {
             &self,
             node_id: &NodeId,
             bill_id: &BillId,
+            mint_node_id: &NodeId,
             mint_request_id: Uuid,
             applicant_action: Option<ApplicantActionProjection>,
         ) -> Result<()>;

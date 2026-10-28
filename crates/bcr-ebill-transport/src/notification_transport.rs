@@ -231,6 +231,7 @@ impl NotificationTransportServiceApi for NotificationTransportService {
         &self,
         node_id: &NodeId,
         bill_id: &BillId,
+        mint_node_id: &NodeId,
         mint_request_id: uuid::Uuid,
         applicant_action: Option<ApplicantActionProjection>,
     ) -> Result<()> {
@@ -259,13 +260,23 @@ impl NotificationTransportServiceApi for NotificationTransportService {
             .collect::<Vec<_>>();
 
         if let Some(action) = applicant_action {
-            let revision_already_seen = action_notifications.iter().any(|(_, payload)| {
-                payload.mint_request_id == mint_request_id && payload.applicant_action == action
-            });
+            let revision_already_seen =
+                action_notifications.iter().any(|(_, payload)| {
+                    payload.mint_request_id == mint_request_id
+                        && payload.mint_node_id.as_ref().unwrap_or(
+                            &bcr_ebill_api::get_config().mint_config.default_mint_node_id,
+                        ) == mint_node_id
+                        && payload.applicant_action == action
+                });
 
             for (notification, payload) in action_notifications {
                 if notification.active
                     && payload.mint_request_id == mint_request_id
+                    && payload
+                        .mint_node_id
+                        .as_ref()
+                        .unwrap_or(&bcr_ebill_api::get_config().mint_config.default_mint_node_id)
+                        == mint_node_id
                     && payload.applicant_action != action
                 {
                     self.mark_done_and_push(notification).await?;
@@ -277,8 +288,12 @@ impl NotificationTransportServiceApi for NotificationTransportService {
                 return Ok(());
             }
 
-            let payload =
-                QuoteApplicantActionNotificationPayload::new(bill_id, mint_request_id, action);
+            let payload = QuoteApplicantActionNotificationPayload::new(
+                bill_id,
+                mint_node_id,
+                mint_request_id,
+                action,
+            );
             let notification = Notification::new_bill_notification(
                 bill_id,
                 node_id,
@@ -304,7 +319,14 @@ impl NotificationTransportServiceApi for NotificationTransportService {
             }
         } else {
             for (notification, payload) in action_notifications {
-                if notification.active && payload.mint_request_id == mint_request_id {
+                if notification.active
+                    && payload.mint_request_id == mint_request_id
+                    && payload
+                        .mint_node_id
+                        .as_ref()
+                        .unwrap_or(&bcr_ebill_api::get_config().mint_config.default_mint_node_id)
+                        == mint_node_id
+                {
                     self.mark_done_and_push(notification).await?;
                 }
             }
@@ -683,6 +705,7 @@ mod tests {
             Some(
                 serde_json::to_value(QuoteApplicantActionNotificationPayload::new(
                     &bill_id_test(),
+                    &bcr_ebill_api::get_config().mint_config.default_mint_node_id,
                     mint_request_id,
                     action,
                 ))
@@ -710,6 +733,7 @@ mod tests {
             .reconcile_quote_applicant_action_notification(
                 &node_id_test(),
                 &bill_id_test(),
+                &bcr_ebill_api::get_config().mint_config.default_mint_node_id,
                 quote_id,
                 Some(action),
             )
@@ -743,6 +767,7 @@ mod tests {
             .reconcile_quote_applicant_action_notification(
                 &node_id_test(),
                 &bill_id_test(),
+                &bcr_ebill_api::get_config().mint_config.default_mint_node_id,
                 quote_id,
                 Some(current_action),
             )
@@ -786,6 +811,7 @@ mod tests {
             .reconcile_quote_applicant_action_notification(
                 &node_id_test(),
                 &bill_id_test(),
+                &bcr_ebill_api::get_config().mint_config.default_mint_node_id,
                 quote_id,
                 Some(next_action),
             )
@@ -807,11 +833,76 @@ mod tests {
             .reconcile_quote_applicant_action_notification(
                 &node_id_test(),
                 &bill_id_test(),
+                &bcr_ebill_api::get_config().mint_config.default_mint_node_id,
                 quote_id,
                 None,
             )
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn colliding_quote_notifications_are_scoped_and_legacy_notifications_are_service_only() {
+        init_test_cfg();
+        let quote = Uuid::new_v4();
+        for legacy in [false, true] {
+            let mut a = quote_action_notification(quote, clarification_action('a'));
+            if legacy {
+                a.payload
+                    .as_mut()
+                    .unwrap()
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("mintNodeId");
+            }
+            let b = NodeId::new(
+                bcr_ebill_core::protocol::crypto::BcrKeys::new().pub_key(),
+                bitcoin::Network::Testnet,
+            );
+            let service = expect_service(|store, _, _, push| {
+                let a = a.clone();
+                store.expect_list().once().return_once(move |_| Ok(vec![a]));
+                store.expect_mark_as_done().never();
+                let expected = b.clone();
+                store
+                    .expect_add()
+                    .once()
+                    .withf(move |n| {
+                        quote_applicant_action_payload(n).is_some_and(|p| {
+                            p.mint_node_id.as_ref() == Some(&expected) && p.mint_request_id == quote
+                        })
+                    })
+                    .returning(Ok);
+                push.expect_send().once().returning(|_| ());
+            });
+            service
+                .reconcile_quote_applicant_action_notification(
+                    &node_id_test(),
+                    &bill_id_test(),
+                    &b,
+                    quote,
+                    Some(clarification_action('a')),
+                )
+                .await
+                .unwrap();
+            let a = quote_action_notification(quote, clarification_action('a'));
+            let service = expect_service(|store, _, _, _| {
+                let a = a.clone();
+                store.expect_list().once().return_once(move |_| Ok(vec![a]));
+                store.expect_mark_as_done().never();
+                store.expect_add().never();
+            });
+            service
+                .reconcile_quote_applicant_action_notification(
+                    &node_id_test(),
+                    &bill_id_test(),
+                    &b,
+                    quote,
+                    None,
+                )
+                .await
+                .unwrap();
+        }
     }
 
     #[tokio::test]

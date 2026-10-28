@@ -86,7 +86,8 @@ pub(crate) const SELECT_REQUEST: &str = r#"
         status,
         status_timestamp
     FROM mint_requests
-    WHERE mint_request_id = $1
+    WHERE mint_node_id = $1
+      AND mint_request_id = $2
 "#;
 
 pub(crate) const INSERT_REQUEST: &str = r#"
@@ -102,7 +103,7 @@ pub(crate) const INSERT_REQUEST: &str = r#"
     VALUES (
         $1, $2, $3, $4, $5, $6, $7
     )
-    ON CONFLICT(mint_request_id) DO NOTHING
+    ON CONFLICT(mint_node_id, mint_request_id) DO NOTHING
 "#;
 
 pub(crate) const UPDATE_REQUEST: &str = r#"
@@ -110,7 +111,8 @@ pub(crate) const UPDATE_REQUEST: &str = r#"
     SET
         status = $1,
         status_timestamp = $2
-    WHERE mint_request_id = $3
+    WHERE mint_node_id = $3
+      AND mint_request_id = $4
 "#;
 
 pub(crate) const SELECT_OFFER: &str = r#"
@@ -128,11 +130,13 @@ pub(crate) const SELECT_OFFER: &str = r#"
         proofs_spent,
         recovery_data
     FROM mint_offers
-    WHERE mint_request_id = $1
+    WHERE mint_node_id = $1
+      AND mint_request_id = $2
 "#;
 
 pub(crate) const INSERT_OFFER: &str = r#"
     INSERT INTO mint_offers (
+        mint_node_id,
         mint_request_id,
         keyset_id,
         expiration_timestamp,
@@ -147,24 +151,26 @@ pub(crate) const INSERT_OFFER: &str = r#"
         recovery_data
     )
     VALUES (
-        $1, $2, $3,
-        $4, $5, $6, $7,
-        $8, $9, $10
+        $1, $2, $3, $4,
+        $5, $6, $7, $8,
+        $9, $10, $11
     )
-    ON CONFLICT(mint_request_id) DO NOTHING
+    ON CONFLICT(mint_node_id, mint_request_id) DO NOTHING
 "#;
 
 pub(crate) const ADD_PROOFS: &str = r#"
     UPDATE mint_offers
     SET proofs = $1
-    WHERE mint_request_id = $2
+    WHERE mint_node_id = $2
+      AND mint_request_id = $3
       AND proofs IS NULL
 "#;
 
 pub(crate) const ADD_RECOVERY_DATA: &str = r#"
     UPDATE mint_offers
     SET recovery_data = $1
-    WHERE mint_request_id = $2
+    WHERE mint_node_id = $2
+      AND mint_request_id = $3
       AND proofs IS NULL
       AND recovery_data IS NULL
 "#;
@@ -172,7 +178,8 @@ pub(crate) const ADD_RECOVERY_DATA: &str = r#"
 pub(crate) const SET_PROOFS_SPENT: &str = r#"
     UPDATE mint_offers
     SET proofs_spent = TRUE
-    WHERE mint_request_id = $1
+    WHERE mint_node_id = $1
+      AND mint_request_id = $2
       AND proofs IS NOT NULL
 "#;
 
@@ -325,6 +332,7 @@ impl TryFrom<MintOfferRow> for MintOffer {
 }
 
 pub(crate) struct NewMintOffer {
+    pub mint_node_id: Text<NodeId>,
     pub mint_request_id: Text<Uuid>,
     pub keyset_id: String,
     pub expiration_timestamp: i64,
@@ -336,6 +344,7 @@ pub(crate) struct NewMintOffer {
 
 impl NewMintOffer {
     pub(crate) fn new(
+        mint_node_id: &NodeId,
         mint_request_id: &Uuid,
         keyset_id: &str,
         expiration_timestamp: Timestamp,
@@ -343,6 +352,7 @@ impl NewMintOffer {
     ) -> Result<Self> {
         let sum = SumColumns::try_from(discounted_sum)?;
         Ok(Self {
+            mint_node_id: Text(mint_node_id.clone()),
             mint_request_id: Text(*mint_request_id),
             keyset_id: keyset_id.to_owned(),
             expiration_timestamp: timestamp_to_db(expiration_timestamp)?,

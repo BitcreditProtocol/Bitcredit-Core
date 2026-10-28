@@ -42,6 +42,7 @@
 * Add check for block-operations (identity, company, bill), before persistence/effects, if we're connected to at least one write-relay, if not, the operation fails
     * This decreases the likelihood for inconsistent states
 * Add optional `MintConfig::with_mints` (`ConfiguredMint {name, node_id, url}`) alongside the existing service-Mint defaults. Route quote creation, polling, resolution, cancellation and Mint-holder payment validation by the configured Mint; share encrypted attachments with that Mint’s Blossom endpoints. Bill, quote, proof and settlement states remain separate.
+* Scope quote requests, offers, recovery data, proofs and quote notifications by Mint: `MintStoreApi` and `BillServiceApi::{cancel_request_to_mint, accept_mint_offer, reject_mint_offer}` take `(mint_node_id, mint_request_id)`, and migration `0002_scope_mint_quotes_by_mint` (SQLite and Postgres) moves existing offers onto their request's Mint without changing ids, terms, proofs or recovery data. Check the endpoint-advertised eBill identity before using a Mint, and reject shared Mint origins (URL remains the trust anchor).
 
 # 0.5.16
 

@@ -388,12 +388,24 @@ impl BillService {
                 ))
             })?;
 
+        if !matches!(
+            mint_request.status,
+            MintRequestStatus::Cancelled { .. }
+                | MintRequestStatus::Rejected { .. }
+                | MintRequestStatus::Expired { .. }
+                | MintRequestStatus::Denied { .. }
+        ) {
+            self.mint_client
+                .verify_mint_identity(mint_url, &mint_request.mint_node_id)
+                .await?;
+        }
+
         match mint_request.status {
             // If it's minting enabled, get the offer and, if it's not finished (i.e. has no proofs), attempt to get keyset and mint
             MintRequestStatus::MintingEnabled => {
                 if let Ok(Some(offer)) = self
                     .mint_store
-                    .get_offer(&mint_request.mint_request_id)
+                    .get_offer(&mint_request.mint_node_id, &mint_request.mint_request_id)
                     .await
                 {
                     // only if there are no proofs yet and proofs are not spent
@@ -465,6 +477,7 @@ impl BillService {
                                         // storage fails, stop rather than risk unrecoverable proofs.
                                         self.mint_store
                                             .add_recovery_data_to_offer(
+                                                &mint_request.mint_node_id,
                                                 &mint_request.mint_request_id,
                                                 &blinds
                                                     .1
@@ -497,7 +510,11 @@ impl BillService {
                                     .await?;
                                 // store proofs on the offer
                                 self.mint_store
-                                    .add_proofs_to_offer(&mint_request.mint_request_id, &proofs)
+                                    .add_proofs_to_offer(
+                                        &mint_request.mint_node_id,
+                                        &mint_request.mint_request_id,
+                                        &proofs,
+                                    )
                                     .await?;
                             }
                             Err(_) => {
@@ -523,6 +540,7 @@ impl BillService {
                                         );
                                         self.mint_store
                                             .set_proofs_to_spent_for_offer(
+                                                &mint_request.mint_node_id,
                                                 &mint_request.mint_request_id,
                                             )
                                             .await?;
@@ -571,6 +589,7 @@ impl BillService {
                             // Update the request
                             self.mint_store
                                 .update_request(
+                                    &mint_request.mint_node_id,
                                     &mint_request.mint_request_id,
                                     &MintRequestStatus::Offered,
                                 )
@@ -578,6 +597,7 @@ impl BillService {
                             // Store the offer
                             self.mint_store
                                 .add_offer(
+                                    &mint_request.mint_node_id,
                                     &mint_request.mint_request_id,
                                     &keyset_id.to_string(),
                                     Timestamp::from(expiration_date),
@@ -592,6 +612,7 @@ impl BillService {
                             // Update the request
                             self.mint_store
                                 .update_request(
+                                    &mint_request.mint_node_id,
                                     &mint_request.mint_request_id,
                                     &MintRequestStatus::Accepted,
                                 )
@@ -602,6 +623,7 @@ impl BillService {
                         // checked below, that it's not denied
                         self.mint_store
                             .update_request(
+                                &mint_request.mint_node_id,
                                 &mint_request.mint_request_id,
                                 &MintRequestStatus::Denied {
                                     timestamp: Timestamp::from(tstamp),
@@ -613,6 +635,7 @@ impl BillService {
                         // checked below, that it's not expired
                         self.mint_store
                             .update_request(
+                                &mint_request.mint_node_id,
                                 &mint_request.mint_request_id,
                                 &MintRequestStatus::Expired {
                                     timestamp: Timestamp::from(tstamp),
@@ -624,6 +647,7 @@ impl BillService {
                         // checked below, that it's not cancelled
                         self.mint_store
                             .update_request(
+                                &mint_request.mint_node_id,
                                 &mint_request.mint_request_id,
                                 &MintRequestStatus::Cancelled {
                                     timestamp: Timestamp::from(tstamp),
@@ -635,6 +659,7 @@ impl BillService {
                         // checked below, that it's not rejected
                         self.mint_store
                             .update_request(
+                                &mint_request.mint_node_id,
                                 &mint_request.mint_request_id,
                                 &MintRequestStatus::Rejected {
                                     timestamp: Timestamp::from(tstamp),
@@ -646,6 +671,7 @@ impl BillService {
                         // checked above, that it's not minting enabled
                         self.mint_store
                             .update_request(
+                                &mint_request.mint_node_id,
                                 &mint_request.mint_request_id,
                                 &MintRequestStatus::MintingEnabled,
                             )
@@ -661,6 +687,7 @@ impl BillService {
                     .reconcile_quote_applicant_action_notification(
                         &mint_request.requester_node_id,
                         &mint_request.bill_id,
+                        &mint_request.mint_node_id,
                         mint_request.mint_request_id,
                         authoritative_applicant_action,
                     )
@@ -684,6 +711,7 @@ impl BillService {
                     .reconcile_quote_applicant_action_notification(
                         &mint_request.requester_node_id,
                         &mint_request.bill_id,
+                        &mint_request.mint_node_id,
                         mint_request.mint_request_id,
                         None,
                     )
@@ -695,15 +723,25 @@ impl BillService {
 
     async fn get_req_to_mint_for_node_id(
         &self,
+        mint_node_id: &NodeId,
         mint_request_id: &Uuid,
         current_identity_node_id: &NodeId,
     ) -> Result<MintRequest> {
-        match self.mint_store.get_request(mint_request_id).await {
+        match self
+            .mint_store
+            .get_request(mint_node_id, mint_request_id)
+            .await
+        {
             Ok(Some(req)) => {
                 // only if we're the requester
                 if req.requester_node_id == *current_identity_node_id {
                     let mint_cfg = &self.config.mint_config;
-                    if mint_cfg.url_for(&req.mint_node_id).is_some() {
+                    if &req.mint_node_id == mint_node_id
+                        && let Some(url) = mint_cfg.url_for(mint_node_id)
+                    {
+                        self.mint_client
+                            .verify_mint_identity(url, mint_node_id)
+                            .await?;
                         Ok(req.to_owned())
                     } else {
                         Err(Error::NotFound)
@@ -717,8 +755,9 @@ impl BillService {
         }
     }
 
-    async fn reject_mint_offers_except_accepted_one_for_bill(
+    pub(super) async fn reject_mint_offers_except_accepted_one_for_bill(
         &self,
+        mint_node_id: &NodeId,
         accepted_mint_request_id: &Uuid,
         bill_id: &BillId,
         current_identity_node_id: &NodeId,
@@ -728,29 +767,41 @@ impl BillService {
             .get_requests_for_bill(current_identity_node_id, bill_id)
             .await?;
         for req in requests {
-            // don't reject the accepted one and only reject offered ones
-            if &req.mint_request_id != accepted_mint_request_id
-                && matches!(req.status, MintRequestStatus::Offered)
-                && let Err(e) = self
-                    .mint_client
-                    .resolve_quote_for_mint(
-                        self.config
-                            .mint_config
-                            .url_for(&req.mint_node_id)
-                            .ok_or_else(|| {
-                                Error::Validation(ValidationError::InvalidMint(
-                                    req.mint_node_id.to_string(),
-                                ))
-                            })?,
-                        &req.mint_request_id,
-                        ResolveMintOffer::Reject,
-                    )
-                    .await
+            if (&req.mint_node_id == mint_node_id
+                && &req.mint_request_id == accepted_mint_request_id)
+                || !matches!(req.status, MintRequestStatus::Offered)
             {
+                continue;
+            }
+            let result: Result<()> = async {
+                let url = self
+                    .config
+                    .mint_config
+                    .url_for(&req.mint_node_id)
+                    .ok_or(Error::NotFound)?;
+                self.mint_client
+                    .verify_mint_identity(url, &req.mint_node_id)
+                    .await?;
+                self.mint_client
+                    .resolve_quote_for_mint(url, &req.mint_request_id, ResolveMintOffer::Reject)
+                    .await?;
+                self.mint_store
+                    .update_request(
+                        &req.mint_node_id,
+                        &req.mint_request_id,
+                        &MintRequestStatus::Rejected {
+                            timestamp: Timestamp::now(),
+                        },
+                    )
+                    .await?;
+                Ok(())
+            }
+            .await;
+            if let Err(error) = result {
                 error!(
-                    "Could not reject quote for mint {}: {e}",
+                    "Could not reject quote for mint {}: {error}",
                     req.mint_request_id
-                )
+                );
             }
         }
         Ok(())
@@ -890,6 +941,9 @@ impl BillService {
             Error::Validation(ValidationError::InvalidMint(mint_node_id.to_string()))
         })?;
 
+        self.mint_client
+            .verify_mint_identity(mint_url, mint_node_id)
+            .await?;
         let identity = self.identity_store.get().await?;
         let contacts = self.contact_store.get_map().await?;
         let blockchain = self.blockchain_store.get_chain(bill_id).await?;
@@ -1907,7 +1961,7 @@ impl BillServiceApi for BillService {
             ) {
                 let offer = self
                     .mint_store
-                    .get_offer(&req.request.mint_request_id)
+                    .get_offer(&req.request.mint_node_id, &req.request.mint_request_id)
                     .await?;
                 req.offer = offer;
             }
@@ -1918,13 +1972,14 @@ impl BillServiceApi for BillService {
 
     async fn cancel_request_to_mint(
         &self,
+        mint_node_id: &NodeId,
         mint_request_id: &Uuid,
         current_identity_node_id: &NodeId,
     ) -> Result<()> {
         debug!("trying to cancel request to mint {mint_request_id}");
         validate_node_id_network(current_identity_node_id, self.config.bitcoin_network())?;
         let req = self
-            .get_req_to_mint_for_node_id(mint_request_id, current_identity_node_id)
+            .get_req_to_mint_for_node_id(mint_node_id, mint_request_id, current_identity_node_id)
             .await?;
         // only if it's pending
         if matches!(req.status, MintRequestStatus::Pending) {
@@ -1943,6 +1998,7 @@ impl BillServiceApi for BillService {
                 .await?;
             self.mint_store
                 .update_request(
+                    mint_node_id,
                     mint_request_id,
                     &MintRequestStatus::Cancelled {
                         timestamp: Timestamp::now(),
@@ -2001,6 +2057,7 @@ impl BillServiceApi for BillService {
 
     async fn accept_mint_offer(
         &self,
+        mint_node_id: &NodeId,
         mint_request_id: &Uuid,
         signer_public_data: &BillParticipant,
         signer_keys: &BcrKeys,
@@ -2010,12 +2067,20 @@ impl BillServiceApi for BillService {
         debug!("trying to accept offer from request to mint {mint_request_id}");
         validate_node_id_network(&signer_public_data.node_id(), self.config.bitcoin_network())?;
         let req = self
-            .get_req_to_mint_for_node_id(mint_request_id, &signer_public_data.node_id())
+            .get_req_to_mint_for_node_id(
+                mint_node_id,
+                mint_request_id,
+                &signer_public_data.node_id(),
+            )
             .await?;
         // only if it's offered
         if matches!(req.status, MintRequestStatus::Offered) {
             // and not expired
-            if let Ok(Some(offer)) = self.mint_store.get_offer(&req.mint_request_id).await {
+            if let Ok(Some(offer)) = self
+                .mint_store
+                .get_offer(&req.mint_node_id, &req.mint_request_id)
+                .await
+            {
                 if offer.expiration_timestamp < timestamp {
                     return Err(Error::Validation(ValidationError::AcceptMintOfferExpired));
                 }
@@ -2050,12 +2115,13 @@ impl BillServiceApi for BillService {
 
                 // update the state
                 self.mint_store
-                    .update_request(mint_request_id, &MintRequestStatus::Accepted)
+                    .update_request(mint_node_id, mint_request_id, &MintRequestStatus::Accepted)
                     .await?;
 
                 // reject all other offers - but don't fail on errors
                 if let Err(e) = self
                     .reject_mint_offers_except_accepted_one_for_bill(
+                        &req.mint_node_id,
                         &req.mint_request_id,
                         &req.bill_id,
                         &signer_public_data.node_id(),
@@ -2080,13 +2146,14 @@ impl BillServiceApi for BillService {
 
     async fn reject_mint_offer(
         &self,
+        mint_node_id: &NodeId,
         mint_request_id: &Uuid,
         current_identity_node_id: &NodeId,
     ) -> Result<()> {
         debug!("trying to reject offer from request to mint {mint_request_id}");
         validate_node_id_network(current_identity_node_id, self.config.bitcoin_network())?;
         let req = self
-            .get_req_to_mint_for_node_id(mint_request_id, current_identity_node_id)
+            .get_req_to_mint_for_node_id(mint_node_id, mint_request_id, current_identity_node_id)
             .await?;
         // only if it's offered
         if matches!(req.status, MintRequestStatus::Offered) {
@@ -2106,6 +2173,7 @@ impl BillServiceApi for BillService {
                 .await?;
             self.mint_store
                 .update_request(
+                    mint_node_id,
                     mint_request_id,
                     &MintRequestStatus::Rejected {
                         timestamp: Timestamp::now(),

@@ -39,34 +39,54 @@ pub trait MintStoreApi: ServiceTraitBounds {
         timestamp: Timestamp,
     ) -> Result<()>;
     /// Get request to mint for the given mint request id
-    async fn get_request(&self, mint_request_id: &Uuid) -> Result<Option<MintRequest>>;
+    async fn get_request(
+        &self,
+        mint_node_id: &NodeId,
+        mint_request_id: &Uuid,
+    ) -> Result<Option<MintRequest>>;
     /// Update the given request to mint with a new status
     async fn update_request(
         &self,
+        mint_node_id: &NodeId,
         mint_request_id: &Uuid,
         new_status: &MintRequestStatus,
     ) -> Result<()>;
     /// Adds proofs for a given offer
-    async fn add_proofs_to_offer(&self, mint_request_id: &Uuid, proofs: &str) -> Result<()>;
+    async fn add_proofs_to_offer(
+        &self,
+        mint_node_id: &NodeId,
+        mint_request_id: &Uuid,
+        proofs: &str,
+    ) -> Result<()>;
     /// Adds recovery data to offer
     async fn add_recovery_data_to_offer(
         &self,
+        mint_node_id: &NodeId,
         mint_request_id: &Uuid,
         secrets: &[String],
         rs: &[String],
     ) -> Result<()>;
     /// Set proofs to spent for offer
-    async fn set_proofs_to_spent_for_offer(&self, mint_request_id: &Uuid) -> Result<()>;
+    async fn set_proofs_to_spent_for_offer(
+        &self,
+        mint_node_id: &NodeId,
+        mint_request_id: &Uuid,
+    ) -> Result<()>;
     /// Adds an offer for a request to mint
     async fn add_offer(
         &self,
+        mint_node_id: &NodeId,
         mint_request_id: &Uuid,
         keyset_id: &str,
         expiration_timestamp: Timestamp,
         discounted_sum: Sum,
     ) -> Result<()>;
     /// Gets an offer by the mint request id
-    async fn get_offer(&self, mint_request_id: &Uuid) -> Result<Option<MintOffer>>;
+    async fn get_offer(
+        &self,
+        mint_node_id: &NodeId,
+        mint_request_id: &Uuid,
+    ) -> Result<Option<MintOffer>>;
     /// Resets the mint quote state for the given bill - DEV MODE ONLY
     async fn dev_mode_reset_for_bill(&self, bill_id: &BillId) -> Result<()>;
 }

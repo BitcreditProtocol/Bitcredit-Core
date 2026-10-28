@@ -177,6 +177,15 @@ impl MintConfig {
     pub fn new(default_mint_url: String, default_mint_node_id: NodeId) -> Result<Self> {
         let url = url::Url::parse(&default_mint_url)
             .map_err(|e| anyhow!("Invalid Default Mint URL: {e}"))?;
+        if !matches!(url.scheme(), "http" | "https")
+            || url.host_str().is_none()
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || url.query().is_some()
+            || url.fragment().is_some()
+        {
+            return Err(anyhow!("Invalid Default Mint URL"));
+        }
         Ok(Self {
             default_mint_url: url,
             default_mint_node_id,
@@ -197,8 +206,19 @@ impl MintConfig {
 
     pub fn with_mints(mut self, mints: Vec<ConfiguredMint>) -> Result<Self> {
         let mut seen = std::collections::HashSet::new();
+        let mut endpoints = std::collections::HashMap::new();
+        endpoints.insert(
+            self.default_mint_url.origin().ascii_serialization(),
+            self.default_mint_node_id.clone(),
+        );
         for mint in &mints {
-            if mint.name.trim().is_empty()
+            let origin = mint.url.origin().ascii_serialization();
+            if endpoints
+                .get(&origin)
+                .is_some_and(|node| node != &mint.node_id)
+                || mint.url.query().is_some()
+                || mint.url.fragment().is_some()
+                || mint.name.trim().is_empty()
                 || !matches!(mint.url.scheme(), "http" | "https")
                 || mint.url.host_str().is_none()
                 || !mint.url.username().is_empty()
@@ -211,6 +231,7 @@ impl MintConfig {
                     mint.node_id
                 ));
             }
+            endpoints.insert(origin, mint.node_id.clone());
         }
         self.mints = mints;
         Ok(self)
@@ -380,5 +401,44 @@ mod mint_config_tests {
         };
         assert!(config.clone().with_mints(vec![mint.clone()]).is_err());
         assert!(config.with_mints(vec![mint.clone(), mint]).is_err());
+    }
+    #[test]
+    fn rejects_distinct_mints_at_one_effective_endpoint_even_with_path_aliases() {
+        let a = NodeId::new(BcrKeys::new().pub_key(), Network::Testnet);
+        let b = NodeId::new(BcrKeys::new().pub_key(), Network::Testnet);
+        for url in [
+            "http://localhost:5343",
+            "http://localhost:5343/",
+            "http://localhost:5343/other-prefix",
+        ] {
+            let config = MintConfig::new("http://localhost:5343".into(), a.clone()).unwrap();
+            assert!(
+                config
+                    .with_mints(vec![ConfiguredMint {
+                        name: "B".into(),
+                        node_id: b.clone(),
+                        url: url.parse().unwrap()
+                    }])
+                    .is_err()
+            );
+        }
+        let c = NodeId::new(BcrKeys::new().pub_key(), Network::Testnet);
+        assert!(
+            MintConfig::new("http://localhost:5343".into(), a)
+                .unwrap()
+                .with_mints(vec![
+                    ConfiguredMint {
+                        name: "B".into(),
+                        node_id: b,
+                        url: "http://localhost:6343".parse().unwrap()
+                    },
+                    ConfiguredMint {
+                        name: "C".into(),
+                        node_id: c,
+                        url: "http://localhost:6343/prefix".parse().unwrap()
+                    },
+                ])
+                .is_err()
+        );
     }
 }

@@ -217,6 +217,7 @@ pub trait BillServiceApi: ServiceTraitBounds {
     /// Cancel a pending request to mint
     async fn cancel_request_to_mint(
         &self,
+        mint_node_id: &NodeId,
         mint_request_id: &Uuid,
         current_identity_node_id: &NodeId,
     ) -> Result<()>;
@@ -224,6 +225,7 @@ pub trait BillServiceApi: ServiceTraitBounds {
     /// Accept a mint offer for a given request to mint
     async fn accept_mint_offer(
         &self,
+        mint_node_id: &NodeId,
         mint_request_id: &Uuid,
         signer_public_data: &BillParticipant,
         signer_keys: &BcrKeys,
@@ -233,6 +235,7 @@ pub trait BillServiceApi: ServiceTraitBounds {
     /// Reject a mint offer for a given request to mint
     async fn reject_mint_offer(
         &self,
+        mint_node_id: &NodeId,
         mint_request_id: &Uuid,
         current_identity_node_id: &NodeId,
     ) -> Result<()>;

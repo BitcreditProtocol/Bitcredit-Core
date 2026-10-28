@@ -424,6 +424,7 @@ mod test_utils {
 
         #[async_trait]
         impl MintClientApi for MintClient {
+            async fn verify_mint_identity(&self, mint_url: &url::Url, mint_node_id: &NodeId) -> bcr_ebill_api::external::mint::Result<()>;
             async fn check_if_proofs_are_spent(
                 &self,
                 mint_url: &url::Url,

@@ -369,7 +369,7 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
         .returning(|_, _, _, _, _| Ok(()));
     default_notification
         .expect_reconcile_quote_applicant_action_notification()
-        .returning(|_, _, _, _| Ok(()));
+        .returning(|_, _, _, _, _| Ok(()));
     default_notification
         .expect_create_general_notification()
         .returning(|_, _, _, _| Ok(()));
@@ -400,6 +400,10 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
 }
 
 pub fn get_ctx() -> MockBillContext {
+    let mut mint_client = MockMintClientApi::new();
+    mint_client
+        .expect_verify_mint_identity()
+        .returning(|_, _| Ok(()));
     MockBillContext {
         bill_store: MockBillStoreApiMock::new(),
         bill_blockchain_store: MockBillChainStoreApiMock::new(),
@@ -413,7 +417,7 @@ pub fn get_ctx() -> MockBillContext {
         company_store: MockCompanyStoreApiMock::new(),
         transport_service: MockTransportServiceApi::new(),
         mint_store: MockMintStore::new(),
-        mint_client: MockMintClientApi::new(),
+        mint_client,
         court_client: MockCourtClientApi::new(),
         nostr_contact_store: MockNostrContactStore::new(),
         transaction_mgr: MockTransactionManagerApiMock::new(),

@@ -60,6 +60,7 @@ pub trait NotificationTransportServiceApi: ServiceTraitBounds {
         &self,
         node_id: &NodeId,
         bill_id: &BillId,
+        mint_node_id: &NodeId,
         mint_request_id: uuid::Uuid,
         applicant_action: Option<ApplicantActionProjection>,
     ) -> Result<()>;

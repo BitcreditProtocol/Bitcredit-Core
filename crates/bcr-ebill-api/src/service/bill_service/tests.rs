@@ -1,5 +1,7 @@
 use super::service::authoritative_applicant_action_for_status;
 use super::*;
+use crate::external::mint::ResolveMintOffer;
+use crate::get_config;
 use crate::{
     external::{file_storage::UploadedBlob, mint::QuoteStatusReply},
     service::{
@@ -7297,7 +7299,7 @@ async fn get_mint_state_baseline() {
     let mut ctx = get_ctx();
     let identity = get_baseline_identity();
 
-    ctx.mint_store.expect_get_offer().returning(|_| {
+    ctx.mint_store.expect_get_offer().returning(|_mint, _| {
         Ok(Some(MintOffer {
             mint_request_id: get_uuid_v4(),
             keyset_id: "keyset_id".to_owned(),
@@ -7375,23 +7377,29 @@ async fn cancel_mint_state_baseline() {
         .expect_cancel_quote_for_mint()
         .returning(|_, _| Ok(()));
     let req_node_id = identity.identity.node_id.clone();
-    ctx.mint_store.expect_get_request().returning(move |_| {
-        Ok(Some(MintRequest {
-            requester_node_id: req_node_id.clone(),
-            bill_id: bill_id_test(),
-            mint_node_id: node_id_test(),
-            mint_request_id: get_uuid_v4(),
-            timestamp: test_ts(),
-            status: MintRequestStatus::Pending,
-        }))
-    });
+    ctx.mint_store
+        .expect_get_request()
+        .returning(move |_mint, _| {
+            Ok(Some(MintRequest {
+                requester_node_id: req_node_id.clone(),
+                bill_id: bill_id_test(),
+                mint_node_id: node_id_test(),
+                mint_request_id: get_uuid_v4(),
+                timestamp: test_ts(),
+                status: MintRequestStatus::Pending,
+            }))
+        });
     ctx.mint_store
         .expect_update_request()
-        .returning(|_, _| Ok(()));
+        .returning(|_mint, _, _| Ok(()));
 
     let service = get_service(ctx);
     let res = service
-        .cancel_request_to_mint(&get_uuid_v4(), &identity.identity.node_id)
+        .cancel_request_to_mint(
+            &get_config().mint_config.default_mint_node_id,
+            &get_uuid_v4(),
+            &identity.identity.node_id,
+        )
         .await;
     assert!(res.is_ok());
 }
@@ -7428,23 +7436,25 @@ async fn accept_mint_offer_baseline() {
         .expect_resolve_quote_for_mint()
         .returning(|_, _, _| Ok(()));
     let req_node_id = identity.identity.node_id.clone();
-    ctx.mint_store.expect_get_request().returning(move |_| {
-        Ok(Some(MintRequest {
-            requester_node_id: req_node_id.clone(),
-            bill_id: bill_id_test(),
-            mint_node_id: node_id_test(),
-            mint_request_id: get_uuid_v4(),
-            timestamp: Timestamp::new(1731593938).unwrap(),
-            status: MintRequestStatus::Offered,
-        }))
-    });
+    ctx.mint_store
+        .expect_get_request()
+        .returning(move |_mint, _| {
+            Ok(Some(MintRequest {
+                requester_node_id: req_node_id.clone(),
+                bill_id: bill_id_test(),
+                mint_node_id: node_id_test(),
+                mint_request_id: get_uuid_v4(),
+                timestamp: Timestamp::new(1731593938).unwrap(),
+                status: MintRequestStatus::Offered,
+            }))
+        });
     ctx.mint_store
         .expect_update_request()
-        .returning(|_, _| Ok(()));
+        .returning(|_mint, _, _| Ok(()));
     ctx.mint_store
         .expect_get_requests_for_bill()
         .returning(|_, _| Ok(vec![]));
-    ctx.mint_store.expect_get_offer().returning(|_| {
+    ctx.mint_store.expect_get_offer().returning(|_mint, _| {
         Ok(Some(MintOffer {
             mint_request_id: get_uuid_v4(),
             keyset_id: "keyset_id".to_owned(),
@@ -7469,6 +7479,7 @@ async fn accept_mint_offer_baseline() {
     let service = get_service(ctx);
     let res = service
         .accept_mint_offer(
+            &get_config().mint_config.default_mint_node_id,
             &get_uuid_v4(),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
@@ -7487,23 +7498,29 @@ async fn reject_mint_offer_baseline() {
         .expect_resolve_quote_for_mint()
         .returning(|_, _, _| Ok(()));
     let req_node_id = identity.identity.node_id.clone();
-    ctx.mint_store.expect_get_request().returning(move |_| {
-        Ok(Some(MintRequest {
-            requester_node_id: req_node_id.clone(),
-            bill_id: bill_id_test(),
-            mint_node_id: node_id_test(),
-            mint_request_id: get_uuid_v4(),
-            timestamp: test_ts(),
-            status: MintRequestStatus::Offered,
-        }))
-    });
+    ctx.mint_store
+        .expect_get_request()
+        .returning(move |_mint, _| {
+            Ok(Some(MintRequest {
+                requester_node_id: req_node_id.clone(),
+                bill_id: bill_id_test(),
+                mint_node_id: node_id_test(),
+                mint_request_id: get_uuid_v4(),
+                timestamp: test_ts(),
+                status: MintRequestStatus::Offered,
+            }))
+        });
     ctx.mint_store
         .expect_update_request()
-        .returning(|_, _| Ok(()));
+        .returning(|_mint, _, _| Ok(()));
 
     let service = get_service(ctx);
     let res = service
-        .reject_mint_offer(&get_uuid_v4(), &identity.identity.node_id)
+        .reject_mint_offer(
+            &get_config().mint_config.default_mint_node_id,
+            &get_uuid_v4(),
+            &identity.identity.node_id,
+        )
         .await;
     assert!(res.is_ok());
 }
@@ -7536,7 +7553,7 @@ async fn check_mint_state_for_all_bills_baseline() {
         });
     ctx.mint_store
         .expect_update_request()
-        .returning(|_, _| Ok(()));
+        .returning(|_mint, _, _| Ok(()));
 
     let service = get_service(ctx);
     let res = service.check_mint_state_for_all_bills().await;
@@ -7571,7 +7588,7 @@ async fn check_mint_state_baseline() {
         });
     ctx.mint_store
         .expect_update_request()
-        .returning(|_, _| Ok(()));
+        .returning(|_mint, _, _| Ok(()));
 
     let service = get_service(ctx);
     let res = service
@@ -7610,7 +7627,7 @@ async fn notification_failure_does_not_block_authoritative_mint_state_update() {
     ctx.mint_store
         .expect_update_request()
         .times(1)
-        .returning(|_, status| {
+        .returning(|_mint, _, status| {
             assert!(matches!(status, MintRequestStatus::Denied { .. }));
             Ok(())
         });
@@ -7620,7 +7637,7 @@ async fn notification_failure_does_not_block_authoritative_mint_state_update() {
             notification
                 .expect_reconcile_quote_applicant_action_notification()
                 .times(1)
-                .returning(|_, _, _, _| {
+                .returning(|_mint, _, _, _, _| {
                     Err(crate::service::transport_service::Error::Persistence(
                         "synthetic notification failure".to_owned(),
                     ))
@@ -7678,9 +7695,9 @@ async fn terminal_mint_state_retries_applicant_action_cleanup_on_bill_poll() {
                 let cleanup_calls = cleanup_calls.clone();
                 notification
                     .expect_reconcile_quote_applicant_action_notification()
-                    .withf(|_, _, _, action| action.is_none())
+                    .withf(|_mint, _, _, _, action| action.is_none())
                     .times(2)
-                    .returning(move |_, _, _, _| {
+                    .returning(move |_mint, _, _, _, _| {
                         if cleanup_calls.fetch_add(1, Ordering::SeqCst) == 0 {
                             Err(crate::service::transport_service::Error::Persistence(
                                 "synthetic notification failure".to_owned(),
@@ -7731,7 +7748,7 @@ async fn check_mint_state_pending_accepted() {
         });
     ctx.mint_store
         .expect_update_request()
-        .returning(|_, _| Ok(()));
+        .returning(|_mint, _, _| Ok(()));
 
     let service = get_service(ctx);
     let res = service
@@ -7770,10 +7787,10 @@ async fn check_mint_state_pending_offered() {
         });
     ctx.mint_store
         .expect_update_request()
-        .returning(|_, _| Ok(()));
+        .returning(|_mint, _, _| Ok(()));
     ctx.mint_store
         .expect_add_offer()
-        .returning(|_, _, _, _| Ok(()));
+        .returning(|_mint, _, _, _, _| Ok(()));
 
     let service = get_service(ctx);
     let res = service
@@ -7810,7 +7827,7 @@ async fn check_mint_state_offered_accepted() {
         });
     ctx.mint_store
         .expect_update_request()
-        .returning(|_, _| Ok(()));
+        .returning(|_mint, _, _| Ok(()));
 
     let service = get_service(ctx);
     let res = service
@@ -7869,11 +7886,11 @@ async fn check_mint_state_minting_enabled_proofs() {
     ctx.mint_store
         .expect_add_recovery_data_to_offer()
         .times(1)
-        .returning(|_, _, _| Ok(()));
+        .returning(|_mint, _, _, _| Ok(()));
     ctx.mint_store
         .expect_add_proofs_to_offer()
         .times(1)
-        .returning(|_, _| Ok(()));
+        .returning(|_mint, _, _| Ok(()));
     ctx.mint_store
         .expect_get_requests_for_bill()
         .returning(move |_, _| {
@@ -7886,7 +7903,7 @@ async fn check_mint_state_minting_enabled_proofs() {
                 status: MintRequestStatus::MintingEnabled,
             }])
         });
-    ctx.mint_store.expect_get_offer().returning(|_| {
+    ctx.mint_store.expect_get_offer().returning(|_mint, _| {
         Ok(Some(MintOffer {
             mint_request_id: get_uuid_v4(),
             keyset_id: "keyset_id".to_owned(),
@@ -7925,7 +7942,7 @@ async fn minting_requires_durable_recovery_data_before_issuing_proofs() {
     ctx.mint_client
         .expect_get_keyset_info()
         .returning(|_, _| Ok(minting_test_keyset()));
-    ctx.mint_store.expect_get_offer().returning(|_| {
+    ctx.mint_store.expect_get_offer().returning(|_mint, _| {
         Ok(Some(MintOffer {
             mint_request_id: get_uuid_v4(),
             keyset_id: "keyset_id".to_owned(),
@@ -7939,7 +7956,7 @@ async fn minting_requires_durable_recovery_data_before_issuing_proofs() {
     ctx.mint_store
         .expect_add_recovery_data_to_offer()
         .times(1)
-        .returning(|_, _, _| {
+        .returning(|_mint, _, _, _| {
             Err(bcr_ebill_persistence::Error::InsertFailed(
                 "recovery storage unavailable".to_owned(),
             ))
@@ -7978,22 +7995,24 @@ async fn minting_retry_reuses_durable_blinds_after_mint_or_proof_storage_failure
         let recovery = Arc::new(std::sync::Mutex::new(None::<MintOfferRecoveryData>));
         let stored_recovery = recovery.clone();
         let request_id = request.mint_request_id;
-        ctx.mint_store.expect_get_offer().returning(move |_| {
-            Ok(Some(MintOffer {
-                mint_request_id: request_id,
-                keyset_id: "00c7b45973e5f0fc".to_owned(),
-                expiration_timestamp: Timestamp::new(1731593938).unwrap(),
-                discounted_sum: Sum::new_sat(1500).unwrap(),
-                proofs: None,
-                proofs_spent: false,
-                recovery_data: stored_recovery.lock().unwrap().clone(),
-            }))
-        });
+        ctx.mint_store
+            .expect_get_offer()
+            .returning(move |_mint, _| {
+                Ok(Some(MintOffer {
+                    mint_request_id: request_id,
+                    keyset_id: "00c7b45973e5f0fc".to_owned(),
+                    expiration_timestamp: Timestamp::new(1731593938).unwrap(),
+                    discounted_sum: Sum::new_sat(1500).unwrap(),
+                    proofs: None,
+                    proofs_spent: false,
+                    recovery_data: stored_recovery.lock().unwrap().clone(),
+                }))
+            });
         let stored_recovery = recovery.clone();
         ctx.mint_store
             .expect_add_recovery_data_to_offer()
             .times(1)
-            .returning(move |_, secrets, rs| {
+            .returning(move |_mint, _, secrets, rs| {
                 *stored_recovery.lock().unwrap() = Some(MintOfferRecoveryData {
                     secrets: secrets.to_vec(),
                     rs: rs.to_vec(),
@@ -8028,7 +8047,7 @@ async fn minting_retry_reuses_durable_blinds_after_mint_or_proof_storage_failure
         ctx.mint_store
             .expect_add_proofs_to_offer()
             .times(if fail_proof_storage { 2 } else { 1 })
-            .returning(move |_, _| {
+            .returning(move |_mint, _, _| {
                 proof_writes += 1;
                 if fail_proof_storage && proof_writes == 1 {
                     Err(bcr_ebill_persistence::Error::InsertFailed(
@@ -8094,7 +8113,7 @@ async fn check_mint_state_minting_enabled_check_spent() {
         .returning(|_, _, _| Ok(true));
     ctx.mint_store
         .expect_set_proofs_to_spent_for_offer()
-        .returning(|_| Ok(()));
+        .returning(|_mint, _| Ok(()));
     ctx.mint_store
         .expect_get_requests_for_bill()
         .returning(move |_, _| {
@@ -8107,7 +8126,7 @@ async fn check_mint_state_minting_enabled_check_spent() {
                 status: MintRequestStatus::MintingEnabled,
             }])
         });
-    ctx.mint_store.expect_get_offer().returning(|_| {
+    ctx.mint_store.expect_get_offer().returning(|_mint, _| {
         Ok(Some(MintOffer {
             mint_request_id: get_uuid_v4(),
             keyset_id: "keyset_id".to_owned(),
@@ -8366,7 +8385,11 @@ async fn wrong_network_failures() {
     ));
     assert!(matches!(
         service
-            .cancel_request_to_mint(&get_uuid_v4(), &mainnet_node_id)
+            .cancel_request_to_mint(
+                &get_config().mint_config.default_mint_node_id,
+                &get_uuid_v4(),
+                &mainnet_node_id
+            )
             .await,
         Err(Error::Validation(ValidationError::Protocol(
             ProtocolValidationError::InvalidNodeId
@@ -8391,6 +8414,7 @@ async fn wrong_network_failures() {
     assert!(matches!(
         service
             .accept_mint_offer(
+                &get_config().mint_config.default_mint_node_id,
                 &get_uuid_v4(),
                 &mainnet_participant,
                 &BcrKeys::new(),
@@ -8403,7 +8427,11 @@ async fn wrong_network_failures() {
     ));
     assert!(matches!(
         service
-            .reject_mint_offer(&get_uuid_v4(), &mainnet_node_id)
+            .reject_mint_offer(
+                &get_config().mint_config.default_mint_node_id,
+                &get_uuid_v4(),
+                &mainnet_node_id
+            )
             .await,
         Err(Error::Validation(ValidationError::Protocol(
             ProtocolValidationError::InvalidNodeId
@@ -8671,23 +8699,29 @@ async fn cancel_second_mint_uses_quote_mint_url() {
         .times(1)
         .returning(|_, _| Ok(()));
     let req_node_id = identity.identity.node_id.clone();
-    ctx.mint_store.expect_get_request().returning(move |_| {
-        Ok(Some(MintRequest {
-            requester_node_id: req_node_id.clone(),
-            bill_id: bill_id_test(),
-            mint_node_id: node_id_test_other(),
-            mint_request_id: get_uuid_v4(),
-            timestamp: test_ts(),
-            status: MintRequestStatus::Pending,
-        }))
-    });
+    ctx.mint_store
+        .expect_get_request()
+        .returning(move |_mint, _| {
+            Ok(Some(MintRequest {
+                requester_node_id: req_node_id.clone(),
+                bill_id: bill_id_test(),
+                mint_node_id: node_id_test_other(),
+                mint_request_id: get_uuid_v4(),
+                timestamp: test_ts(),
+                status: MintRequestStatus::Pending,
+            }))
+        });
     ctx.mint_store
         .expect_update_request()
-        .returning(|_, _| Ok(()));
+        .returning(|_mint, _, _| Ok(()));
 
     let service = get_service(ctx);
     let res = service
-        .cancel_request_to_mint(&get_uuid_v4(), &identity.identity.node_id)
+        .cancel_request_to_mint(
+            &node_id_test_other(),
+            &get_uuid_v4(),
+            &identity.identity.node_id,
+        )
         .await;
     assert!(res.is_ok());
 }
@@ -8729,23 +8763,25 @@ async fn accept_second_mint_uses_quote_mint_url() {
         .times(1)
         .returning(|_, _, _| Ok(()));
     let req_node_id = identity.identity.node_id.clone();
-    ctx.mint_store.expect_get_request().returning(move |_| {
-        Ok(Some(MintRequest {
-            requester_node_id: req_node_id.clone(),
-            bill_id: bill_id_test(),
-            mint_node_id: node_id_test_other(),
-            mint_request_id: get_uuid_v4(),
-            timestamp: Timestamp::new(1731593938).unwrap(),
-            status: MintRequestStatus::Offered,
-        }))
-    });
+    ctx.mint_store
+        .expect_get_request()
+        .returning(move |_mint, _| {
+            Ok(Some(MintRequest {
+                requester_node_id: req_node_id.clone(),
+                bill_id: bill_id_test(),
+                mint_node_id: node_id_test_other(),
+                mint_request_id: get_uuid_v4(),
+                timestamp: Timestamp::new(1731593938).unwrap(),
+                status: MintRequestStatus::Offered,
+            }))
+        });
     ctx.mint_store
         .expect_update_request()
-        .returning(|_, _| Ok(()));
+        .returning(|_mint, _, _| Ok(()));
     ctx.mint_store
         .expect_get_requests_for_bill()
         .returning(|_, _| Ok(vec![]));
-    ctx.mint_store.expect_get_offer().returning(|_| {
+    ctx.mint_store.expect_get_offer().returning(|_mint, _| {
         Ok(Some(MintOffer {
             mint_request_id: get_uuid_v4(),
             keyset_id: "keyset_id".to_owned(),
@@ -8770,6 +8806,7 @@ async fn accept_second_mint_uses_quote_mint_url() {
     let service = get_service(ctx);
     let res = service
         .accept_mint_offer(
+            &node_id_test_other(),
             &get_uuid_v4(),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
@@ -8791,23 +8828,29 @@ async fn reject_second_mint_uses_quote_mint_url() {
         .times(1)
         .returning(|_, _, _| Ok(()));
     let req_node_id = identity.identity.node_id.clone();
-    ctx.mint_store.expect_get_request().returning(move |_| {
-        Ok(Some(MintRequest {
-            requester_node_id: req_node_id.clone(),
-            bill_id: bill_id_test(),
-            mint_node_id: node_id_test_other(),
-            mint_request_id: get_uuid_v4(),
-            timestamp: test_ts(),
-            status: MintRequestStatus::Offered,
-        }))
-    });
+    ctx.mint_store
+        .expect_get_request()
+        .returning(move |_mint, _| {
+            Ok(Some(MintRequest {
+                requester_node_id: req_node_id.clone(),
+                bill_id: bill_id_test(),
+                mint_node_id: node_id_test_other(),
+                mint_request_id: get_uuid_v4(),
+                timestamp: test_ts(),
+                status: MintRequestStatus::Offered,
+            }))
+        });
     ctx.mint_store
         .expect_update_request()
-        .returning(|_, _| Ok(()));
+        .returning(|_mint, _, _| Ok(()));
 
     let service = get_service(ctx);
     let res = service
-        .reject_mint_offer(&get_uuid_v4(), &identity.identity.node_id)
+        .reject_mint_offer(
+            &node_id_test_other(),
+            &get_uuid_v4(),
+            &identity.identity.node_id,
+        )
         .await;
     assert!(res.is_ok());
 }
@@ -8851,7 +8894,7 @@ async fn poll_same_bill_at_two_mints_uses_distinct_quote_endpoints() {
         });
     ctx.transport_service.expect_on_notification_transport(|t| {
         t.expect_reconcile_quote_applicant_action_notification()
-            .returning(|_, _, _, _| Ok(()));
+            .returning(|_mint, _, _, _, _| Ok(()));
     });
     let service = get_service(ctx);
     for (mint_node_id, mint_request_id) in
@@ -8930,4 +8973,212 @@ async fn second_mint_attachments_use_its_advertised_blossom_server() {
         .await
         .unwrap();
     assert_eq!(urls[0].host_str(), Some("mint-b.example"));
+}
+
+#[tokio::test]
+async fn mismatched_endpoint_identity_blocks_request_poll_and_acceptance_before_side_effects() {
+    use crate::external::mint::{Error as MintError, MockMintClientApi};
+    init_test_cfg();
+    for operation in ["request", "poll", "accept", "reject", "cancel"] {
+        let mut ctx = get_ctx();
+        let mut client = MockMintClientApi::new();
+        client
+            .expect_verify_mint_identity()
+            .once()
+            .withf(|url, node| url.port() == Some(4242) && node == &node_id_test())
+            .returning(|_, _| Err(MintError::MintIdentityMismatch.into()));
+        client.expect_enquire_mint_quote().never();
+        client.expect_lookup_quote_for_mint().never();
+        client.expect_resolve_quote_for_mint().never();
+        client.expect_cancel_quote_for_mint().never();
+        ctx.mint_client = client;
+        let identity = get_baseline_identity();
+        let requester = identity.identity.node_id.clone();
+        if ["accept", "reject", "cancel"].contains(&operation) {
+            ctx.mint_store
+                .expect_get_request()
+                .once()
+                .withf(|mint, id| mint == &node_id_test() && id == &get_uuid_v4())
+                .returning(move |mint, id| {
+                    Ok(Some(MintRequest {
+                        requester_node_id: requester.clone(),
+                        bill_id: bill_id_test(),
+                        mint_node_id: mint.clone(),
+                        mint_request_id: *id,
+                        timestamp: test_ts(),
+                        status: MintRequestStatus::Offered,
+                    }))
+                });
+        }
+        if operation == "accept" {
+            let i = identity.identity.clone();
+            ctx.identity_store
+                .expect_get()
+                .once()
+                .return_once(move || Ok(i));
+        }
+        ctx.mint_store.expect_add_request().never();
+        ctx.mint_store.expect_update_request().never();
+        ctx.mint_store.expect_add_offer().never();
+        let service = get_service(ctx);
+        let participant =
+            BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap());
+        let result = match operation {
+            "request" => {
+                service
+                    .request_to_mint(
+                        &bill_id_test(),
+                        &node_id_test(),
+                        &participant,
+                        &identity.key_pair,
+                        test_ts(),
+                    )
+                    .await
+            }
+            "poll" => {
+                service
+                    .check_mint_quote_and_update_bill_mint_state(&MintRequest {
+                        requester_node_id: identity.identity.node_id.clone(),
+                        bill_id: bill_id_test(),
+                        mint_node_id: node_id_test(),
+                        mint_request_id: get_uuid_v4(),
+                        timestamp: test_ts(),
+                        status: MintRequestStatus::Pending,
+                    })
+                    .await
+            }
+            "accept" => {
+                service
+                    .accept_mint_offer(
+                        &node_id_test(),
+                        &get_uuid_v4(),
+                        &participant,
+                        &identity.key_pair,
+                        test_ts(),
+                    )
+                    .await
+            }
+            "reject" => {
+                service
+                    .reject_mint_offer(&node_id_test(), &get_uuid_v4(), &identity.identity.node_id)
+                    .await
+            }
+            "cancel" => {
+                service
+                    .cancel_request_to_mint(
+                        &node_id_test(),
+                        &get_uuid_v4(),
+                        &identity.identity.node_id,
+                    )
+                    .await
+            }
+            _ => unreachable!(),
+        };
+        assert!(
+            matches!(
+                result,
+                Err(super::Error::ExternalApi(
+                    crate::external::Error::ExternalMintApi(MintError::MintIdentityMismatch)
+                ))
+            ),
+            "{operation}: {result:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn accepting_colliding_quote_rejects_other_mint_and_preserves_selected_mint() {
+    init_test_cfg();
+    let mut ctx = get_ctx();
+    ctx.mint_store
+        .expect_get_requests_for_bill()
+        .once()
+        .returning(|requester, bill| {
+            Ok(vec![node_id_test(), node_id_test_other()]
+                .into_iter()
+                .map(|mint| MintRequest {
+                    requester_node_id: requester.clone(),
+                    bill_id: bill.clone(),
+                    mint_node_id: mint,
+                    mint_request_id: get_uuid_v4(),
+                    timestamp: test_ts(),
+                    status: MintRequestStatus::Offered,
+                })
+                .collect())
+        });
+    ctx.mint_client
+        .expect_resolve_quote_for_mint()
+        .once()
+        .withf(|url, id, resolve| {
+            url.port() == Some(5242)
+                && id == &get_uuid_v4()
+                && matches!(resolve, ResolveMintOffer::Reject)
+        })
+        .returning(|_, _, _| Ok(()));
+    ctx.mint_store
+        .expect_update_request()
+        .once()
+        .withf(|mint, id, state| {
+            mint == &node_id_test_other()
+                && id == &get_uuid_v4()
+                && matches!(state, MintRequestStatus::Rejected { .. })
+        })
+        .returning(|_, _, _| Ok(()));
+    get_service(ctx)
+        .reject_mint_offers_except_accepted_one_for_bill(
+            &node_id_test(),
+            &get_uuid_v4(),
+            &bill_id_test(),
+            &node_id_test(),
+        )
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn colliding_poll_status_and_offer_updates_include_the_mint() {
+    init_test_cfg();
+    let mut ctx = get_ctx();
+    ctx.mint_client
+        .expect_lookup_quote_for_mint()
+        .times(2)
+        .returning(|url, _| {
+            let quote = if url.port() == Some(4242) {
+                QuoteStatusReply::Denied {
+                    tstamp: test_ts().to_datetime(),
+                }
+            } else {
+                QuoteStatusReply::Cancelled {
+                    tstamp: test_ts().to_datetime(),
+                }
+            };
+            Ok(quote.into())
+        });
+    ctx.mint_store
+        .expect_update_request()
+        .times(2)
+        .returning(|mint, id, status| {
+            assert_eq!(id, &get_uuid_v4());
+            assert!(if mint == &node_id_test() {
+                matches!(status, MintRequestStatus::Denied { .. })
+            } else {
+                mint == &node_id_test_other()
+                    && matches!(status, MintRequestStatus::Cancelled { .. })
+            });
+            Ok(())
+        });
+    let service = get_service(ctx);
+    for mint in [node_id_test(), node_id_test_other()] {
+        service
+            .check_mint_quote_and_update_bill_mint_state(&MintRequest {
+                requester_node_id: node_id_test(),
+                bill_id: bill_id_test(),
+                mint_node_id: mint,
+                mint_request_id: get_uuid_v4(),
+                timestamp: test_ts(),
+                status: MintRequestStatus::Pending,
+            })
+            .await
+            .unwrap();
+    }
 }

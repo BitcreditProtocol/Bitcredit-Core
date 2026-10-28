@@ -150,8 +150,13 @@ impl MintStoreApi for PostgresMintStore {
         Ok(())
     }
 
-    async fn get_request(&self, mint_request_id: &Uuid) -> Result<Option<MintRequest>> {
+    async fn get_request(
+        &self,
+        mint_node_id: &NodeId,
+        mint_request_id: &Uuid,
+    ) -> Result<Option<MintRequest>> {
         let row: Option<MintRequestRow> = sqlx::query_as(SELECT_REQUEST)
+            .bind(Text(mint_node_id.clone()))
             .bind(Text(*mint_request_id))
             .fetch_optional(&self.pool)
             .await?;
@@ -161,6 +166,7 @@ impl MintStoreApi for PostgresMintStore {
 
     async fn update_request(
         &self,
+        mint_node_id: &NodeId,
         mint_request_id: &Uuid,
         new_status: &MintRequestStatus,
     ) -> Result<()> {
@@ -169,6 +175,7 @@ impl MintStoreApi for PostgresMintStore {
         sqlx::query(UPDATE_REQUEST)
             .bind(status)
             .bind(status_timestamp)
+            .bind(Text(mint_node_id.clone()))
             .bind(Text(*mint_request_id))
             .execute(&self.pool)
             .await?;
@@ -176,10 +183,16 @@ impl MintStoreApi for PostgresMintStore {
         Ok(())
     }
 
-    async fn add_proofs_to_offer(&self, mint_request_id: &Uuid, proofs: &str) -> Result<()> {
+    async fn add_proofs_to_offer(
+        &self,
+        mint_node_id: &NodeId,
+        mint_request_id: &Uuid,
+        proofs: &str,
+    ) -> Result<()> {
         let encrypted_proofs = self.encrypt_mint_offer_value(proofs)?;
         let result = sqlx::query(ADD_PROOFS)
             .bind(encrypted_proofs)
+            .bind(Text(mint_node_id.clone()))
             .bind(Text(*mint_request_id))
             .execute(&self.pool)
             .await?;
@@ -188,7 +201,7 @@ impl MintStoreApi for PostgresMintStore {
             return Ok(());
         }
 
-        match self.get_offer(mint_request_id).await? {
+        match self.get_offer(mint_node_id, mint_request_id).await? {
             None => Err(Error::NoSuchEntity(
                 "mint offer".to_owned(),
                 mint_request_id.to_string(),
@@ -204,6 +217,7 @@ impl MintStoreApi for PostgresMintStore {
 
     async fn add_recovery_data_to_offer(
         &self,
+        mint_node_id: &NodeId,
         mint_request_id: &Uuid,
         secrets: &[String],
         rs: &[String],
@@ -213,6 +227,7 @@ impl MintStoreApi for PostgresMintStore {
 
         let result = sqlx::query(ADD_RECOVERY_DATA)
             .bind(encrypted_recovery_data)
+            .bind(Text(mint_node_id.clone()))
             .bind(Text(*mint_request_id))
             .execute(&self.pool)
             .await?;
@@ -221,7 +236,7 @@ impl MintStoreApi for PostgresMintStore {
             return Ok(());
         }
 
-        match self.get_offer(mint_request_id).await? {
+        match self.get_offer(mint_node_id, mint_request_id).await? {
             None => Err(Error::NoSuchEntity(
                 "mint offer".to_owned(),
                 mint_request_id.to_string(),
@@ -236,8 +251,13 @@ impl MintStoreApi for PostgresMintStore {
         }
     }
 
-    async fn set_proofs_to_spent_for_offer(&self, mint_request_id: &Uuid) -> Result<()> {
+    async fn set_proofs_to_spent_for_offer(
+        &self,
+        mint_node_id: &NodeId,
+        mint_request_id: &Uuid,
+    ) -> Result<()> {
         let result = sqlx::query(SET_PROOFS_SPENT)
+            .bind(Text(mint_node_id.clone()))
             .bind(Text(*mint_request_id))
             .execute(&self.pool)
             .await?;
@@ -246,7 +266,7 @@ impl MintStoreApi for PostgresMintStore {
             return Ok(());
         }
 
-        match self.get_offer(mint_request_id).await? {
+        match self.get_offer(mint_node_id, mint_request_id).await? {
             None => Err(Error::NoSuchEntity(
                 "mint offer".to_owned(),
                 mint_request_id.to_string(),
@@ -261,12 +281,14 @@ impl MintStoreApi for PostgresMintStore {
 
     async fn add_offer(
         &self,
+        mint_node_id: &NodeId,
         mint_request_id: &Uuid,
         keyset_id: &str,
         expiration_timestamp: Timestamp,
         discounted_sum: Sum,
     ) -> Result<()> {
         let row = NewMintOffer::new(
+            mint_node_id,
             mint_request_id,
             keyset_id,
             expiration_timestamp,
@@ -274,6 +296,7 @@ impl MintStoreApi for PostgresMintStore {
         )?;
 
         let result = sqlx::query(INSERT_OFFER)
+            .bind(row.mint_node_id)
             .bind(row.mint_request_id)
             .bind(&row.keyset_id)
             .bind(row.expiration_timestamp)
@@ -294,8 +317,13 @@ impl MintStoreApi for PostgresMintStore {
         Ok(())
     }
 
-    async fn get_offer(&self, mint_request_id: &Uuid) -> Result<Option<MintOffer>> {
+    async fn get_offer(
+        &self,
+        mint_node_id: &NodeId,
+        mint_request_id: &Uuid,
+    ) -> Result<Option<MintOffer>> {
         let row: Option<MintOfferRow> = sqlx::query_as(SELECT_OFFER)
+            .bind(Text(mint_node_id.clone()))
             .bind(Text(*mint_request_id))
             .fetch_optional(&self.pool)
             .await?;
@@ -313,5 +341,11 @@ mod tests {
     async fn mint_store_contract_postgres(pool: sqlx::PgPool) {
         let store = PostgresMintStore::new(pool, Arc::new(EncryptionContext::new(BcrKeys::new())));
         crate::tests::mint::mint_store_contract(&store).await;
+    }
+
+    #[sqlx::test(migrations = "migrations/postgres")]
+    async fn mint_store_scopes_quotes_by_mint_postgres(pool: sqlx::PgPool) {
+        let store = PostgresMintStore::new(pool, Arc::new(EncryptionContext::new(BcrKeys::new())));
+        crate::tests::mint::mint_store_scopes_quotes_by_mint(&store).await;
     }
 }
