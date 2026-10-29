@@ -4,7 +4,7 @@ use crate::sql::company::{
     LocalSignatoryOverrideRow, SEARCH, SELECT_COMPANIES_WITH_KEYS_BY_STATUS, SELECT_COMPANY,
     SELECT_EMAIL_CONFIRMATIONS, SELECT_KEY, SELECT_LOCAL_OVERRIDES, SELECT_SIGNATORIES,
     UPDATE_COMPANY, UPSERT_EMAIL_CONFIRMATION, UPSERT_LOCAL_OVERRIDE, bind_company, bind_signatory,
-    company_from_row, company_signatory_to_row, company_to_row,
+    company_from_row, company_key_pair_from_db, company_signatory_to_row, company_to_row,
 };
 use crate::sql::identity::{
     EmailConfirmationRow, email_confirmation_from_row, email_confirmation_to_row,
@@ -210,11 +210,7 @@ impl CompanyStoreApi for PostgresCompanyStore {
         let row_private_key =
             private_key.ok_or_else(|| Error::NoSuchEntity("company".to_owned(), id.to_string()))?;
         let encoded_private_key = row_private_key;
-        let decoded_private_key = base58::decode(&encoded_private_key)?;
-        let decrypted_private_key = self.encryption_ctx.decrypt(&decoded_private_key)?;
-        let private_key = String::from_utf8(decrypted_private_key)
-            .map_err(|e| Error::InvalidData(format!("Invalid private key: {e}")))?;
-        Ok(BcrKeys::from_private_key_string(&private_key)?)
+        company_key_pair_from_db(&encoded_private_key, &self.encryption_ctx)
     }
 
     async fn get_email_confirmations(

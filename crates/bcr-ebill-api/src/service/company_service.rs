@@ -59,6 +59,7 @@ use bcr_ebill_persistence::traits::file_upload::FileUploadStoreApi;
 use bcr_ebill_persistence::traits::identity::{IdentityChainStoreApi, IdentityStoreApi};
 use bcr_ebill_persistence::traits::nostr::NostrContactStoreApi;
 use bcr_ebill_persistence::traits::notification::EmailNotificationStoreApi;
+use bcr_ebill_persistence::traits::transaction::TransactionManagerApi;
 use bitcoin::base58;
 use log::{debug, error, info};
 use std::collections::{HashMap, HashSet};
@@ -220,6 +221,7 @@ pub struct CompanyService {
     transport_service: Arc<dyn TransportServiceApi>,
     email_client: Arc<dyn EmailClientApi>,
     email_notification_store: Arc<dyn EmailNotificationStoreApi>,
+    transaction_mgr: Arc<dyn TransactionManagerApi>,
     config: Arc<Config>,
 }
 
@@ -237,6 +239,7 @@ impl CompanyService {
         transport_service: Arc<dyn TransportServiceApi>,
         email_client: Arc<dyn EmailClientApi>,
         email_notification_store: Arc<dyn EmailNotificationStoreApi>,
+        transaction_mgr: Arc<dyn TransactionManagerApi>,
         config: Arc<Config>,
     ) -> Self {
         Self {
@@ -252,6 +255,7 @@ impl CompanyService {
             transport_service,
             email_client,
             email_notification_store,
+            transaction_mgr,
             config,
         }
     }
@@ -660,9 +664,9 @@ impl CompanyServiceApi for CompanyService {
             identity_proof_data: None,
         }
         .validate()?;
-        let previous_block = identity_chain.get_latest_block();
+        let expected_identity_latest = identity_chain.get_latest_block().clone();
         let identity_block = IdentityBlock::create_block_for_create_company(
-            previous_block,
+            &expected_identity_latest,
             &IdentityCreateCompanyBlockData {
                 company_id: id.clone(),
                 company_key: company_keys.get_private_key(),
@@ -702,27 +706,33 @@ impl CompanyServiceApi for CompanyService {
             &Some(reference_block),
         )?;
 
-        // persist - TODO (tx): make transactional
+        // persist atomically
 
-        self.store.insert(&company).await?;
+        let mut tx = self.transaction_mgr.begin().await?;
 
-        self.company_blockchain_store
-            .add_block(&id, &create_company_block)
-            .await?;
+        // global lock order: identity first
+        tx.append_identity_blocks(
+            Some(&expected_identity_latest),
+            std::slice::from_ref(&identity_block),
+        )
+        .await?;
 
-        self.company_blockchain_store
-            .add_block(&id, &identity_proof_block)
-            .await?;
+        // then company
+        tx.append_company_blocks(
+            &id,
+            None,
+            &[create_company_block.clone(), identity_proof_block.clone()],
+        )
+        .await?;
 
-        self.identity_blockchain_store
-            .add_block(&identity_block)
-            .await?;
+        tx.insert_company(&company).await?;
 
         if needs_persisting {
-            self.store
-                .set_email_confirmation(&id, &proof, &data)
+            tx.set_company_email_confirmation(&id, &proof, &data)
                 .await?;
         }
+
+        tx.commit().await?;
 
         // effects & propagation
 
@@ -832,6 +842,7 @@ impl CompanyServiceApi for CompanyService {
         let company_keys = self.store.get_key_pair(id).await?;
 
         let mut company_chain = self.company_blockchain_store.get_chain(id).await?;
+        let expected_company_latest = company_chain.get_latest_block().clone();
         CompanyValidateActionData {
             blockchain: company_chain.clone(),
             company_id: id.to_owned(),
@@ -994,12 +1005,19 @@ impl CompanyServiceApi for CompanyService {
         .map_err(|e| Error::Protocol(e.into()))?;
         validate_and_append_block(&mut company_chain, new_block.clone())?;
 
-        // persist - TODO (tx): make transactional
-        self.store.update(id, &company).await?;
+        // persist atomically
+        let mut tx = self.transaction_mgr.begin().await?;
 
-        self.company_blockchain_store
-            .add_block(id, &new_block)
-            .await?;
+        tx.append_company_blocks(
+            id,
+            Some(&expected_company_latest),
+            std::slice::from_ref(&new_block),
+        )
+        .await?;
+
+        tx.update_company(id, &company).await?;
+
+        tx.commit().await?;
 
         // effects & propagation
 
@@ -1076,6 +1094,7 @@ impl CompanyServiceApi for CompanyService {
             identity_proof_data: None,
         }
         .validate()?;
+        let expected_company_latest = company_chain.get_latest_block().clone();
 
         self.transport_service.ensure_publish_ready().await?;
 
@@ -1137,6 +1156,7 @@ impl CompanyServiceApi for CompanyService {
             identity_proof_data: None,
         }
         .validate()?;
+        let expected_identity_latest = identity_chain.get_latest_block().clone();
         let previous_identity_block = identity_chain.get_latest_block();
         let new_identity_block = IdentityBlock::create_block_for_invite_signatory(
             previous_identity_block,
@@ -1152,17 +1172,28 @@ impl CompanyServiceApi for CompanyService {
         .map_err(|e| Error::Protocol(e.into()))?;
         validate_and_append_identity_block(&mut identity_chain, new_identity_block.clone())?;
 
-        // persist - TODO (tx): make transactional
+        // persist atomically
 
-        self.store.update(id, &company).await?;
+        let mut tx = self.transaction_mgr.begin().await?;
 
-        self.company_blockchain_store
-            .add_block(id, &new_block)
-            .await?;
+        // global lock order: identity first
+        tx.append_identity_blocks(
+            Some(&expected_identity_latest),
+            std::slice::from_ref(&new_identity_block),
+        )
+        .await?;
 
-        self.identity_blockchain_store
-            .add_block(&new_identity_block)
-            .await?;
+        // then company
+        tx.append_company_blocks(
+            id,
+            Some(&expected_company_latest),
+            std::slice::from_ref(&new_block),
+        )
+        .await?;
+
+        tx.update_company(id, &company).await?;
+
+        tx.commit().await?;
 
         // effects & propagation
 
@@ -1230,6 +1261,7 @@ impl CompanyServiceApi for CompanyService {
             identity_proof_data: None,
         }
         .validate()?;
+        let expected_company_latest = company_chain.get_latest_block().clone();
 
         self.transport_service.ensure_publish_ready().await?;
 
@@ -1277,6 +1309,7 @@ impl CompanyServiceApi for CompanyService {
             identity_proof_data: None,
         }
         .validate()?;
+        let expected_identity_latest = identity_chain.get_latest_block().clone();
         let previous_identity_block = identity_chain.get_latest_block();
         let new_identity_block = IdentityBlock::create_block_for_remove_signatory(
             previous_identity_block,
@@ -1292,17 +1325,28 @@ impl CompanyServiceApi for CompanyService {
         .map_err(|e| Error::Protocol(e.into()))?;
         validate_and_append_identity_block(&mut identity_chain, new_identity_block.clone())?;
 
-        // persist - TODO (tx): make transactional
+        // persist atomically
 
-        self.store.update(id, &company).await?;
+        let mut tx = self.transaction_mgr.begin().await?;
 
-        self.company_blockchain_store
-            .add_block(id, &new_block)
-            .await?;
+        // global lock order: identity first
+        tx.append_identity_blocks(
+            Some(&expected_identity_latest),
+            std::slice::from_ref(&new_identity_block),
+        )
+        .await?;
 
-        self.identity_blockchain_store
-            .add_block(&new_identity_block)
-            .await?;
+        // then company
+        tx.append_company_blocks(
+            id,
+            Some(&expected_company_latest),
+            std::slice::from_ref(&new_block),
+        )
+        .await?;
+
+        tx.update_company(id, &company).await?;
+
+        tx.commit().await?;
 
         // effects & propagation
         self.populate_block(&company, &company_chain, &company_keys, None)
@@ -1513,6 +1557,7 @@ impl CompanyServiceApi for CompanyService {
             identity_proof_data: Some((proof.clone(), data.clone(), None)),
         }
         .validate()?;
+        let expected_company_latest = company_chain.get_latest_block().clone();
         // Create and populate company proof block
         let identity_proof_block = prepare_identity_proof_block(
             proof.clone(),
@@ -1525,17 +1570,24 @@ impl CompanyServiceApi for CompanyService {
         )?;
         self.transport_service.ensure_publish_ready().await?;
 
-        // persist - TODO (tx): make transactional
+        // persist atomically
 
-        self.store.update(id, &company).await?;
+        let mut tx = self.transaction_mgr.begin().await?;
 
-        self.company_blockchain_store
-            .add_block(id, &identity_proof_block)
-            .await?;
+        tx.append_company_blocks(
+            id,
+            Some(&expected_company_latest),
+            std::slice::from_ref(&identity_proof_block),
+        )
+        .await?;
+
+        tx.update_company(id, &company).await?;
 
         if needs_persisting {
-            self.store.set_email_confirmation(id, &proof, &data).await?;
+            tx.set_company_email_confirmation(id, &proof, &data).await?;
         }
+
+        tx.commit().await?;
 
         // effects & propagation
 
@@ -1664,6 +1716,7 @@ impl CompanyServiceApi for CompanyService {
             identity_proof_data: None,
         }
         .validate()?;
+        let expected_company_latest = company_chain.get_latest_block().clone();
         self.transport_service.ensure_publish_ready().await?;
 
         // check if we were invited
@@ -1717,9 +1770,9 @@ impl CompanyServiceApi for CompanyService {
             identity_proof_data: None,
         }
         .validate()?;
-        let previous_identity_block = identity_chain.get_latest_block();
+        let expected_identity_latest = identity_chain.get_latest_block().clone();
         let new_identity_block = IdentityBlock::create_block_for_accept_signatory_invite(
-            previous_identity_block,
+            &expected_identity_latest,
             &IdentityAcceptSignatoryInviteBlockData {
                 company_id: id.to_owned(),
                 block_hash: new_block.hash.clone(),
@@ -1755,24 +1808,31 @@ impl CompanyServiceApi for CompanyService {
             &Some(reference_block),
         )?;
 
-        // persist - TODO (tx): make transactional
-        self.store.update(id, &company).await?;
+        // persist atomically
+        let mut tx = self.transaction_mgr.begin().await?;
 
-        self.company_blockchain_store
-            .add_block(id, &new_block)
-            .await?;
+        // global lock order: identity first
+        tx.append_identity_blocks(
+            Some(&expected_identity_latest),
+            std::slice::from_ref(&new_identity_block),
+        )
+        .await?;
 
-        self.company_blockchain_store
-            .add_block(id, &identity_proof_block)
-            .await?;
+        // then company
+        tx.append_company_blocks(
+            id,
+            Some(&expected_company_latest),
+            &[new_block.clone(), identity_proof_block.clone()],
+        )
+        .await?;
 
-        self.identity_blockchain_store
-            .add_block(&new_identity_block)
-            .await?;
+        tx.update_company(id, &company).await?;
 
         if needs_persisting {
-            self.store.set_email_confirmation(id, &proof, &data).await?;
+            tx.set_company_email_confirmation(id, &proof, &data).await?;
         }
+
+        tx.commit().await?;
 
         // effects & propagation
 
@@ -1867,6 +1927,7 @@ impl CompanyServiceApi for CompanyService {
             identity_proof_data: None,
         }
         .validate()?;
+        let expected_company_latest = company_chain.get_latest_block().clone();
         self.transport_service.ensure_publish_ready().await?;
 
         let Some(signatory) = company
@@ -1907,9 +1968,9 @@ impl CompanyServiceApi for CompanyService {
             identity_proof_data: None,
         }
         .validate()?;
-        let previous_identity_block = identity_chain.get_latest_block();
+        let expected_identity_latest = identity_chain.get_latest_block().clone();
         let new_identity_block = IdentityBlock::create_block_for_reject_signatory_invite(
-            previous_identity_block,
+            &expected_identity_latest,
             &IdentityRejectSignatoryInviteBlockData {
                 company_id: id.to_owned(),
                 block_hash: new_block.hash.clone(),
@@ -1921,16 +1982,28 @@ impl CompanyServiceApi for CompanyService {
         .map_err(|e| Error::Protocol(e.into()))?;
         validate_and_append_identity_block(&mut identity_chain, new_identity_block.clone())?;
 
-        // persist - TODO (tx): make transactional
-        self.store.update(id, &company).await?;
+        // persist atomically
 
-        self.company_blockchain_store
-            .add_block(id, &new_block)
-            .await?;
+        let mut tx = self.transaction_mgr.begin().await?;
 
-        self.identity_blockchain_store
-            .add_block(&new_identity_block)
-            .await?;
+        // global lock order: identity first
+        tx.append_identity_blocks(
+            Some(&expected_identity_latest),
+            std::slice::from_ref(&new_identity_block),
+        )
+        .await?;
+
+        // then company
+        tx.append_company_blocks(
+            id,
+            Some(&expected_company_latest),
+            std::slice::from_ref(&new_block),
+        )
+        .await?;
+
+        tx.update_company(id, &company).await?;
+
+        tx.commit().await?;
 
         // effects & propagation
         self.populate_block(&company, &company_chain, &company_keys, None)
@@ -2076,7 +2149,8 @@ pub mod tests {
             MockCompanyChainStoreApiMock, MockCompanyStoreApiMock, MockContactStoreApiMock,
             MockEmailNotificationStoreApiMock, MockFileReferenceStoreApiMock,
             MockFileUploadStoreApiMock, MockIdentityChainStoreApiMock, MockIdentityStoreApiMock,
-            MockNostrContactStore, empty_address, empty_identity, empty_other_identity,
+            MockNostrContactStore, MockPersistenceTransactionApiMock,
+            MockTransactionManagerApiMock, empty_address, empty_identity, empty_other_identity,
             node_id_test, node_id_test_another, node_id_test_other, node_id_test_other2,
             private_key_test, private_key_test_another, signed_identity_proof_test,
             signed_other_identity_proof_test, test_cfg, test_ts,
@@ -2091,9 +2165,50 @@ pub mod tests {
             file_reference::FileReference,
         },
     };
+    use bcr_ebill_persistence::traits::transaction::PersistenceTransactionApi;
     use bitcoin::hashes::sha256::Hash as Sha256HexHash;
     use mockall::predicate::eq;
     use std::{collections::HashMap, str::FromStr};
+
+    fn successful_company_transaction() -> Box<dyn PersistenceTransactionApi> {
+        let mut tx = MockPersistenceTransactionApiMock::new();
+        tx.expect_append_identity_blocks().returning(|_, _| Ok(()));
+        tx.expect_append_company_blocks()
+            .returning(|_, _, _| Ok(()));
+        tx.expect_insert_company().returning(|_| Ok(()));
+        tx.expect_update_company().returning(|_, _| Ok(()));
+        tx.expect_set_company_email_confirmation()
+            .returning(|_, _, _| Ok(()));
+        tx.expect_commit().return_once(|| Ok(()));
+        Box::new(tx)
+    }
+
+    fn successful_transaction_manager() -> MockTransactionManagerApiMock {
+        let mut manager = MockTransactionManagerApiMock::new();
+        manager
+            .expect_begin()
+            .returning(|| Ok(successful_company_transaction()));
+        manager
+    }
+
+    fn failing_company_transaction_manager() -> MockTransactionManagerApiMock {
+        let mut manager = MockTransactionManagerApiMock::new();
+        manager.expect_begin().once().returning(|| {
+            let mut tx = MockPersistenceTransactionApiMock::new();
+            tx.expect_append_identity_blocks().returning(|_, _| Ok(()));
+            tx.expect_append_company_blocks()
+                .returning(|_, _, _| Ok(()));
+            tx.expect_update_company()
+                .returning(|_, _| Err(bcr_ebill_persistence::Error::EncodingError));
+            tx.expect_insert_company()
+                .returning(|_| Err(bcr_ebill_persistence::Error::EncodingError));
+            tx.expect_set_company_email_confirmation()
+                .returning(|_, _, _| Ok(()));
+            tx.expect_commit().never();
+            Ok(Box::new(tx))
+        });
+        manager
+    }
 
     fn get_service(
         mock_storage: MockCompanyStoreApiMock,
@@ -2108,6 +2223,7 @@ pub mod tests {
         mut transport_service: MockTransportServiceApi,
         mock_email_client: MockEmailClientApi,
         mock_email_notification_store: MockEmailNotificationStoreApiMock,
+        mock_transaction_manager: MockTransactionManagerApiMock,
     ) -> CompanyService {
         transport_service
             .expect_ensure_publish_ready()
@@ -2125,6 +2241,7 @@ pub mod tests {
             Arc::new(transport_service),
             Arc::new(mock_email_client),
             Arc::new(mock_email_notification_store),
+            Arc::new(mock_transaction_manager),
             Arc::new(test_cfg()),
         )
     }
@@ -2383,6 +2500,7 @@ pub mod tests {
             transport,
             email_client,
             email_notification_store,
+            successful_transaction_manager(),
         );
 
         let res = service.get_list_of_companies().await;
@@ -2433,6 +2551,7 @@ pub mod tests {
             transport,
             email_client,
             email_notification_store,
+            successful_transaction_manager(),
         );
 
         let res = service.get_active_company_invites().await;
@@ -2475,6 +2594,7 @@ pub mod tests {
             transport,
             email_client,
             email_notification_store,
+            successful_transaction_manager(),
         );
         let res = service.get_list_of_companies().await;
         assert!(res.is_err());
@@ -2523,6 +2643,7 @@ pub mod tests {
             transport,
             email_client,
             email_notification_store,
+            successful_transaction_manager(),
         );
 
         let res = service.get_company_by_id(&node_id_test()).await;
@@ -2560,6 +2681,7 @@ pub mod tests {
             transport,
             email_client,
             email_notification_store,
+            successful_transaction_manager(),
         );
         let res = service.get_company_by_id(&node_id_test()).await;
         assert!(res.is_err());
@@ -2607,6 +2729,7 @@ pub mod tests {
             transport,
             email_client,
             email_notification_store,
+            successful_transaction_manager(),
         );
         let res = service.get_company_by_id(&node_id_test()).await;
         assert!(res.is_err());
@@ -2622,7 +2745,7 @@ pub mod tests {
             mut identity_store,
             mut contact_store,
             mut identity_chain_store,
-            mut company_chain_store,
+            company_chain_store,
             mut transport,
             nostr_contact_store,
             email_client,
@@ -2630,9 +2753,6 @@ pub mod tests {
         ) = get_storages();
         contact_store.expect_get().returning(|_| Ok(None));
         contact_store.expect_insert().returning(|_, _| Ok(()));
-        company_chain_store
-            .expect_add_block()
-            .returning(|_, _| Ok(()));
         file_upload_client.expect_upload().returning(|_, _| {
             Ok(bitcoin::hashes::sha256::Hash::from_str(
                 "d277fe40da2609ca08215cdfbeac44835d4371a72f1416a63c87efd67ee24bfa",
@@ -2644,7 +2764,6 @@ pub mod tests {
         storage
             .expect_get_key_pair()
             .returning(|_| Ok(get_baseline_company_data().1.1));
-        storage.expect_insert().returning(|_| Ok(()));
         storage.expect_get_email_confirmations().returning(|_| {
             let (proof, mut data) = signed_other_identity_proof_test();
             data.company_node_id = Some(node_id_test());
@@ -2672,9 +2791,6 @@ pub mod tests {
         identity_chain_store
             .expect_get_chain()
             .returning(|| Ok(get_valid_identity_chain()));
-        identity_chain_store
-            .expect_add_block()
-            .returning(|_| Ok(()));
         file_reference_store.expect_get().returning(|_| Ok(None));
         file_reference_store
             .expect_add_server_urls()
@@ -2725,6 +2841,7 @@ pub mod tests {
             transport,
             email_client,
             email_notification_store,
+            successful_transaction_manager(),
         );
         let res = service
             .create_company(
@@ -2768,14 +2885,11 @@ pub mod tests {
         identity_chain_store
             .expect_get_chain()
             .returning(|| Ok(get_valid_identity_chain()));
-        storage.expect_insert().returning(|_| {
-            Err(bcr_ebill_persistence::Error::Io(std::io::Error::other(
-                "test error",
-            )))
+        storage.expect_get_email_confirmations().returning(|_| {
+            let (proof, mut data) = signed_other_identity_proof_test();
+            data.company_node_id = Some(node_id_test());
+            Ok(vec![(proof, data)])
         });
-        storage
-            .expect_get_email_confirmations()
-            .returning(|_| Ok(vec![signed_identity_proof_test()]));
         identity_store.expect_get_full().returning(|| {
             let identity = empty_other_identity();
             Ok(IdentityWithAll {
@@ -2800,6 +2914,7 @@ pub mod tests {
             notification,
             email_client,
             email_notification_store,
+            failing_company_transaction_manager(),
         );
         let res = service
             .create_company(
@@ -2857,6 +2972,7 @@ pub mod tests {
             transport,
             email_client,
             email_notification_store,
+            successful_transaction_manager(),
         );
         let res = service
             .edit_company(
@@ -2896,12 +3012,6 @@ pub mod tests {
             email_notification_store,
         ) = get_storages();
         company_chain_store
-            .expect_get_latest_block()
-            .returning(|_| Ok(get_valid_company_block()));
-        company_chain_store
-            .expect_add_block()
-            .returning(|_, _| Ok(()));
-        company_chain_store
             .expect_get_chain()
             .returning(|_| Ok(get_valid_company_chain()))
             .once();
@@ -2925,7 +3035,6 @@ pub mod tests {
             .expect_get_key_pair()
             .returning(|_| Ok(get_baseline_company_data().1.1));
         storage.expect_exists().returning(|_| true);
-        storage.expect_update().returning(|_, _| Ok(()));
         file_upload_client.expect_upload().returning(|_, _| {
             Ok(bitcoin::hashes::sha256::Hash::from_str(
                 "d277fe40da2609ca08215cdfbeac44835d4371a72f1416a63c87efd67ee24bfa",
@@ -2985,6 +3094,7 @@ pub mod tests {
             transport,
             email_client,
             email_notification_store,
+            successful_transaction_manager(),
         );
         let res = service
             .edit_company(
@@ -3057,6 +3167,7 @@ pub mod tests {
             notification,
             email_client,
             email_notification_store,
+            successful_transaction_manager(),
         );
         let res = service
             .edit_company(
@@ -3095,12 +3206,8 @@ pub mod tests {
             email_client,
             email_notification_store,
         ) = get_storages();
-        let keys = BcrKeys::new();
-        let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
-        let node_id_clone = node_id.clone();
         storage.expect_get().returning(move |_| {
-            let mut data = get_baseline_company_data().1.0;
-            data.signatories = vec![get_valid_activated_signatory(&node_id_clone)];
+            let data = get_baseline_company_data().1.0;
             Ok(data)
         });
         storage
@@ -3111,17 +3218,11 @@ pub mod tests {
             .returning(|_| Ok(get_valid_company_chain()))
             .once();
         storage.expect_exists().returning(|_| true);
-        storage.expect_update().returning(|_, _| {
-            Err(bcr_ebill_persistence::Error::Io(std::io::Error::other(
-                "test error",
-            )))
-        });
         identity_store.expect_get_full().returning(move || {
-            let mut identity = empty_identity();
-            identity.node_id = node_id.clone();
+            let identity = empty_other_identity();
             Ok(IdentityWithAll {
                 identity,
-                key_pair: keys.clone(),
+                key_pair: BcrKeys::from_private_key(&private_key_test_another()),
             })
         });
         let service = get_service(
@@ -3137,6 +3238,7 @@ pub mod tests {
             notification,
             email_client,
             email_notification_store,
+            failing_company_transaction_manager(),
         );
         let res = service
             .edit_company(
@@ -3176,16 +3278,9 @@ pub mod tests {
             email_notification_store,
         ) = get_storages();
         storage.expect_exists().returning(|_| true);
-        storage.expect_update().returning(|_, _| Ok(()));
         storage
             .expect_get_key_pair()
             .returning(|_| Ok(get_baseline_company_data().1.1));
-        company_chain_store
-            .expect_get_latest_block()
-            .returning(|_| Ok(get_valid_company_block()));
-        company_chain_store
-            .expect_add_block()
-            .returning(|_, _| Ok(()));
         company_chain_store
             .expect_get_chain()
             .returning(|_| Ok(add_invite_signatory_block(get_valid_company_chain())))
@@ -3225,9 +3320,6 @@ pub mod tests {
         identity_chain_store
             .expect_get_chain()
             .returning(|| Ok(get_valid_identity_chain()));
-        identity_chain_store
-            .expect_add_block()
-            .returning(|_| Ok(()));
 
         let service = get_service(
             storage,
@@ -3242,6 +3334,7 @@ pub mod tests {
             transport,
             email_client,
             email_notification_store,
+            successful_transaction_manager(),
         );
         let res = service
             .reject_company_invite(&node_id_test(), test_ts())
@@ -3266,7 +3359,6 @@ pub mod tests {
             email_notification_store,
         ) = get_storages();
         storage.expect_exists().returning(|_| true);
-        storage.expect_update().returning(|_, _| Ok(()));
         storage.expect_get_email_confirmations().returning(|_| {
             let (proof, mut data) = signed_identity_proof_test();
             data.node_id = node_id_test_another();
@@ -3276,12 +3368,6 @@ pub mod tests {
         storage
             .expect_get_key_pair()
             .returning(|_| Ok(get_baseline_company_data().1.1));
-        company_chain_store
-            .expect_get_latest_block()
-            .returning(|_| Ok(get_valid_company_block()));
-        company_chain_store
-            .expect_add_block()
-            .returning(|_, _| Ok(()));
         company_chain_store
             .expect_get_chain()
             .returning(|_| Ok(add_invite_signatory_block(get_valid_company_chain())))
@@ -3319,9 +3405,6 @@ pub mod tests {
         identity_chain_store
             .expect_get_chain()
             .returning(|| Ok(get_valid_identity_chain()));
-        identity_chain_store
-            .expect_add_block()
-            .returning(|_| Ok(()));
         transport
             .expect_add_identity()
             .returning(|_, _| Ok(()))
@@ -3347,6 +3430,7 @@ pub mod tests {
             transport,
             email_client,
             email_notification_store,
+            successful_transaction_manager(),
         );
         let res = service
             .accept_company_invite(
@@ -3376,16 +3460,9 @@ pub mod tests {
         ) = get_storages();
         let signatory_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
         storage.expect_exists().returning(|_| true);
-        storage.expect_update().returning(|_, _| Ok(()));
         storage
             .expect_get_key_pair()
             .returning(|_| Ok(get_baseline_company_data().1.1));
-        company_chain_store
-            .expect_get_latest_block()
-            .returning(|_| Ok(get_valid_company_block()));
-        company_chain_store
-            .expect_add_block()
-            .returning(|_, _| Ok(()));
         company_chain_store
             .expect_get_chain()
             .returning(|_| Ok(get_valid_company_chain()))
@@ -3427,9 +3504,6 @@ pub mod tests {
         identity_chain_store
             .expect_get_chain()
             .returning(|| Ok(get_valid_identity_chain()));
-        identity_chain_store
-            .expect_add_block()
-            .returning(|_| Ok(()));
 
         let service = get_service(
             storage,
@@ -3444,6 +3518,7 @@ pub mod tests {
             transport,
             email_client,
             email_notification_store,
+            successful_transaction_manager(),
         );
         let res = service
             .invite_signatory(&node_id_test(), signatory_node_id, test_ts())
@@ -3510,6 +3585,7 @@ pub mod tests {
             notification,
             email_client,
             email_notification_store,
+            successful_transaction_manager(),
         );
         let res = service
             .invite_signatory(&node_id_test(), signatory_node_id, test_ts())
@@ -3569,6 +3645,7 @@ pub mod tests {
             notification,
             email_client,
             email_notification_store,
+            successful_transaction_manager(),
         );
         let res = service
             .invite_signatory(&node_id_test(), node_id_test_other(), test_ts())
@@ -3613,6 +3690,7 @@ pub mod tests {
             notification,
             email_client,
             email_notification_store,
+            successful_transaction_manager(),
         );
         let res = service
             .invite_signatory(&node_id_test(), node_id_test_other(), test_ts())
@@ -3678,6 +3756,7 @@ pub mod tests {
             notification,
             email_client,
             email_notification_store,
+            successful_transaction_manager(),
         );
         let res = service
             .invite_signatory(&node_id_test(), node_id_test(), test_ts())
@@ -3694,36 +3773,39 @@ pub mod tests {
             file_reference_store,
             mut identity_store,
             mut contact_store,
-            identity_chain_store,
+            mut identity_chain_store,
             mut company_chain_store,
             notification,
             nostr_contact_store,
             email_client,
             email_notification_store,
         ) = get_storages();
+        let signatory_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
         storage.expect_exists().returning(|_| true);
-        identity_store.expect_get_full().returning(|| {
-            let identity = empty_identity();
+        let caller_keys = BcrKeys::from_private_key(&private_key_test_another());
+        let caller_keys_clone = caller_keys.clone();
+        identity_store.expect_get_full().returning(move || {
+            let identity = empty_other_identity();
             Ok(IdentityWithAll {
                 identity,
-                key_pair: BcrKeys::new(),
+                key_pair: caller_keys_clone.clone(),
             })
         });
-        contact_store.expect_get_map().returning(|| {
+        let signatory_node_id_clone = signatory_node_id.clone();
+        contact_store.expect_get_map().returning(move || {
             let mut map = HashMap::new();
-            let contact = get_baseline_contact();
-            map.insert(node_id_test(), contact);
+            let mut contact = get_baseline_contact();
+            contact.node_id = signatory_node_id_clone.clone();
+            map.insert(signatory_node_id_clone.clone(), contact);
             Ok(map)
         });
         company_chain_store
             .expect_get_chain()
             .returning(|_| Ok(get_valid_company_chain()))
             .once();
-        storage.expect_update().returning(|_, _| {
-            Err(bcr_ebill_persistence::Error::Io(std::io::Error::other(
-                "test error",
-            )))
-        });
+        identity_chain_store
+            .expect_get_chain()
+            .returning(|| Ok(get_valid_identity_chain()));
         storage
             .expect_get()
             .returning(|_| Ok(get_baseline_company_data().1.0));
@@ -3743,10 +3825,12 @@ pub mod tests {
             notification,
             email_client,
             email_notification_store,
+            failing_company_transaction_manager(),
         );
         let res = service
-            .invite_signatory(&node_id_test(), node_id_test(), test_ts())
+            .invite_signatory(&node_id_test(), signatory_node_id, test_ts())
             .await;
+
         assert!(res.is_err());
     }
 
@@ -3766,12 +3850,6 @@ pub mod tests {
             email_client,
             email_notification_store,
         ) = get_storages();
-        company_chain_store
-            .expect_get_latest_block()
-            .returning(|_| Ok(get_valid_company_block()));
-        company_chain_store
-            .expect_add_block()
-            .returning(|_, _| Ok(()));
         storage.expect_exists().returning(|_| true);
         storage.expect_get().returning(|_| {
             let mut data = get_baseline_company_data().1.0;
@@ -3789,13 +3867,9 @@ pub mod tests {
                 key_pair: BcrKeys::from_private_key(&private_key_test_another()),
             })
         });
-        storage.expect_update().returning(|_, _| Ok(()));
         identity_chain_store
             .expect_get_chain()
             .returning(|| Ok(get_valid_identity_chain()));
-        identity_chain_store
-            .expect_add_block()
-            .returning(|_| Ok(()));
 
         transport.expect_on_block_transport(|t| {
             // sends identity block
@@ -3825,6 +3899,7 @@ pub mod tests {
             transport,
             email_client,
             email_notification_store,
+            successful_transaction_manager(),
         );
         let res = service
             .remove_signatory(&node_id_test(), node_id_test_other(), test_ts())
@@ -3870,6 +3945,7 @@ pub mod tests {
             transport,
             email_client,
             email_notification_store,
+            successful_transaction_manager(),
         );
         let res = service
             .remove_signatory(&node_id_test(), node_id_test_other(), test_ts())
@@ -3893,12 +3969,6 @@ pub mod tests {
             email_client,
             email_notification_store,
         ) = get_storages();
-        company_chain_store
-            .expect_get_latest_block()
-            .returning(|_| Ok(get_valid_company_block()));
-        company_chain_store
-            .expect_add_block()
-            .returning(|_, _| Ok(()));
         company_chain_store
             .expect_get_chain()
             .returning(|_| {
@@ -3944,14 +4014,10 @@ pub mod tests {
                 company: None,
             })
         });
-        storage.expect_update().returning(|_, _| Ok(()));
         storage.expect_remove().returning(|_| Ok(()));
         identity_chain_store
             .expect_get_chain()
             .returning(|| Ok(get_valid_identity_chain()));
-        identity_chain_store
-            .expect_add_block()
-            .returning(|_| Ok(()));
         let service = get_service(
             storage,
             file_upload_store,
@@ -3965,6 +4031,7 @@ pub mod tests {
             transport,
             email_client,
             email_notification_store,
+            successful_transaction_manager(),
         );
         let res = service
             .remove_signatory(&node_id_test(), node_id_test_other(), test_ts())
@@ -4025,6 +4092,7 @@ pub mod tests {
             notification,
             email_client,
             email_notification_store,
+            successful_transaction_manager(),
         );
         let res = service
             .remove_signatory(&node_id_test(), node_id_test_other2(), test_ts())
@@ -4080,6 +4148,7 @@ pub mod tests {
             transport,
             email_client,
             email_notification_store,
+            successful_transaction_manager(),
         );
         let res = service
             .remove_signatory(&node_id_test(), node_id_test(), test_ts())
@@ -4105,12 +4174,6 @@ pub mod tests {
         ) = get_storages();
 
         company_chain_store
-            .expect_get_latest_block()
-            .returning(|_| Ok(get_valid_company_block()));
-        company_chain_store
-            .expect_add_block()
-            .returning(|_, _| Ok(()));
-        company_chain_store
             .expect_get_chain()
             .returning(|_| Ok(add_other_invite_signatory_block(get_valid_company_chain())))
             .once();
@@ -4127,9 +4190,6 @@ pub mod tests {
         identity_chain_store
             .expect_get_chain()
             .returning(|| Ok(get_valid_identity_chain()));
-        identity_chain_store
-            .expect_add_block()
-            .returning(|_| Ok(()));
 
         storage.expect_exists().returning(|_| true);
         storage.expect_get().returning(|_| {
@@ -4147,7 +4207,6 @@ pub mod tests {
         storage
             .expect_get_key_pair()
             .returning(|_| Ok(get_baseline_company_data().1.1));
-        storage.expect_update().returning(|_, _| Ok(())).once();
         identity_store.expect_get_full().returning(|| {
             let identity = empty_other_identity();
             Ok(IdentityWithAll {
@@ -4169,6 +4228,7 @@ pub mod tests {
             transport,
             email_client,
             email_notification_store,
+            successful_transaction_manager(),
         );
 
         let res = service
@@ -4186,7 +4246,7 @@ pub mod tests {
             file_reference_store,
             mut identity_store,
             contact_store,
-            identity_chain_store,
+            mut identity_chain_store,
             mut company_chain_store,
             notification,
             nostr_contact_store,
@@ -4197,15 +4257,9 @@ pub mod tests {
         storage.expect_get().returning(|_| {
             let mut data = get_baseline_company_data().1.0;
             data.signatories
-                .push(get_valid_activated_signatory(&node_id_test()));
-            data.signatories
                 .push(get_valid_activated_signatory(&node_id_test_other()));
             Ok(data)
         });
-        company_chain_store
-            .expect_get_chain()
-            .returning(|_| Ok(add_invite_signatory_block(get_valid_company_chain())))
-            .once();
         storage
             .expect_get_key_pair()
             .returning(|_| Ok(get_baseline_company_data().1.1));
@@ -4216,11 +4270,13 @@ pub mod tests {
                 key_pair: BcrKeys::from_private_key(&private_key_test_another()),
             })
         });
-        storage.expect_update().returning(|_, _| {
-            Err(bcr_ebill_persistence::Error::Io(std::io::Error::other(
-                "test error",
-            )))
-        });
+        identity_chain_store
+            .expect_get_chain()
+            .returning(|| Ok(get_valid_identity_chain()));
+        company_chain_store
+            .expect_get_chain()
+            .returning(|_| Ok(add_other_invite_signatory_block(get_valid_company_chain())))
+            .once();
         let service = get_service(
             storage,
             file_upload_store,
@@ -4234,10 +4290,12 @@ pub mod tests {
             notification,
             email_client,
             email_notification_store,
+            failing_company_transaction_manager(),
         );
         let res = service
-            .remove_signatory(&node_id_test(), node_id_test(), test_ts())
+            .remove_signatory(&node_id_test(), node_id_test_other(), test_ts())
             .await;
+
         assert!(res.is_err());
     }
 
@@ -4319,6 +4377,7 @@ pub mod tests {
             transport,
             email_client,
             email_notification_store,
+            successful_transaction_manager(),
         );
 
         let file = service
@@ -4390,6 +4449,7 @@ pub mod tests {
             transport,
             email_client,
             email_notification_store,
+            successful_transaction_manager(),
         );
 
         assert!(
@@ -4448,6 +4508,7 @@ pub mod tests {
             transport,
             email_client,
             email_notification_store,
+            successful_transaction_manager(),
         );
 
         assert!(
@@ -4521,6 +4582,7 @@ pub mod tests {
             transport,
             email_client,
             email_notification_store,
+            successful_transaction_manager(),
         );
 
         let res = service.list_signatories(&node_id_test()).await;
@@ -4582,6 +4644,7 @@ pub mod tests {
             transport,
             email_client,
             email_notification_store,
+            successful_transaction_manager(),
         );
 
         let res = service
@@ -4631,6 +4694,7 @@ pub mod tests {
             transport,
             email_client,
             email_notification_store,
+            successful_transaction_manager(),
         );
 
         let mut sig = get_valid_activated_signatory(&node_id_test());
@@ -4677,6 +4741,7 @@ pub mod tests {
             transport,
             email_client,
             email_notification_store,
+            successful_transaction_manager(),
         );
         assert!(service.list_signatories(&mainnet_node_id).await.is_err());
         assert!(
