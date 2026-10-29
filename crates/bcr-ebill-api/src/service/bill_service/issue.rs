@@ -258,6 +258,7 @@ impl BillService {
         let chain_after_issue = chain.clone();
 
         let mut identity_chain = self.identity_blockchain_store.get_chain().await?;
+        let expected_identity_latest = identity_chain.get_latest_block().clone();
         let mut company_chain = match &data.drawer_public_data {
             BillParticipant::Ident(drawer) if drawer.t == ContactType::Company => Some(
                 self.company_blockchain_store
@@ -266,6 +267,9 @@ impl BillService {
             ),
             _ => None,
         };
+        let expected_company_latest = company_chain
+            .as_ref()
+            .map(|chain| chain.get_latest_block().clone());
 
         let issue_signer_blocks = self.prepare_signer_blocks(
             &data.drawer_public_data,
@@ -339,51 +343,65 @@ impl BillService {
             )
             .await?;
 
+        // prepare blocks
+        let mut identity_blocks = vec![issue_signer_blocks.identity_block.clone()];
+        if let Some((_, accept_signer_blocks)) = &auto_accept {
+            identity_blocks.push(accept_signer_blocks.identity_block.clone());
+        }
+        let mut bill_blocks = vec![issue_block.clone()];
+        if let Some((accept_block, _)) = &auto_accept {
+            bill_blocks.push(accept_block.clone());
+        }
+        let mut company_id: Option<NodeId> = None;
+        let mut company_blocks = Vec::new();
+        if let Some(company) = &issue_signer_blocks.company_block {
+            company_id = Some(company.company_id.clone());
+            company_blocks.push(company.block.clone());
+        }
+        if let Some((_, accept_signer_blocks)) = &auto_accept
+            && let Some(company) = &accept_signer_blocks.company_block
+        {
+            if company_id.as_ref() != Some(&company.company_id) {
+                return Err(Error::Internal(
+                    "issue and auto-accept signer company mismatch".to_owned(),
+                ));
+            }
+            company_blocks.push(company.block.clone());
+        }
+
         self.transport_service.ensure_publish_ready().await?;
 
-        // persist - TODO (tx): make transactional
+        // persist atomically
 
-        self.store.save_keys(&bill_id, &bill_keys).await?;
+        let mut tx = self.transaction_mgr.begin().await?;
 
-        // bill block
-        self.blockchain_store
-            .add_block(&bill_id, &issue_block)
+        // first identity chain
+        tx.append_identity_blocks(Some(&expected_identity_latest), &identity_blocks)
             .await?;
 
-        // company block
-        if let Some(company) = &issue_signer_blocks.company_block {
-            self.company_blockchain_store
-                .add_block(&company.company_id, &company.block)
+        // then company chain, if drawer is a company
+        if let Some(company_id) = &company_id {
+            let expected_company_latest = expected_company_latest.as_ref().ok_or_else(|| {
+                Error::Internal("prepared company signer blocks without company chain".to_owned())
+            })?;
+            tx.append_company_blocks(company_id, Some(expected_company_latest), &company_blocks)
                 .await?;
         }
 
-        // identity block
-        self.identity_blockchain_store
-            .add_block(&issue_signer_blocks.identity_block)
-            .await?;
+        // lastly, new bill chain - locking the bill chain
+        tx.append_bill_blocks(&bill_id, None, &bill_blocks).await?;
 
-        // automatic accept
-        if let Some((accept_block, accept_signer_blocks)) = &auto_accept {
-            self.blockchain_store
-                .add_block(&bill_id, accept_block)
-                .await?;
-            if let Some(company) = &accept_signer_blocks.company_block {
-                self.company_blockchain_store
-                    .add_block(&company.company_id, &company.block)
-                    .await?;
-            }
-            self.identity_blockchain_store
-                .add_block(&accept_signer_blocks.identity_block)
-                .await?;
-        }
+        // save bill keys with the bill chain lock - we can't have keys without a bill chain and vice versa
+        tx.save_bill_keys(&bill_id, &bill_keys).await?;
 
-        self.store
-            .save_bill_to_cache(
-                &bill_id,
-                &data.drawer_public_data.node_id(),
-                &calculated_bill,
-            )
-            .await?;
+        tx.save_bill_to_cache(
+            &bill_id,
+            &data.drawer_public_data.node_id(),
+            &calculated_bill,
+        )
+        .await?;
+
+        tx.commit().await?;
 
         // effects & propagation
 

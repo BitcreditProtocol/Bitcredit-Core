@@ -2,7 +2,10 @@ use super::*;
 use crate::{
     external::mint::QuoteStatusReply,
     service::{
-        bill_service::test_utils::{MockBillContext, safe_deadline_ts},
+        bill_service::test_utils::{
+            MockBillContext, expect_successful_bill_action_transaction,
+            expect_successful_bill_issue_transaction, safe_deadline_ts,
+        },
         company_service::tests::{
             get_baseline_company, get_baseline_company_data, get_valid_company_chain,
         },
@@ -389,10 +392,7 @@ async fn issue_bill_baseline() {
         )
         .unwrap())
     });
-    ctx.bill_store.expect_save_keys().returning(|_, _| Ok(()));
-    ctx.bill_store
-        .expect_save_bill_to_cache()
-        .returning(|_, _, _| Ok(()));
+    expect_successful_bill_issue_transaction(&mut ctx, false);
     // should send a bill is signed event
     ctx.transport_service
         .expect_send_bill_is_signed_event()
@@ -464,10 +464,7 @@ async fn issue_bill_baseline_anon() {
         )
         .unwrap())
     });
-    ctx.bill_store.expect_save_keys().returning(|_, _| Ok(()));
-    ctx.bill_store
-        .expect_save_bill_to_cache()
-        .returning(|_, _, _| Ok(()));
+    expect_successful_bill_issue_transaction(&mut ctx, false);
     // should send a bill is signed event
     ctx.transport_service
         .expect_send_bill_is_signed_event()
@@ -617,10 +614,7 @@ async fn issue_bill_as_company() {
         )
         .unwrap())
     });
-    ctx.bill_store.expect_save_keys().returning(|_, _| Ok(()));
-    ctx.bill_store
-        .expect_save_bill_to_cache()
-        .returning(|_, _, _| Ok(()));
+    expect_successful_bill_issue_transaction(&mut ctx, true);
     // should send a bill is signed event
     ctx.transport_service
         .expect_send_bill_is_signed_event()
@@ -2416,9 +2410,6 @@ async fn accept_bill_baseline() {
     let identity = get_baseline_identity();
     let mut bill = get_baseline_bill(&bill_id_test());
     bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
-    ctx.bill_store
-        .expect_save_bill_to_cache()
-        .returning(|_, _, _| Ok(()));
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -2430,7 +2421,7 @@ async fn accept_bill_baseline() {
     ctx.transport_service
         .expect_send_bill_is_accepted_event()
         .returning(|_| Ok(()));
-
+    expect_successful_bill_action_transaction(&mut ctx, false);
     // Populate identity block
     expect_populates_identity_block(&mut ctx);
 
@@ -2544,9 +2535,6 @@ async fn accept_bill_as_company() {
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
-    ctx.bill_store
-        .expect_save_bill_to_cache()
-        .returning(|_, _, _| Ok(()));
     ctx.company_store
         .expect_get_email_confirmations()
         .returning(|_| Ok(vec![signed_other_identity_proof_test()]));
@@ -2556,6 +2544,7 @@ async fn accept_bill_as_company() {
         .expect_send_bill_is_accepted_event()
         .returning(|_| Ok(()));
 
+    expect_successful_bill_action_transaction(&mut ctx, true);
     // Populate company and identity block via transport
     expect_populates_company_and_identity_block(&mut ctx);
 
@@ -2659,9 +2648,6 @@ async fn request_pay_baseline() {
     bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
         identity.identity.node_id.clone(),
     ));
-    ctx.bill_store
-        .expect_save_bill_to_cache()
-        .returning(|_, _, _| Ok(()));
     ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
     ctx.bill_blockchain_store
         .expect_get_chain()
@@ -2674,6 +2660,7 @@ async fn request_pay_baseline() {
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
 
+    expect_successful_bill_action_transaction(&mut ctx, false);
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
 
@@ -2706,9 +2693,6 @@ async fn request_pay_anon_baseline() {
     bill.payee = BillParticipant::Anon(BillAnonParticipant::from(
         bill_identified_participant_only_node_id(identity.identity.node_id.clone()),
     ));
-    ctx.bill_store
-        .expect_save_bill_to_cache()
-        .returning(|_, _, _| Ok(()));
     ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
     ctx.bill_blockchain_store
         .expect_get_chain()
@@ -2718,6 +2702,7 @@ async fn request_pay_anon_baseline() {
         .expect_send_request_to_pay_event()
         .returning(|_| Ok(()));
 
+    expect_successful_bill_action_transaction(&mut ctx, false);
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
 
@@ -2779,9 +2764,6 @@ async fn request_acceptance_baseline() {
     bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
         identity.identity.node_id.clone(),
     ));
-    ctx.bill_store
-        .expect_save_bill_to_cache()
-        .returning(|_, _, _| Ok(()));
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -2793,6 +2775,7 @@ async fn request_acceptance_baseline() {
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
 
+    expect_successful_bill_action_transaction(&mut ctx, false);
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
 
@@ -2820,9 +2803,6 @@ async fn request_acceptance_anon_baseline() {
     bill.payee = BillParticipant::Anon(BillAnonParticipant::from(
         bill_identified_participant_only_node_id(identity.identity.node_id.clone()),
     ));
-    ctx.bill_store
-        .expect_save_bill_to_cache()
-        .returning(|_, _, _| Ok(()));
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -2831,6 +2811,7 @@ async fn request_acceptance_anon_baseline() {
         .expect_send_request_to_accept_event()
         .returning(|_| Ok(()));
 
+    expect_successful_bill_action_transaction(&mut ctx, false);
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
 
@@ -2884,9 +2865,6 @@ async fn mint_bitcredit_bill_baseline() {
     bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
         identity.identity.node_id.clone(),
     ));
-    ctx.bill_store
-        .expect_save_bill_to_cache()
-        .returning(|_, _, _| Ok(()));
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| {
@@ -2902,6 +2880,7 @@ async fn mint_bitcredit_bill_baseline() {
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
 
+    expect_successful_bill_action_transaction(&mut ctx, false);
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
 
@@ -2935,9 +2914,6 @@ async fn mint_bitcredit_bill_anon_baseline() {
     bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
         identity.identity.node_id.clone(),
     ));
-    ctx.bill_store
-        .expect_save_bill_to_cache()
-        .returning(|_, _, _| Ok(()));
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| {
@@ -2953,6 +2929,7 @@ async fn mint_bitcredit_bill_anon_baseline() {
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
 
+    expect_successful_bill_action_transaction(&mut ctx, false);
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
 
@@ -3053,9 +3030,6 @@ async fn offer_to_sell_bitcredit_bill_baseline() {
     bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
         identity.identity.node_id.clone(),
     ));
-    ctx.bill_store
-        .expect_save_bill_to_cache()
-        .returning(|_, _, _| Ok(()));
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -3067,6 +3041,7 @@ async fn offer_to_sell_bitcredit_bill_baseline() {
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
 
+    expect_successful_bill_action_transaction(&mut ctx, false);
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
 
@@ -3101,9 +3076,6 @@ async fn offer_to_sell_bitcredit_bill_anon_baseline() {
     bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
         identity.identity.node_id.clone(),
     ));
-    ctx.bill_store
-        .expect_save_bill_to_cache()
-        .returning(|_, _, _| Ok(()));
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -3115,6 +3087,7 @@ async fn offer_to_sell_bitcredit_bill_anon_baseline() {
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
 
+    expect_successful_bill_action_transaction(&mut ctx, false);
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
 
@@ -3189,9 +3162,6 @@ async fn sell_bitcredit_bill_baseline() {
         bitcoin::Network::Testnet,
     ));
     let buyer_clone = buyer.clone();
-    ctx.bill_store
-        .expect_save_bill_to_cache()
-        .returning(|_, _, _| Ok(()));
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| {
@@ -3232,6 +3202,7 @@ async fn sell_bitcredit_bill_baseline() {
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
 
+    expect_successful_bill_action_transaction(&mut ctx, false);
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
 
@@ -3265,9 +3236,6 @@ async fn sell_bitcredit_bill_anon_baseline() {
         bitcoin::Network::Testnet,
     )));
     let buyer_clone = buyer.clone();
-    ctx.bill_store
-        .expect_save_bill_to_cache()
-        .returning(|_, _, _| Ok(()));
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| {
@@ -3309,6 +3277,7 @@ async fn sell_bitcredit_bill_anon_baseline() {
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
 
+    expect_successful_bill_action_transaction(&mut ctx, false);
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
 
@@ -3462,9 +3431,6 @@ async fn endorse_bitcredit_bill_baseline() {
     bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
         identity.identity.node_id.clone(),
     ));
-    ctx.bill_store
-        .expect_save_bill_to_cache()
-        .returning(|_, _, _| Ok(()));
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -3472,6 +3438,7 @@ async fn endorse_bitcredit_bill_baseline() {
     ctx.transport_service
         .expect_send_bill_is_endorsed_event()
         .returning(|_| Ok(()));
+    expect_successful_bill_action_transaction(&mut ctx, false);
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
     ctx.identity_store
@@ -3518,10 +3485,6 @@ async fn endorse_bitcredit_bill_multiple_back_and_forth() {
         let is_even = i % 2 == 0;
 
         let mut ctx = get_ctx();
-        ctx.bill_store
-            .expect_save_bill_to_cache()
-            .returning(|_, _, _| Ok(()))
-            .times(1);
         ctx.bill_store.expect_exists().returning(|_| Ok(true));
 
         let chain_for_ctx = current_chain.clone();
@@ -3536,6 +3499,7 @@ async fn endorse_bitcredit_bill_multiple_back_and_forth() {
             .expect_get_email_confirmations()
             .returning(|| Ok(vec![signed_identity_proof_test()]));
 
+        expect_successful_bill_action_transaction(&mut ctx, false);
         expect_populates_identity_block(&mut ctx);
 
         let service = get_service(ctx);
@@ -3676,9 +3640,6 @@ async fn endorse_bitcredit_bill_anon_baseline() {
     bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
         identity.identity.node_id.clone(),
     ));
-    ctx.bill_store
-        .expect_save_bill_to_cache()
-        .returning(|_, _, _| Ok(()));
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
@@ -3690,6 +3651,7 @@ async fn endorse_bitcredit_bill_anon_baseline() {
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
 
+    expect_successful_bill_action_transaction(&mut ctx, false);
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
 
@@ -3725,9 +3687,6 @@ async fn endorse_bitcredit_bill_anon_company_and_back() {
     bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
         identity.identity.node_id.clone(),
     ));
-    ctx.bill_store
-        .expect_save_bill_to_cache()
-        .returning(|_, _, _| Ok(()));
     let company_participant_clone = company_participant.clone();
     ctx.bill_blockchain_store
         .expect_get_chain()
@@ -3776,6 +3735,7 @@ async fn endorse_bitcredit_bill_anon_company_and_back() {
         Ok(company.1.0)
     });
 
+    expect_successful_bill_action_transaction(&mut ctx, true);
     // Populates identity block
     expect_populates_company_and_identity_block(&mut ctx);
 
@@ -3987,7 +3947,6 @@ async fn check_bill_offer_to_sell_payment_baseline() {
     bill.payee = BillParticipant::Ident(
         BillIdentParticipant::new(get_baseline_identity().identity).unwrap(),
     );
-
     ctx.bill_store
         .expect_get_bill_ids_waiting_for_sell_payment()
         .returning(|| Ok(vec![bill_id_test()]));
@@ -3995,16 +3954,20 @@ async fn check_bill_offer_to_sell_payment_baseline() {
         .expect_set_offer_to_sell_payment_state()
         .returning(|_, _, _| Ok(()));
     let buyer_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
+
+    let offer_timestamp = Timestamp::now() - 1;
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| {
             let mut chain = get_genesis_chain(Some(bill.clone()));
+
             assert!(chain.try_add_block(offer_to_sell_block(
                 &bill_id_test(),
                 chain.get_latest_block(),
-                &bill_identified_participant_only_node_id(buyer_node_id.clone()),
-                Some(Timestamp::now()),
+                &bill_identified_participant_only_node_id(buyer_node_id.clone(),),
+                Some(offer_timestamp),
             )));
+
             Ok(chain)
         });
     ctx.transport_service
@@ -4018,13 +3981,11 @@ async fn check_bill_offer_to_sell_payment_baseline() {
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
 
-    // Populates identity block and company block
     ctx.transport_service.expect_on_block_transport(|t| {
         t.expect_send_identity_chain_events().returning(|_| Ok(()));
     });
-
+    expect_successful_bill_action_transaction(&mut ctx, false);
     let service = get_service(ctx);
-
     let res = service
         .check_offer_to_sell_payment_for_bill(&bill_id_test(), &get_baseline_identity())
         .await;
@@ -4065,6 +4026,7 @@ async fn check_bills_offer_to_sell_payment_company_is_seller() {
         );
         Ok(map)
     });
+    let offer_timestamp = Timestamp::now() - 5;
     let buyer_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
     ctx.bill_blockchain_store
         .expect_get_chain()
@@ -4074,7 +4036,7 @@ async fn check_bills_offer_to_sell_payment_company_is_seller() {
                 &bill_id_test(),
                 chain.get_latest_block(),
                 &bill_identified_participant_only_node_id(buyer_node_id.clone()),
-                Some(Timestamp::now() - 5),
+                Some(offer_timestamp),
             )));
             Ok(chain)
         });
@@ -4092,6 +4054,7 @@ async fn check_bills_offer_to_sell_payment_company_is_seller() {
     let (tx, rx) = tokio::sync::oneshot::channel();
     let tx = Arc::new(Mutex::new(Some(tx)));
 
+    expect_successful_bill_action_transaction(&mut ctx, true);
     // Populates identity block and company block
     expect_populates_company_and_identity_block_with_sync(&mut ctx, tx); // fix test flakyness, waiting for the expectation
 
@@ -5441,9 +5404,6 @@ async fn reject_acceptance_baseline() {
     let payee = bill.payee.clone();
     let now = Timestamp::now();
 
-    ctx.bill_store
-        .expect_save_bill_to_cache()
-        .returning(|_, _, _| Ok(()));
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| {
@@ -5479,6 +5439,7 @@ async fn reject_acceptance_baseline() {
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
 
+    expect_successful_bill_action_transaction(&mut ctx, false);
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
 
@@ -5568,9 +5529,6 @@ async fn reject_buying_baseline() {
     let bill = get_baseline_bill(&bill_id_test());
 
     let identity_clone = identity.identity.clone();
-    ctx.bill_store
-        .expect_save_bill_to_cache()
-        .returning(|_, _, _| Ok(()));
     ctx.bill_store.expect_exists().returning(|_| Ok(true));
     ctx.bill_blockchain_store
         .expect_get_chain()
@@ -5595,6 +5553,7 @@ async fn reject_buying_baseline() {
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
 
+    expect_successful_bill_action_transaction(&mut ctx, false);
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
 
@@ -5623,9 +5582,6 @@ async fn reject_buying_anon_baseline() {
     let bill = get_baseline_bill(&bill_id_test());
 
     let identity_clone = identity.identity.clone();
-    ctx.bill_store
-        .expect_save_bill_to_cache()
-        .returning(|_, _, _| Ok(()));
     ctx.bill_store.expect_exists().returning(|_| Ok(true));
     ctx.bill_blockchain_store
         .expect_get_chain()
@@ -5647,6 +5603,7 @@ async fn reject_buying_anon_baseline() {
         .with(always(), eq(ActionType::BuyBill))
         .returning(|_, _| Ok(()));
 
+    expect_successful_bill_action_transaction(&mut ctx, false);
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
 
@@ -5677,9 +5634,6 @@ async fn reject_payment() {
     let payee = bill.payee.clone();
     let now = Timestamp::now();
 
-    ctx.bill_store
-        .expect_save_bill_to_cache()
-        .returning(|_, _, _| Ok(()));
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| {
@@ -5719,6 +5673,7 @@ async fn reject_payment() {
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
 
+    expect_successful_bill_action_transaction(&mut ctx, false);
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
 
@@ -5749,9 +5704,6 @@ async fn reject_payment_fails_for_anon() {
     let payee = bill.payee.clone();
     let now = Timestamp::now();
 
-    ctx.bill_store
-        .expect_save_bill_to_cache()
-        .returning(|_, _, _| Ok(()));
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| {
@@ -5815,9 +5767,6 @@ async fn reject_recourse() {
     let payee = bill.payee.clone();
     let now = Timestamp::now();
 
-    ctx.bill_store
-        .expect_save_bill_to_cache()
-        .returning(|_, _, _| Ok(()));
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| {
@@ -5864,6 +5813,7 @@ async fn reject_recourse() {
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
 
+    expect_successful_bill_action_transaction(&mut ctx, false);
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
 
@@ -5893,9 +5843,6 @@ async fn reject_recourse_fails_for_anon() {
     let payee = bill.payee.clone();
     let now = Timestamp::now();
 
-    ctx.bill_store
-        .expect_save_bill_to_cache()
-        .returning(|_, _, _| Ok(()));
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| {
@@ -6035,6 +5982,7 @@ async fn check_bills_in_recourse_payment_baseline() {
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
 
+    expect_successful_bill_action_transaction(&mut ctx, true);
     // Populates identity block and company block
     expect_populates_company_and_identity_block(&mut ctx);
 
@@ -6127,6 +6075,7 @@ async fn check_bills_in_recourse_payment_company_is_recourser() {
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
 
+    expect_successful_bill_action_transaction(&mut ctx, true);
     // Populates identity block and company block
     expect_populates_company_and_identity_block(&mut ctx);
 
@@ -6153,9 +6102,6 @@ async fn request_recourse_accept_baseline() {
     let recoursee = payee.clone();
     let endorsee_caller = BillIdentParticipant::new(identity.identity.clone()).unwrap();
 
-    ctx.bill_store
-        .expect_save_bill_to_cache()
-        .returning(|_, _, _| Ok(()));
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| {
@@ -6223,6 +6169,7 @@ async fn request_recourse_accept_baseline() {
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
 
+    expect_successful_bill_action_transaction(&mut ctx, false);
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
 
@@ -6263,9 +6210,6 @@ async fn request_recourse_works_for_anon() {
     let recoursee = payee.clone();
     let endorsee_caller = BillIdentParticipant::new(identity.identity.clone()).unwrap();
 
-    ctx.bill_store
-        .expect_save_bill_to_cache()
-        .returning(|_, _, _| Ok(()));
     ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
     ctx.bill_blockchain_store
         .expect_get_chain()
@@ -6334,6 +6278,7 @@ async fn request_recourse_works_for_anon() {
     ctx.transport_service
         .expect_send_recourse_action_event()
         .returning(|_, _, _| Ok(()));
+    expect_successful_bill_action_transaction(&mut ctx, false);
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
     let service = get_service(ctx);
@@ -6373,9 +6318,6 @@ async fn request_recourse_payment_baseline() {
     let recoursee = payee.clone();
     let endorsee_caller = BillIdentParticipant::new(identity.identity.clone()).unwrap();
 
-    ctx.bill_store
-        .expect_save_bill_to_cache()
-        .returning(|_, _, _| Ok(()));
     ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
     ctx.bill_blockchain_store
         .expect_get_chain()
@@ -6448,6 +6390,7 @@ async fn request_recourse_payment_baseline() {
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
 
+    expect_successful_bill_action_transaction(&mut ctx, false);
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
 
@@ -6489,9 +6432,6 @@ async fn recourse_bitcredit_bill_baseline() {
     let recoursee_clone = recoursee.clone();
     let identity_clone = identity.identity.clone();
 
-    ctx.bill_store
-        .expect_save_bill_to_cache()
-        .returning(|_, _, _| Ok(()));
     ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
     ctx.bill_blockchain_store
         .expect_get_chain()
@@ -6534,6 +6474,7 @@ async fn recourse_bitcredit_bill_baseline() {
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
 
+    expect_successful_bill_action_transaction(&mut ctx, false);
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
 
@@ -6571,9 +6512,6 @@ async fn recourse_bitcredit_bill_works_for_anon() {
     let recoursee_clone = recoursee.clone();
     let identity_clone = identity.identity.clone();
 
-    ctx.bill_store
-        .expect_save_bill_to_cache()
-        .returning(|_, _, _| Ok(()));
     ctx.bill_store.expect_is_paid().returning(|_| Ok(false));
     ctx.bill_blockchain_store
         .expect_get_chain()
@@ -6613,6 +6551,7 @@ async fn recourse_bitcredit_bill_works_for_anon() {
         .expect_send_bill_recourse_paid_event()
         .returning(|_, _| Ok(()));
 
+    expect_successful_bill_action_transaction(&mut ctx, false);
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
 
@@ -7062,9 +7001,6 @@ async fn accept_mint_offer_baseline() {
     bill.payee = BillParticipant::Ident(bill_identified_participant_only_node_id(
         identity.identity.node_id.clone(),
     ));
-    ctx.bill_store
-        .expect_save_bill_to_cache()
-        .returning(|_, _, _| Ok(()));
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| {
@@ -7073,6 +7009,7 @@ async fn accept_mint_offer_baseline() {
             Ok(chain)
         });
 
+    expect_successful_bill_action_transaction(&mut ctx, false);
     // Populate identity block
     expect_populates_identity_block(&mut ctx);
 

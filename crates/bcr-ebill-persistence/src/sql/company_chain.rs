@@ -171,7 +171,7 @@ pub(crate) fn validate_expected_company_tip(
         {
             Ok(())
         }
-        _ => Err(Error::Conflict(format!(
+        _ => Err(Error::ConcurrentModification(format!(
             "company chain {company_id} changed while preparing transaction"
         ))),
     }

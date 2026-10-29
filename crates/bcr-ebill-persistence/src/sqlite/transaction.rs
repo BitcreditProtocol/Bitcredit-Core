@@ -1,6 +1,8 @@
 use crate::{
     EncryptionContext, Error, Result,
     sql::{
+        bill::BitcreditBillResultDb,
+        bill_chain::{BillBlockRow, validate_expected_bill_tip},
         block_id_to_db,
         company::{
             bind_company, bind_signatory, company_key_pair_from_db, company_signatory_to_row,
@@ -14,20 +16,27 @@ use crate::{
         identity_chain::{IdentityBlockRow, validate_expected_identity_tip},
     },
     traits::transaction::{
-        CompanyTransactionApi, IdentityTransactionApi, PersistenceTransactionApi,
-        TransactionManagerApi,
+        BillTransactionApi, CompanyTransactionApi, IdentityTransactionApi,
+        PersistenceTransactionApi, TransactionManagerApi,
     },
 };
 use async_trait::async_trait;
-use bcr_common::core::NodeId;
+use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::{
-    application::{ServiceTraitBounds, company::Company, identity::Identity},
+    application::{
+        ServiceTraitBounds, bill::BitcreditBillResult, company::Company, identity::Identity,
+    },
     protocol::{
         BlockId, EmailIdentityProofData, SignedIdentityProof,
-        blockchain::{company::CompanyBlock, identity::IdentityBlock},
+        blockchain::{bill::BillBlock, company::CompanyBlock, identity::IdentityBlock},
+        crypto::BcrKeys,
     },
 };
-use sqlx::{Sqlite, SqlitePool, Transaction, types::Text};
+use bitcoin::base58;
+use sqlx::{
+    Sqlite, SqlitePool, Transaction,
+    types::{Json, Text},
+};
 use std::{collections::HashSet, sync::Arc};
 
 #[derive(Clone)]
@@ -57,6 +66,7 @@ impl TransactionManagerApi for SqliteTransactionManager {
             encryption_ctx: self.encryption_ctx.clone(),
             identity_chain_locked: false,
             company_chains_locked: HashSet::new(),
+            bill_chains_locked: HashSet::new(),
         }))
     }
 }
@@ -66,6 +76,7 @@ pub struct SqlitePersistenceTransaction {
     encryption_ctx: Arc<EncryptionContext>,
     identity_chain_locked: bool,
     company_chains_locked: HashSet<NodeId>,
+    bill_chains_locked: HashSet<BillId>,
 }
 
 #[async_trait]
@@ -83,9 +94,10 @@ impl SqlitePersistenceTransaction {
             return Ok(());
         }
 
-        if !self.company_chains_locked.is_empty() {
+        if !self.company_chains_locked.is_empty() || !self.bill_chains_locked.is_empty() {
             return Err(Error::InvalidData(
-                "identity chain lock must be acquired before company chain locks".to_owned(),
+                "identity chain lock must be acquired before company and bill chain locks"
+                    .to_owned(),
             ));
         }
 
@@ -100,6 +112,13 @@ impl SqlitePersistenceTransaction {
         if self.company_chains_locked.contains(company_id) {
             return Ok(());
         }
+
+        if !self.bill_chains_locked.is_empty() {
+            return Err(Error::InvalidData(
+                "company chain lock must be acquired before bill chain locks".to_owned(),
+            ));
+        }
+
         sqlx::query(crate::sql::company_chain::ENSURE_CHAIN_LOCK)
             .bind(Text(company_id.clone()))
             .execute(&mut *self.tx)
@@ -110,6 +129,30 @@ impl SqlitePersistenceTransaction {
             .await?;
         self.company_chains_locked.insert(company_id.clone());
         Ok(())
+    }
+
+    async fn lock_bill_chain(&mut self, bill_id: &BillId) -> Result<()> {
+        if self.bill_chains_locked.contains(bill_id) {
+            return Ok(());
+        }
+        sqlx::query(crate::sql::bill_chain::ENSURE_CHAIN_LOCK)
+            .bind(Text(bill_id.clone()))
+            .execute(&mut *self.tx)
+            .await?;
+        sqlx::query(super::bill_chain::LOCK_CHAIN_SQLITE)
+            .bind(Text(bill_id.clone()))
+            .execute(&mut *self.tx)
+            .await?;
+        self.bill_chains_locked.insert(bill_id.clone());
+        Ok(())
+    }
+
+    async fn get_latest_bill_block(&mut self, bill_id: &BillId) -> Result<Option<BillBlock>> {
+        let row: Option<BillBlockRow> = sqlx::query_as(crate::sql::bill_chain::SELECT_LATEST)
+            .bind(Text(bill_id.clone()))
+            .fetch_optional(&mut *self.tx)
+            .await?;
+        row.map(TryInto::try_into).transpose()
     }
 
     async fn get_latest_company_block(
@@ -351,16 +394,114 @@ impl CompanyTransactionApi for SqlitePersistenceTransaction {
     }
 }
 
+#[async_trait]
+impl BillTransactionApi for SqlitePersistenceTransaction {
+    async fn append_bill_blocks(
+        &mut self,
+        bill_id: &BillId,
+        expected_latest: Option<&BillBlock>,
+        blocks: &[BillBlock],
+    ) -> Result<()> {
+        self.lock_bill_chain(bill_id).await?;
+        let mut latest = self.get_latest_bill_block(bill_id).await?;
+        validate_expected_bill_tip(bill_id, latest.as_ref(), expected_latest)?;
+        for block in blocks {
+            crate::sql::bill_chain::validate_block_append(bill_id, block, latest.as_ref())?;
+            let row = BillBlockRow::try_from(block)?;
+            crate::sql::bill_chain::bind_insert_block!(
+                sqlx::query(crate::sql::bill_chain::INSERT_BLOCK),
+                row
+            )
+            .execute(&mut *self.tx)
+            .await?;
+            latest = Some(block.clone());
+        }
+        Ok(())
+    }
+
+    async fn replace_bill_blocks_from_height(
+        &mut self,
+        bill_id: &BillId,
+        expected_latest: &BillBlock,
+        from_block_id: BlockId,
+        replacement_blocks: &[BillBlock],
+    ) -> Result<()> {
+        self.lock_bill_chain(bill_id).await?;
+        let actual_latest = self.get_latest_bill_block(bill_id).await?;
+        validate_expected_bill_tip(bill_id, actual_latest.as_ref(), Some(expected_latest))?;
+        sqlx::query(crate::sql::bill_chain::DELETE_FROM_HEIGHT)
+            .bind(Text(bill_id.clone()))
+            .bind(block_id_to_db(from_block_id)?)
+            .execute(&mut *self.tx)
+            .await?;
+        let mut latest = self.get_latest_bill_block(bill_id).await?;
+        for block in replacement_blocks {
+            crate::sql::bill_chain::validate_block_append(bill_id, block, latest.as_ref())?;
+            let row = BillBlockRow::try_from(block)?;
+            crate::sql::bill_chain::bind_insert_block!(
+                sqlx::query(crate::sql::bill_chain::INSERT_BLOCK),
+                row
+            )
+            .execute(&mut *self.tx)
+            .await?;
+            latest = Some(block.clone());
+        }
+
+        Ok(())
+    }
+
+    async fn save_bill_keys(&mut self, bill_id: &BillId, keys: &BcrKeys) -> Result<()> {
+        let plaintext_key = keys.get_private_key_string();
+        let encrypted_key = self.encryption_ctx.encrypt(plaintext_key.as_bytes())?;
+        let encoded_key = base58::encode(&encrypted_key);
+        sqlx::query(crate::sql::bill::INSERT_KEYS)
+            .bind(Text(bill_id.clone()))
+            .bind(encoded_key)
+            .execute(&mut *self.tx)
+            .await?;
+        Ok(())
+    }
+
+    async fn save_bill_to_cache(
+        &mut self,
+        bill_id: &BillId,
+        identity_node_id: &NodeId,
+        bill: &BitcreditBillResult,
+    ) -> Result<()> {
+        if &bill.id != bill_id {
+            return Err(Error::InvalidData(format!(
+                "bill cache id mismatch: expected {bill_id}, got {}",
+                bill.id
+            )));
+        }
+        let payload: BitcreditBillResultDb = (bill, identity_node_id).into();
+        sqlx::query(crate::sql::bill::UPSERT_CACHE)
+            .bind(Text(bill_id.clone()))
+            .bind(Text(identity_node_id.clone()))
+            .bind(Json(payload))
+            .execute(&mut *self.tx)
+            .await?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::SqliteTransactionManager;
     use crate::{
         EncryptionContext,
         sqlite::{
-            company::SqliteCompanyStore, company_chain::SqliteCompanyChainStore,
-            identity::SqliteIdentityStore, identity_chain::SqliteIdentityChainStore,
+            bill::SqliteBillStore, bill_chain::SqliteBillChainStore, company::SqliteCompanyStore,
+            company_chain::SqliteCompanyChainStore, identity::SqliteIdentityStore,
+            identity_chain::SqliteIdentityChainStore,
         },
         tests::{
+            bill_transaction::{
+                test_bill_transaction_commit, test_bill_transaction_rejects_stale_tip,
+                test_bill_transaction_replace, test_bill_transaction_rollback,
+                test_company_lock_after_bill_lock_is_rejected,
+                test_identity_lock_after_bill_lock_is_rejected,
+            },
             company_transaction::{
                 test_company_transaction_commit, test_company_transaction_rejects_stale_tip,
                 test_company_transaction_replace, test_company_transaction_rollback,
@@ -492,5 +633,56 @@ mod tests {
             &identity_chain,
         )
         .await;
+    }
+
+    fn setup_bill(
+        pool: SqlitePool,
+    ) -> (
+        SqliteTransactionManager,
+        SqliteBillStore,
+        SqliteBillChainStore,
+    ) {
+        let encryption_ctx = Arc::new(EncryptionContext::new(BcrKeys::new()));
+        (
+            SqliteTransactionManager::new(pool.clone(), encryption_ctx.clone()),
+            SqliteBillStore::new(pool.clone(), encryption_ctx),
+            SqliteBillChainStore::new(pool),
+        )
+    }
+
+    #[sqlx::test(migrations = "migrations/sqlite")]
+    async fn bill_transaction_commit(pool: SqlitePool) {
+        let (manager, store, chain) = setup_bill(pool);
+        test_bill_transaction_commit(&manager, &store, &chain).await;
+    }
+
+    #[sqlx::test(migrations = "migrations/sqlite")]
+    async fn bill_transaction_rollback(pool: SqlitePool) {
+        let (manager, store, chain) = setup_bill(pool);
+        test_bill_transaction_rollback(&manager, &store, &chain).await;
+    }
+
+    #[sqlx::test(migrations = "migrations/sqlite")]
+    async fn bill_transaction_rejects_stale_tip(pool: SqlitePool) {
+        let (manager, _, chain) = setup_bill(pool);
+        test_bill_transaction_rejects_stale_tip(&manager, &chain).await;
+    }
+
+    #[sqlx::test(migrations = "migrations/sqlite")]
+    async fn bill_transaction_replace(pool: SqlitePool) {
+        let (manager, _, chain) = setup_bill(pool);
+        test_bill_transaction_replace(&manager, &chain).await;
+    }
+
+    #[sqlx::test(migrations = "migrations/sqlite")]
+    async fn company_lock_after_bill_lock_is_rejected(pool: SqlitePool) {
+        let (manager, _, _) = setup_bill(pool);
+        test_company_lock_after_bill_lock_is_rejected(&manager).await;
+    }
+
+    #[sqlx::test(migrations = "migrations/sqlite")]
+    async fn identity_lock_after_bill_lock_is_rejected(pool: SqlitePool) {
+        let (manager, _, _) = setup_bill(pool);
+        test_identity_lock_after_bill_lock_is_rejected(&manager).await;
     }
 }

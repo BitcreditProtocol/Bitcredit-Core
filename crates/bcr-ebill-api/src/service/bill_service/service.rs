@@ -52,6 +52,7 @@ use bcr_ebill_persistence::traits::file_upload::FileUploadStoreApi;
 use bcr_ebill_persistence::traits::identity::{IdentityChainStoreApi, IdentityStoreApi};
 use bcr_ebill_persistence::traits::mint::MintStoreApi;
 use bcr_ebill_persistence::traits::nostr::NostrContactStoreApi;
+use bcr_ebill_persistence::traits::transaction::TransactionManagerApi;
 use bitcoin::secp256k1::SecretKey;
 use log::{debug, error, info};
 use std::collections::{HashMap, HashSet};
@@ -79,6 +80,7 @@ pub struct BillService {
     pub mint_client: Arc<dyn MintClientApi>,
     pub court_client: Arc<dyn CourtClientApi>,
     pub nostr_contact_store: Arc<dyn NostrContactStoreApi>,
+    pub transaction_mgr: Arc<dyn TransactionManagerApi>,
 }
 impl ServiceTraitBounds for BillService {}
 
@@ -101,6 +103,7 @@ impl BillService {
         mint_client: Arc<dyn MintClientApi>,
         court_client: Arc<dyn CourtClientApi>,
         nostr_contact_store: Arc<dyn NostrContactStoreApi>,
+        transaction_mgr: Arc<dyn TransactionManagerApi>,
     ) -> Self {
         Self {
             config,
@@ -120,6 +123,7 @@ impl BillService {
             mint_client,
             court_client,
             nostr_contact_store,
+            transaction_mgr,
         }
     }
 
@@ -1214,6 +1218,7 @@ impl BillServiceApi for BillService {
         let identity = self.identity_store.get_full().await?;
         let contacts = self.contact_store.get_map().await?;
         let mut blockchain = self.blockchain_store.get_chain(bill_id).await?;
+        let expected_bill_latest = blockchain.get_latest_block().clone();
         let bill_keys = self.store.get_keys(bill_id).await?;
         let bill = self
             .get_last_version_bill(&blockchain, &bill_keys, &identity.identity, &contacts)
@@ -1250,6 +1255,7 @@ impl BillServiceApi for BillService {
             .await?;
 
         let mut identity_chain = self.identity_blockchain_store.get_chain().await?;
+        let expected_identity_latest = identity_chain.get_latest_block().clone();
         let mut company_chain = match signer_public_data {
             BillParticipant::Ident(signer) if signer.t == ContactType::Company => Some(
                 self.company_blockchain_store
@@ -1258,6 +1264,9 @@ impl BillServiceApi for BillService {
             ),
             _ => None,
         };
+        let expected_company_latest = company_chain
+            .as_ref()
+            .map(|chain| chain.get_latest_block().clone());
 
         let signer_blocks = self.prepare_signer_blocks(
             signer_public_data,
@@ -1285,25 +1294,42 @@ impl BillServiceApi for BillService {
 
         self.transport_service.ensure_publish_ready().await?;
 
-        // persist - TODO (tx): make transactional
+        // persist atomically
+        let mut tx = self.transaction_mgr.begin().await?;
 
-        self.blockchain_store
-            .add_block(bill_id, &bill_block)
-            .await?;
+        // first identity
+        tx.append_identity_blocks(
+            Some(&expected_identity_latest),
+            std::slice::from_ref(&signer_blocks.identity_block),
+        )
+        .await?;
 
+        // company second, when applicable
         if let Some(company) = &signer_blocks.company_block {
-            self.company_blockchain_store
-                .add_block(&company.company_id, &company.block)
-                .await?;
+            let expected_company_latest = expected_company_latest.as_ref().ok_or_else(|| {
+                Error::Internal("prepared company signer block without company chain".to_owned())
+            })?;
+
+            tx.append_company_blocks(
+                &company.company_id,
+                Some(expected_company_latest),
+                std::slice::from_ref(&company.block),
+            )
+            .await?;
         }
 
-        self.identity_blockchain_store
-            .add_block(&signer_blocks.identity_block)
+        // bill last
+        tx.append_bill_blocks(
+            bill_id,
+            Some(&expected_bill_latest),
+            std::slice::from_ref(&bill_block),
+        )
+        .await?;
+
+        tx.save_bill_to_cache(bill_id, &signer_public_data.node_id(), &calculated_bill)
             .await?;
 
-        self.store
-            .save_bill_to_cache(bill_id, &signer_public_data.node_id(), &calculated_bill)
-            .await?;
+        tx.commit().await?;
 
         // effects & propagation
 

@@ -1,5 +1,6 @@
 pub mod bill;
 pub mod bill_chain;
+pub mod bill_transaction;
 pub mod company;
 pub mod company_chain;
 pub mod company_transaction;

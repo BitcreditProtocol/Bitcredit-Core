@@ -144,6 +144,24 @@ pub(crate) fn validate_block_append(
     Ok(())
 }
 
+pub(crate) fn validate_expected_bill_tip(
+    bill_id: &BillId,
+    actual: Option<&BillBlock>,
+    expected: Option<&BillBlock>,
+) -> Result<()> {
+    match (actual, expected) {
+        (None, None) => Ok(()),
+        (Some(actual), Some(expected))
+            if actual.id == expected.id && actual.hash == expected.hash =>
+        {
+            Ok(())
+        }
+        _ => Err(Error::ConcurrentModification(format!(
+            "bill chain changed for {bill_id} while preparing transaction"
+        ))),
+    }
+}
+
 #[derive(Debug, Clone, FromRow)]
 pub(crate) struct BillBlockRow {
     pub bill_id: Text<BillId>,

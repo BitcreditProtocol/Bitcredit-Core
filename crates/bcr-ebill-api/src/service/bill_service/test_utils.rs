@@ -10,12 +10,12 @@ use crate::{
         MockBillChainStoreApiMock, MockBillStoreApiMock, MockCompanyChainStoreApiMock,
         MockCompanyStoreApiMock, MockContactStoreApiMock, MockFileReferenceStoreApiMock,
         MockFileUploadStoreApiMock, MockIdentityChainStoreApiMock, MockIdentityStoreApiMock,
-        MockMintStore, MockNostrContactStore, bill_id_test,
-        bill_identified_participant_only_node_id, bill_participant_only_node_id, empty_address,
-        empty_bill_identified_participant, empty_bitcredit_bill, empty_identity,
-        empty_other_identity, node_id_test, node_id_test_other, node_id_test_other2,
-        private_key_test, private_key_test_another, signed_identity_proof_test, test_cfg, test_ts,
-        valid_payment_address_testnet,
+        MockMintStore, MockNostrContactStore, MockPersistenceTransactionApiMock,
+        MockTransactionManagerApiMock, bill_id_test, bill_identified_participant_only_node_id,
+        bill_participant_only_node_id, empty_address, empty_bill_identified_participant,
+        empty_bitcredit_bill, empty_identity, empty_other_identity, node_id_test,
+        node_id_test_other, node_id_test_other2, private_key_test, private_key_test_another,
+        signed_identity_proof_test, test_cfg, test_ts, valid_payment_address_testnet,
     },
 };
 use bcr_ebill_core::{
@@ -44,6 +44,7 @@ use bcr_ebill_core::{
         file_reference::FileReference,
     },
 };
+use bcr_ebill_persistence::traits::transaction::PersistenceTransactionApi;
 use external::{bitcoin::MockBitcoinClientApi, mint::MockMintClientApi};
 use service::BillService;
 use std::{collections::HashMap, sync::Arc};
@@ -64,6 +65,7 @@ pub struct MockBillContext {
     pub mint_client: MockMintClientApi,
     pub court_client: MockCourtClientApi,
     pub nostr_contact_store: MockNostrContactStore,
+    pub transaction_mgr: MockTransactionManagerApiMock,
 }
 
 pub fn get_baseline_identity() -> IdentityWithAll {
@@ -193,6 +195,74 @@ pub fn get_genesis_chain(bill: Option<BitcreditBill>) -> BillBlockchain {
     .unwrap()
 }
 
+pub fn expect_successful_bill_action_transaction(ctx: &mut MockBillContext, with_company: bool) {
+    ctx.transaction_mgr
+        .expect_begin()
+        .once()
+        .return_once(move || Ok(successful_bill_action_transaction(with_company)));
+}
+
+pub fn expect_successful_bill_issue_transaction(ctx: &mut MockBillContext, with_company: bool) {
+    ctx.transaction_mgr
+        .expect_begin()
+        .once()
+        .return_once(move || Ok(successful_bill_issue_transaction(with_company)));
+}
+
+pub fn successful_bill_action_transaction(
+    with_company: bool,
+) -> Box<dyn PersistenceTransactionApi> {
+    let mut tx = MockPersistenceTransactionApiMock::new();
+    tx.expect_append_identity_blocks()
+        .withf(|expected_latest, blocks| expected_latest.is_some() && blocks.len() == 1)
+        .returning(|_, _| Ok(()))
+        .once();
+    if with_company {
+        tx.expect_append_company_blocks()
+            .withf(|_, expected_latest, blocks| expected_latest.is_some() && blocks.len() == 1)
+            .returning(|_, _, _| Ok(()))
+            .once();
+    } else {
+        tx.expect_append_company_blocks().never();
+    }
+    tx.expect_append_bill_blocks()
+        .withf(|_, expected_latest, blocks| expected_latest.is_some() && blocks.len() == 1)
+        .returning(|_, _, _| Ok(()))
+        .once();
+    tx.expect_save_bill_keys().never();
+    tx.expect_save_bill_to_cache()
+        .returning(|_, _, _| Ok(()))
+        .once();
+    tx.expect_commit().return_once(|| Ok(()));
+    Box::new(tx)
+}
+
+pub fn successful_bill_issue_transaction(with_company: bool) -> Box<dyn PersistenceTransactionApi> {
+    let mut tx = MockPersistenceTransactionApiMock::new();
+    tx.expect_append_identity_blocks()
+        .withf(|expected_latest, blocks| expected_latest.is_some() && !blocks.is_empty())
+        .returning(|_, _| Ok(()))
+        .once();
+    if with_company {
+        tx.expect_append_company_blocks()
+            .withf(|_, expected_latest, blocks| expected_latest.is_some() && !blocks.is_empty())
+            .returning(|_, _, _| Ok(()))
+            .once();
+    } else {
+        tx.expect_append_company_blocks().never();
+    }
+    tx.expect_append_bill_blocks()
+        .withf(|_, expected_latest, blocks| expected_latest.is_none() && !blocks.is_empty())
+        .returning(|_, _, _| Ok(()))
+        .once();
+    tx.expect_save_bill_keys().returning(|_, _| Ok(())).once();
+    tx.expect_save_bill_to_cache()
+        .returning(|_, _, _| Ok(()))
+        .once();
+    tx.expect_commit().return_once(|| Ok(()));
+    Box::new(tx)
+}
+
 pub fn get_service(mut ctx: MockBillContext) -> BillService {
     let mut bitcoin_client = MockBitcoinClientApi::new();
     bitcoin_client
@@ -220,21 +290,12 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
     ctx.contact_store
         .expect_get_map()
         .returning(|| Ok(HashMap::new()));
-    ctx.identity_chain_store
-        .expect_add_block()
-        .returning(|_| Ok(()));
-    ctx.company_chain_store
-        .expect_add_block()
-        .returning(|_, _| Ok(()));
     ctx.company_chain_store
         .expect_get_chain()
         .returning(|_| Ok(get_valid_company_chain()));
     ctx.identity_chain_store
         .expect_get_chain()
         .returning(|| Ok(get_valid_identity_chain()));
-    ctx.bill_blockchain_store
-        .expect_add_block()
-        .returning(|_, _| Ok(()));
     ctx.bill_store
         .expect_get_keys()
         .returning(|_| Ok(BcrKeys::from_private_key(&private_key_test())));
@@ -331,6 +392,7 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
         Arc::new(ctx.mint_client),
         Arc::new(ctx.court_client),
         Arc::new(ctx.nostr_contact_store),
+        Arc::new(ctx.transaction_mgr),
     )
 }
 
@@ -351,6 +413,7 @@ pub fn get_ctx() -> MockBillContext {
         mint_client: MockMintClientApi::new(),
         court_client: MockCourtClientApi::new(),
         nostr_contact_store: MockNostrContactStore::new(),
+        transaction_mgr: MockTransactionManagerApiMock::new(),
     }
 }
 

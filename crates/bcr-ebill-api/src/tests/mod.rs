@@ -46,8 +46,8 @@ pub mod tests {
     use bcr_ebill_persistence::DbConfig;
     use bcr_ebill_persistence::traits::notification::EmailNotificationStoreApi;
     use bcr_ebill_persistence::traits::transaction::{
-        CompanyTransactionApi, IdentityTransactionApi, PersistenceTransactionApi,
-        TransactionManagerApi,
+        BillTransactionApi, CompanyTransactionApi, IdentityTransactionApi,
+        PersistenceTransactionApi, TransactionManagerApi,
     };
     use bcr_ebill_persistence::{
         ContactStoreApi, FileReferenceStoreApi, NostrEventOffset, NostrEventOffsetStoreApi,
@@ -571,6 +571,26 @@ pub mod tests {
                 proof: &SignedIdentityProof,
                 data: &EmailIdentityProofData,
             ) -> Result<()>;
+            pub async fn append_bill_blocks<'a>(
+                &'a mut self,
+                bill_id: &BillId,
+                expected_latest: Option<&'a BillBlock>,
+                blocks: &[BillBlock],
+            ) -> Result<()>;
+            pub async fn replace_bill_blocks_from_height(
+                &mut self,
+                bill_id: &BillId,
+                expected_latest: &BillBlock,
+                from_block_id: BlockId,
+                replacement_blocks: &[BillBlock],
+            ) -> Result<()>;
+            pub async fn save_bill_keys(&mut self, bill_id: &BillId, keys: &BcrKeys) -> Result<()>;
+            pub async fn save_bill_to_cache(
+                &mut self,
+                bill_id: &BillId,
+                identity_node_id: &NodeId,
+                bill: &BitcreditBillResult,
+            ) -> Result<()>;
         }
 
         impl ServiceTraitBounds for PersistenceTransactionApiMock {}
@@ -665,6 +685,57 @@ pub mod tests {
         ) -> Result<()> {
             MockPersistenceTransactionApiMock::set_company_email_confirmation(
                 self, company_id, proof, data,
+            )
+            .await
+        }
+    }
+
+    #[async_trait]
+    impl BillTransactionApi for MockPersistenceTransactionApiMock {
+        async fn append_bill_blocks(
+            &mut self,
+            bill_id: &BillId,
+            expected_latest: Option<&BillBlock>,
+            blocks: &[BillBlock],
+        ) -> Result<()> {
+            MockPersistenceTransactionApiMock::append_bill_blocks(
+                self,
+                bill_id,
+                expected_latest,
+                blocks,
+            )
+            .await
+        }
+        async fn replace_bill_blocks_from_height(
+            &mut self,
+            bill_id: &BillId,
+            expected_latest: &BillBlock,
+            from_block_id: BlockId,
+            replacement_blocks: &[BillBlock],
+        ) -> Result<()> {
+            MockPersistenceTransactionApiMock::replace_bill_blocks_from_height(
+                self,
+                bill_id,
+                expected_latest,
+                from_block_id,
+                replacement_blocks,
+            )
+            .await
+        }
+        async fn save_bill_keys(&mut self, bill_id: &BillId, keys: &BcrKeys) -> Result<()> {
+            MockPersistenceTransactionApiMock::save_bill_keys(self, bill_id, keys).await
+        }
+        async fn save_bill_to_cache(
+            &mut self,
+            bill_id: &BillId,
+            identity_node_id: &NodeId,
+            bill: &BitcreditBillResult,
+        ) -> Result<()> {
+            MockPersistenceTransactionApiMock::save_bill_to_cache(
+                self,
+                bill_id,
+                identity_node_id,
+                bill,
             )
             .await
         }
