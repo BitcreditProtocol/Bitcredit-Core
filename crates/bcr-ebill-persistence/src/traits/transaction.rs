@@ -1,6 +1,8 @@
 use crate::Result;
+use crate::traits::nostr::NostrChainEvent;
 use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
+use bcr_ebill_core::protocol::blockchain::BlockchainType;
 use bcr_ebill_core::{
     application::{
         ServiceTraitBounds, bill::BitcreditBillResult, company::Company, identity::Identity,
@@ -35,7 +37,11 @@ pub trait TransactionManagerApi: ServiceTraitBounds {
 /// lock ordering mentioned above
 #[async_trait]
 pub trait PersistenceTransactionApi:
-    IdentityTransactionApi + CompanyTransactionApi + BillTransactionApi + Send
+    IdentityTransactionApi
+    + CompanyTransactionApi
+    + BillTransactionApi
+    + NostrChainEventTransactionApi
+    + Send
 {
     async fn commit(self: Box<Self>) -> Result<()>;
 }
@@ -44,6 +50,7 @@ pub trait PersistenceTransactionApi:
 pub trait IdentityTransactionApi: Send {
     /// append one or more blocks atomically after expected_latest
     /// if the tip is not expected_latest, this operation fails
+    /// `blocks` may be empty when the caller only needs to lock and recheck the tip
     async fn append_identity_blocks(
         &mut self,
         expected_latest: Option<&IdentityBlock>,
@@ -66,12 +73,16 @@ pub trait IdentityTransactionApi: Send {
 
 #[async_trait]
 pub trait CompanyTransactionApi: Send {
+    /// append one or more blocks atomically after expected_latest
+    /// if the tip is not expected_latest, this operation fails
+    /// `blocks` may be empty when the caller only needs to lock and recheck the tip
     async fn append_company_blocks(
         &mut self,
         company_id: &NodeId,
         expected_latest: Option<&CompanyBlock>,
         blocks: &[CompanyBlock],
     ) -> Result<()>;
+    /// truncate blocks from from_block_id, replace with replacement_blocks
     async fn replace_company_blocks_from_height(
         &mut self,
         company_id: &NodeId,
@@ -87,16 +98,21 @@ pub trait CompanyTransactionApi: Send {
         proof: &SignedIdentityProof,
         data: &EmailIdentityProofData,
     ) -> Result<()>;
+    async fn save_company_key_pair(&mut self, company_id: &NodeId, keys: &BcrKeys) -> Result<()>;
 }
 
 #[async_trait]
 pub trait BillTransactionApi: Send {
+    /// append one or more blocks atomically after expected_latest
+    /// if the tip is not expected_latest, this operation fails
+    /// `blocks` may be empty when the caller only needs to lock and recheck the tip
     async fn append_bill_blocks(
         &mut self,
         bill_id: &BillId,
         expected_latest: Option<&BillBlock>,
         blocks: &[BillBlock],
     ) -> Result<()>;
+    /// truncate blocks from from_block_id, replace with replacement_blocks
     async fn replace_bill_blocks_from_height(
         &mut self,
         bill_id: &BillId,
@@ -110,5 +126,15 @@ pub trait BillTransactionApi: Send {
         bill_id: &BillId,
         identity_node_id: &NodeId,
         bill: &BitcreditBillResult,
+    ) -> Result<()>;
+}
+
+#[async_trait]
+pub trait NostrChainEventTransactionApi: Send {
+    async fn add_chain_event(&mut self, event: &NostrChainEvent) -> Result<()>;
+    async fn remove_chain_events(
+        &mut self,
+        chain_id: &str,
+        chain_type: BlockchainType,
     ) -> Result<()>;
 }

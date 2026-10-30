@@ -45,8 +45,11 @@ use bcr_ebill_core::{
 };
 use bcr_ebill_persistence::{
     ContactStoreApi, FileReferenceStoreApi, NostrChainEventStoreApi, NotificationStoreApi,
-    traits::company::{CompanyChainStoreApi, CompanyStoreApi},
-    traits::identity::IdentityStoreApi,
+    traits::{
+        company::{CompanyChainStoreApi, CompanyStoreApi},
+        identity::IdentityStoreApi,
+        transaction::TransactionManagerApi,
+    },
 };
 
 use super::inbound_file_anchor::{anchor_important_file, company_file_context};
@@ -65,6 +68,7 @@ pub struct CompanyChainEventProcessor {
     chain_event_store: Arc<dyn NostrChainEventStoreApi>,
     transport: Arc<dyn TransportClientApi>,
     contact_store: Arc<dyn ContactStoreApi>,
+    transaction_mgr: Arc<dyn TransactionManagerApi>,
     bitcoin_network: bitcoin::Network,
     config: Arc<Config>,
 }
@@ -420,22 +424,35 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
                 let canonical_chain_changed = replace_from.is_some()
                     || prepared.chain.blocks().len() != existing_chain.blocks().len();
 
-                // persist - TODO (tx): make transactional
+                // persist atomically
                 if canonical_chain_changed {
-                    if let Some(replace_from) = replace_from {
-                        self.blockchain_store
-                            .remove_blocks_from_height(company_id, replace_from)
-                            .await
-                            .map_err(|e| Error::Persistence(e.to_string()))?;
-                    }
+                    let mut tx = self
+                        .transaction_mgr
+                        .begin()
+                        .await
+                        .map_err(|e| Error::Persistence(e.to_string()))?;
 
-                    for block in &replacement_blocks {
-                        self.save_block(company_id, block).await?;
+                    if let Some(replace_from) = replace_from {
+                        tx.replace_company_blocks_from_height(
+                            company_id,
+                            &expected_local_tip,
+                            replace_from,
+                            &replacement_blocks,
+                        )
+                        .await
+                        .map_err(|e| Error::Persistence(e.to_string()))?;
+                    } else {
+                        tx.append_company_blocks(
+                            company_id,
+                            Some(&expected_local_tip),
+                            &replacement_blocks,
+                        )
+                        .await
+                        .map_err(|e| Error::Persistence(e.to_string()))?;
                     }
 
                     // Rebuild company from the winning chain
-                    self.company_store
-                        .update(company_id, &prepared.company)
+                    tx.update_company(company_id, &prepared.company)
                         .await
                         .map_err(|e| Error::Persistence(e.to_string()))?;
 
@@ -445,15 +462,26 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
                         .filter(|prepared_block| prepared_block.block_id >= changed_from)
                     {
                         if let Some(confirmation) = &prepared_block.email_confirmation {
-                            self.company_store
-                                .set_email_confirmation(
-                                    company_id,
-                                    &confirmation.proof,
-                                    &confirmation.data,
-                                )
-                                .await
-                                .map_err(|e| Error::Persistence(e.to_string()))?;
+                            tx.set_company_email_confirmation(
+                                company_id,
+                                &confirmation.proof,
+                                &confirmation.data,
+                            )
+                            .await
+                            .map_err(|e| Error::Persistence(e.to_string()))?;
                         }
+                    }
+
+                    tx.commit()
+                        .await
+                        .map_err(|e| Error::Persistence(e.to_string()))?;
+
+                    // file refs outside transaction
+                    for prepared_block in prepared
+                        .blocks
+                        .iter()
+                        .filter(|prepared_block| prepared_block.block_id >= changed_from)
+                    {
                         for anchor in &prepared_block.files_to_anchor {
                             anchor_important_file(
                                 &self.file_reference_store,
@@ -551,6 +579,7 @@ impl CompanyChainEventProcessor {
         chain_event_store: Arc<dyn NostrChainEventStoreApi>,
         transport: Arc<dyn TransportClientApi>,
         contact_store: Arc<dyn ContactStoreApi>,
+        transaction_mgr: Arc<dyn TransactionManagerApi>,
         bitcoin_network: bitcoin::Network,
         config: Arc<Config>,
     ) -> Self {
@@ -566,6 +595,7 @@ impl CompanyChainEventProcessor {
             chain_event_store,
             bitcoin_network,
             contact_store,
+            transaction_mgr,
             transport,
             config,
         }
@@ -588,22 +618,44 @@ impl CompanyChainEventProcessor {
             return Ok(());
         }
 
-        // persist - TODO (tx): make transactional
+        // persist atomically
 
-        self.company_store
-            .insert(&prepared.company)
+        let mut tx = self
+            .transaction_mgr
+            .begin()
             .await
-            .map_err(|e| {
-                error!("Failed to insert company {company_id}: {e}");
-                Error::Persistence(e.to_string())
-            })?;
-        self.save_keys(&company_id, keys).await?;
+            .map_err(|e| Error::Persistence(e.to_string()))?;
 
-        // Save the first block of the chain as it is the create block
-        self.save_block(&company_id, prepared.chain.get_first_block())
-            .await?;
+        tx.append_company_blocks(&company_id, None, prepared.chain.blocks())
+            .await
+            .map_err(|e| Error::Persistence(e.to_string()))?;
 
-        // anchored files from create
+        tx.insert_company(&prepared.company).await.map_err(|e| {
+            error!("Failed to insert company {company_id}: {e}");
+            Error::Persistence(e.to_string())
+        })?;
+
+        tx.save_company_key_pair(&company_id, keys)
+            .await
+            .map_err(|e| Error::Persistence(e.to_string()))?;
+
+        for prepared_block in &prepared.blocks {
+            if let Some(confirmation) = &prepared_block.email_confirmation {
+                tx.set_company_email_confirmation(
+                    &company_id,
+                    &confirmation.proof,
+                    &confirmation.data,
+                )
+                .await
+                .map_err(|e| Error::Persistence(e.to_string()))?;
+            }
+        }
+
+        tx.commit()
+            .await
+            .map_err(|e| Error::Persistence(e.to_string()))?;
+
+        // anchored files from create outside tx
         for anchor in &prepared.create_files_to_anchor {
             anchor_important_file(
                 &self.file_reference_store,
@@ -613,16 +665,7 @@ impl CompanyChainEventProcessor {
             .await?;
         }
 
-        // remaining blocks and state derived from them
-        for (block, prepared_block) in prepared.chain.blocks().iter().skip(1).zip(&prepared.blocks)
-        {
-            self.save_block(&company_id, block).await?;
-            if let Some(confirmation) = &prepared_block.email_confirmation {
-                self.company_store
-                    .set_email_confirmation(&company_id, &confirmation.proof, &confirmation.data)
-                    .await
-                    .map_err(|e| Error::Persistence(e.to_string()))?;
-            }
+        for prepared_block in &prepared.blocks {
             for anchor in &prepared_block.files_to_anchor {
                 anchor_important_file(
                     &self.file_reference_store,
@@ -895,25 +938,43 @@ impl CompanyChainEventProcessor {
         block: &CompanyBlock,
         identity_node_id: &NodeId,
     ) -> Result<()> {
+        let expected_latest = chain.get_latest_block().clone();
         let (prepared, candidate_chain, candidate_company) =
             self.prepare_company_block(chain, company, block, keys, identity_node_id)?;
 
-        // persist - TODO (tx): make transactional
+        // persist atomically
+
+        let mut tx = self
+            .transaction_mgr
+            .begin()
+            .await
+            .map_err(|e| Error::Persistence(e.to_string()))?;
+
+        tx.append_company_blocks(
+            company_id,
+            Some(&expected_latest),
+            std::slice::from_ref(block),
+        )
+        .await
+        .map_err(|e| Error::Persistence(e.to_string()))?;
 
         if prepared.company_changed {
-            self.company_store
-                .update(company_id, &candidate_company)
+            tx.update_company(company_id, &candidate_company)
                 .await
                 .map_err(|e| Error::Persistence(e.to_string()))?;
         }
 
         if let Some(confirmation) = &prepared.email_confirmation {
-            self.company_store
-                .set_email_confirmation(company_id, &confirmation.proof, &confirmation.data)
+            tx.set_company_email_confirmation(company_id, &confirmation.proof, &confirmation.data)
                 .await
                 .map_err(|e| Error::Persistence(e.to_string()))?;
         }
 
+        tx.commit()
+            .await
+            .map_err(|e| Error::Persistence(e.to_string()))?;
+
+        // file refs outside of transaction
         for anchor in &prepared.files_to_anchor {
             anchor_important_file(
                 &self.file_reference_store,
@@ -922,8 +983,6 @@ impl CompanyChainEventProcessor {
             )
             .await?;
         }
-
-        self.save_block(company_id, block).await?;
 
         // mutate after persistence succeeded
         *company = candidate_company;
@@ -1265,26 +1324,6 @@ impl CompanyChainEventProcessor {
         Ok((company_id, company, chain))
     }
 
-    async fn save_block(&self, company_id: &NodeId, block: &CompanyBlock) -> Result<()> {
-        if let Err(e) = self.blockchain_store.add_block(company_id, block).await {
-            error!("Failed to add company block to blockchain store: {e}");
-            return Err(Error::Persistence(
-                "Failed to add company block to blockchain store".to_string(),
-            ));
-        }
-        Ok(())
-    }
-
-    async fn save_keys(&self, node_id: &NodeId, keys: &BcrKeys) -> Result<()> {
-        if let Err(e) = self.company_store.save_key_pair(node_id, keys).await {
-            error!("Failed to save keys to company store: {e}");
-            return Err(Error::Persistence(
-                "Failed to save keys to company store".to_string(),
-            ));
-        }
-        Ok(())
-    }
-
     async fn create_notification_for_company(
         &self,
         company: &Company,
@@ -1435,7 +1474,6 @@ pub mod tests {
 
     use bcr_common::core::NodeId;
     use bcr_ebill_api::service::transport_service::ResyncMode;
-    use bcr_ebill_core::application::company::CompanySignatoryStatus;
     use bcr_ebill_core::protocol::blockchain::Block;
     use bcr_ebill_core::protocol::blockchain::company::CompanyBlockPayload;
     use bcr_ebill_core::protocol::blockchain::company::block::{
@@ -1462,12 +1500,13 @@ pub mod tests {
         },
         protocol::crypto::BcrKeys,
     };
-    use mockall::predicate::{always, eq};
+    use mockall::predicate::eq;
     use nostr::event::FinalizeEvent;
 
     use crate::handler::test_utils::{
-        MockNotificationStore, get_valid_activated_signatory, node_id_test_another,
-        private_key_test, private_key_test_another, update_company_block_with_name,
+        MockNotificationStore, MockPersistenceTransactionApiMock, MockTransactionManagerApiMock,
+        get_valid_activated_signatory, node_id_test_another, private_key_test,
+        private_key_test_another, transaction_manager_with, update_company_block_with_name,
     };
     use crate::push_notification::MockPushApi;
     use crate::test_utils::{
@@ -1512,6 +1551,7 @@ pub mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -1555,6 +1595,7 @@ pub mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -1599,6 +1640,7 @@ pub mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -1647,6 +1689,7 @@ pub mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -1701,27 +1744,27 @@ pub mod tests {
         contact_store.expect_get().returning(|_| Ok(None));
         contact_store.expect_insert().returning(|_, _| Ok(()));
 
-        // it is valid so add the company
+        let expected_company_id = node_id.clone();
+        let mut tx = MockPersistenceTransactionApiMock::new();
+        tx.expect_append_company_blocks()
+            .withf(move |company_id, expected_latest, blocks| {
+                company_id == &expected_company_id && expected_latest.is_none() && blocks.len() == 1
+            })
+            .returning(|_, _, _| Ok(()))
+            .once();
+
         let expected_company = company.clone();
-        store
-            .expect_insert()
-            .withf(move |c| c.id == expected_company.id.clone() && c.name == expected_company.name)
+        tx.expect_insert_company()
+            .withf(move |company| {
+                company.id == expected_company.id && company.name == expected_company.name
+            })
             .returning(|_| Ok(()))
             .once();
-
-        // inserts the block
-        chain_store
-            .expect_add_block()
-            .with(eq(node_id.clone()), always())
+        tx.expect_save_company_key_pair()
             .returning(|_, _| Ok(()))
             .once();
-
-        // adds the keys
-        store
-            .expect_save_key_pair()
-            .with(eq(node_id.clone()), always())
-            .returning(|_, _| Ok(()))
-            .once();
+        tx.expect_commit().return_once(|| Ok(()));
+        let transaction_mgr = transaction_manager_with(tx);
 
         transport
             .expect_add_identity()
@@ -1748,6 +1791,7 @@ pub mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            Arc::new(transaction_mgr),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -1818,38 +1862,37 @@ pub mod tests {
             .returning(move |_| Ok(expected_company.clone()))
             .once();
 
-        // apply changes from block and update the company
-        let expected_node = node_id.clone();
-        store
-            .expect_update()
-            .withf(move |n, c| {
-                n == &expected_node.clone()
-                    && c.id == expected_node.clone()
-                    && c.name == Name::new("new_name").unwrap()
-            })
-            .returning(|_, _| Ok(()))
-            .once();
-
-        // inserts the block
-        chain_store
-            .expect_add_block()
-            .with(eq(node_id.clone()), always())
-            .returning(|_, _| Ok(()))
-            .once();
-
-        // we already have the keys
-        store
-            .expect_save_key_pair()
-            .with(eq(node_id.clone()), always())
-            .returning(|_, _| Ok(()))
-            .never();
-
         // no need to ensure contacts in case of an update
         contact
             .expect_ensure_nostr_contact()
             .with(eq(node_id.clone()))
             .returning(|_| ())
             .never();
+
+        let expected_company_id = node_id.clone();
+        let expected_hash = update_block.hash.clone();
+
+        let mut tx = MockPersistenceTransactionApiMock::new();
+        tx.expect_append_company_blocks()
+            .withf(move |company_id, expected_latest, blocks| {
+                company_id == &expected_company_id
+                    && expected_latest.is_some()
+                    && blocks.len() == 1
+                    && blocks[0].hash == expected_hash
+            })
+            .returning(|_, _, _| Ok(()))
+            .once();
+        let expected_company_id = node_id.clone();
+        tx.expect_update_company()
+            .withf(move |company_id, company| {
+                company_id == &expected_company_id
+                    && company.id == expected_company_id
+                    && company.name == Name::new("new_name").unwrap()
+            })
+            .returning(|_, _| Ok(()))
+            .once();
+        tx.expect_commit().return_once(|| Ok(()));
+        let transaction_mgr = transaction_manager_with(tx);
 
         let handler = CompanyChainEventProcessor::new(
             Arc::new(chain_store),
@@ -1863,6 +1906,7 @@ pub mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            Arc::new(transaction_mgr),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -1964,6 +2008,7 @@ pub mod tests {
             .times(2);
 
         // checks if we already have the chain
+        let expected_tip_hash = skipped_chain.get_latest_block().hash.clone();
         chain_store
             .expect_get_chain()
             .with(eq(node_id.clone()))
@@ -1992,31 +2037,6 @@ pub mod tests {
             .returning(move |_, _| Ok(nostr_chain.clone()))
             .once();
 
-        let expected_node = node_id.clone();
-        store
-            .expect_update()
-            .withf(move |n, c| {
-                n == &expected_node
-                    && c.id == expected_node
-                    && c.name == Name::new("another_name").unwrap()
-            })
-            .returning(|_, _| Ok(()))
-            .once();
-
-        // inserts the block
-        chain_store
-            .expect_add_block()
-            .with(eq(node_id.clone()), always())
-            .returning(|_, _| Ok(()))
-            .times(2);
-
-        // we already have the keys
-        store
-            .expect_save_key_pair()
-            .with(eq(node_id.clone()), always())
-            .returning(|_, _| Ok(()))
-            .never();
-
         // no need to ensure contacts in case of an update
         contact
             .expect_ensure_nostr_contact()
@@ -2033,6 +2053,36 @@ pub mod tests {
             .returning(|_| Ok(()))
             .times(4);
 
+        let expected_company_id = node_id.clone();
+        let skipped_hash = skipped_block.hash.clone();
+        let update_hash = update_block.hash.clone();
+        let mut tx = MockPersistenceTransactionApiMock::new();
+        tx.expect_append_company_blocks()
+            .withf(move |id, expected_latest, blocks| {
+                id == &expected_company_id
+                    && expected_latest
+                        .as_ref()
+                        .is_some_and(|block| block.hash == expected_tip_hash)
+                    && blocks.len() == 2
+                    && blocks[0].hash == skipped_hash
+                    && blocks[1].hash == update_hash
+            })
+            .once()
+            .returning(|_, _, _| Ok(()));
+        let expected_company_id = node_id.clone();
+        tx.expect_update_company()
+            .withf(move |id, company| {
+                id == &expected_company_id
+                    && company.id == expected_company_id
+                    && company.name == Name::new("another_name").unwrap()
+            })
+            .once()
+            .returning(|_, _| Ok(()));
+        tx.expect_save_company_key_pair().never();
+        tx.expect_set_company_email_confirmation().never();
+        tx.expect_commit().once().return_once(|| Ok(()));
+        let transaction_mgr = transaction_manager_with(tx);
+
         let handler = CompanyChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
@@ -2045,6 +2095,7 @@ pub mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            Arc::new(transaction_mgr),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -2156,34 +2207,14 @@ pub mod tests {
             .returning(move |_| Ok(expected_company.clone()))
             .once();
 
-        // apply changes from block with the signatory
-        let expected_node = node_id.clone();
-        let expected_new_node = new_node_id.clone();
-        store
-            .expect_update()
-            .withf(move |n, c| {
-                n == &expected_node.clone()
-                    && c.id == expected_node.clone()
-                    && c.signatories
-                        .iter()
-                        .any(|s| s.node_id == expected_new_node.clone())
-            })
-            .returning(|_, _| Ok(()))
+        let mut tx = MockPersistenceTransactionApiMock::new();
+        tx.expect_append_company_blocks()
+            .returning(|_, _, _| Ok(()))
             .once();
 
-        // inserts the block
-        chain_store
-            .expect_add_block()
-            .with(eq(node_id.clone()), always())
-            .returning(|_, _| Ok(()))
-            .once();
-
-        // we already have the keys
-        store
-            .expect_save_key_pair()
-            .with(eq(node_id.clone()), always())
-            .returning(|_, _| Ok(()))
-            .never();
+        tx.expect_update_company().returning(|_, _| Ok(())).once();
+        tx.expect_commit().return_once(|| Ok(()));
+        let transaction_mgr = transaction_manager_with(tx);
 
         // ensure the new node is a contact
         contact
@@ -2204,6 +2235,7 @@ pub mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            Arc::new(transaction_mgr),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -2280,35 +2312,14 @@ pub mod tests {
             .returning(move |_| Ok(expected_company.clone()))
             .once();
 
-        // apply changes from block with the signatory
-        let expected_node = node_id.clone();
-        let expected_new_node = new_node_id.clone();
-        store
-            .expect_update()
-            .withf(move |n, c| {
-                n == &expected_node.clone()
-                    && c.id == expected_node.clone()
-                    && c.signatories.iter().any(|s| {
-                        s.node_id == expected_new_node.clone()
-                            && matches!(s.status, CompanySignatoryStatus::InviteAccepted { .. })
-                    })
-            })
-            .returning(|_, _| Ok(()))
+        let mut tx = MockPersistenceTransactionApiMock::new();
+        tx.expect_append_company_blocks()
+            .returning(|_, _, _| Ok(()))
             .once();
 
-        // inserts the block
-        chain_store
-            .expect_add_block()
-            .with(eq(node_id.clone()), always())
-            .returning(|_, _| Ok(()))
-            .once();
-
-        // we already have the keys
-        store
-            .expect_save_key_pair()
-            .with(eq(node_id.clone()), always())
-            .returning(|_, _| Ok(()))
-            .never();
+        tx.expect_update_company().returning(|_, _| Ok(())).once();
+        tx.expect_commit().return_once(|| Ok(()));
+        let transaction_mgr = transaction_manager_with(tx);
 
         // ensure the new node is a contact
         contact
@@ -2329,6 +2340,7 @@ pub mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            Arc::new(transaction_mgr),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -2405,35 +2417,14 @@ pub mod tests {
             .returning(move |_| Ok(expected_company.clone()))
             .once();
 
-        // apply changes from block with the signatory
-        let expected_node = node_id.clone();
-        let expected_new_node = new_node_id.clone();
-        store
-            .expect_update()
-            .withf(move |n, c| {
-                n == &expected_node.clone()
-                    && c.id == expected_node.clone()
-                    && c.signatories.iter().any(|s| {
-                        s.node_id == expected_new_node.clone()
-                            && matches!(s.status, CompanySignatoryStatus::InviteRejected { .. })
-                    })
-            })
-            .returning(|_, _| Ok(()))
+        let mut tx = MockPersistenceTransactionApiMock::new();
+        tx.expect_append_company_blocks()
+            .returning(|_, _, _| Ok(()))
             .once();
 
-        // inserts the block
-        chain_store
-            .expect_add_block()
-            .with(eq(node_id.clone()), always())
-            .returning(|_, _| Ok(()))
-            .once();
-
-        // we already have the keys
-        store
-            .expect_save_key_pair()
-            .with(eq(node_id.clone()), always())
-            .returning(|_, _| Ok(()))
-            .never();
+        tx.expect_update_company().returning(|_, _| Ok(())).once();
+        tx.expect_commit().return_once(|| Ok(()));
+        let transaction_mgr = transaction_manager_with(tx);
 
         // no need to ensure contacts in case of a reject
         contact
@@ -2454,6 +2445,7 @@ pub mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            Arc::new(transaction_mgr),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -2531,35 +2523,14 @@ pub mod tests {
             .returning(move |_| Ok(expected_company.clone()))
             .once();
 
-        // apply changes from block with the signatory
-        let expected_node = node_id.clone();
-        let expected_new_node = new_node_id.clone();
-        store
-            .expect_update()
-            .withf(move |n, c| {
-                n == &expected_node.clone()
-                    && c.id == expected_node.clone()
-                    && c.signatories.iter().any(|s| {
-                        s.node_id == expected_new_node.clone()
-                            && matches!(s.status, CompanySignatoryStatus::Removed { .. })
-                    })
-            })
-            .returning(|_, _| Ok(()))
+        let mut tx = MockPersistenceTransactionApiMock::new();
+        tx.expect_append_company_blocks()
+            .returning(|_, _, _| Ok(()))
             .once();
 
-        // inserts the block
-        chain_store
-            .expect_add_block()
-            .with(eq(node_id.clone()), always())
-            .returning(|_, _| Ok(()))
-            .once();
-
-        // we already have the keys
-        store
-            .expect_save_key_pair()
-            .with(eq(node_id.clone()), always())
-            .returning(|_, _| Ok(()))
-            .never();
+        tx.expect_update_company().returning(|_, _| Ok(())).once();
+        tx.expect_commit().return_once(|| Ok(()));
+        let transaction_mgr = transaction_manager_with(tx);
 
         // no need to ensure contacts in case of a remove
         contact
@@ -2596,6 +2567,7 @@ pub mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            Arc::new(transaction_mgr),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -2648,31 +2620,6 @@ pub mod tests {
             .returning(|| Ok(get_baseline_identity().identity))
             .once();
 
-        // incoming identity proof is set
-        store
-            .expect_set_email_confirmation()
-            .returning(|_, _, _| Ok(()))
-            .once();
-
-        // apply changes from block with the identity proof
-        let expected_node = node_id.clone();
-        let expected_new_node = data.data.node_id.clone();
-        store
-            .expect_update()
-            .withf(move |n, c| {
-                n == &expected_node.clone()
-                    && c.id == expected_node.clone()
-                    && c.signatories.iter().any(|s| {
-                        s.node_id == expected_new_node.clone()
-                            && matches!(
-                                s.status,
-                                CompanySignatoryStatus::InviteAcceptedIdentityProven { .. }
-                            )
-                    })
-            })
-            .returning(|_, _| Ok(()))
-            .once();
-
         // checks if we already have the chain
         chain_store
             .expect_get_chain()
@@ -2695,19 +2642,16 @@ pub mod tests {
             .returning(move |_| Ok(expected_company.clone()))
             .once();
 
-        // inserts the block
-        chain_store
-            .expect_add_block()
-            .with(eq(node_id.clone()), always())
-            .returning(|_, _| Ok(()))
+        let mut tx = MockPersistenceTransactionApiMock::new();
+        tx.expect_append_company_blocks()
+            .returning(|_, _, _| Ok(()))
             .once();
-
-        // we already have the keys
-        store
-            .expect_save_key_pair()
-            .with(eq(node_id.clone()), always())
-            .returning(|_, _| Ok(()))
-            .never();
+        tx.expect_update_company().returning(|_, _| Ok(())).once();
+        tx.expect_set_company_email_confirmation()
+            .returning(|_, _, _| Ok(()))
+            .once();
+        tx.expect_commit().return_once(|| Ok(()));
+        let transaction_mgr = transaction_manager_with(tx);
 
         let handler = CompanyChainEventProcessor::new(
             Arc::new(chain_store),
@@ -2721,6 +2665,7 @@ pub mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            Arc::new(transaction_mgr),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -2934,6 +2879,7 @@ pub mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockNotificationJsonTransport::new()),
             Arc::new(MockContactStore::new()),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -2993,17 +2939,13 @@ pub mod tests {
             &update_data,
         );
 
-        // company state is updated here
-        store
-            .expect_update()
-            .with(eq(company_id.clone()), always())
-            .once()
-            .returning(|_, _| Ok(()));
-        chain_store
-            .expect_add_block()
-            .with(eq(company_id.clone()), always())
-            .once()
-            .returning(|_, _| Ok(()));
+        let mut tx = MockPersistenceTransactionApiMock::new();
+        tx.expect_append_company_blocks()
+            .returning(|_, _, _| Ok(()))
+            .once();
+        tx.expect_update_company().returning(|_, _| Ok(())).once();
+        tx.expect_commit().return_once(|| Ok(()));
+        let transaction_mgr = transaction_manager_with(tx);
 
         // inbound file is anchored as part of persistence
         let company_id_clone = company_id.clone();
@@ -3049,6 +2991,7 @@ pub mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockNotificationJsonTransport::new()),
             Arc::new(MockContactStore::new()),
+            Arc::new(transaction_mgr),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -3189,6 +3132,7 @@ pub mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -3332,6 +3276,7 @@ pub mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -3390,42 +3335,7 @@ pub mod tests {
             &invalid_update_data,
         );
 
-        // final company must represent the last VALID block
-        let expected_company_id = company_id.clone();
-        store
-            .expect_insert()
-            .withf(move |company| {
-                company.id == expected_company_id && company.name == expected_name
-            })
-            .once()
-            .returning(|_| Ok(()));
-        store
-            .expect_save_key_pair()
-            .with(eq(company_id.clone()), eq(keys.clone()))
-            .once()
-            .returning(|_, _| Ok(()));
-        // creator identity proof is part of the valid prefix
-        store
-            .expect_set_email_confirmation()
-            .once()
-            .returning(|_, _, _| Ok(()));
-        // final aggregate is inserted only once
-        store.expect_update().times(0);
         // Create + Proof + valid Update may be persisted
-        let allowed_hashes = [
-            create_block.hash.clone(),
-            proof_block.hash.clone(),
-            valid_update.hash.clone(),
-        ];
-
-        let invalid_hash = invalid_update.hash.clone();
-        chain_store
-            .expect_add_block()
-            .withf(move |_, block| {
-                allowed_hashes.contains(&block.hash) && block.hash != invalid_hash
-            })
-            .times(3)
-            .returning(|_, _| Ok(()));
         transport
             .expect_add_identity()
             .with(eq(company_id.clone()), eq(keys.clone()))
@@ -3445,6 +3355,49 @@ pub mod tests {
             .expect_insert()
             .once()
             .returning(|_, _| Ok(()));
+        let expected_company_id = company_id.clone();
+        let expected_name_for_tx = expected_name.clone();
+        let create_hash = create_block.hash.clone();
+        let proof_hash = proof_block.hash.clone();
+        let valid_update_hash = valid_update.hash.clone();
+        let invalid_hash = invalid_update.hash.clone();
+        let expected_key_pub = keys.pub_key();
+        let mut tx = MockPersistenceTransactionApiMock::new();
+        tx.expect_append_company_blocks()
+            .withf(move |id, expected_latest, blocks| {
+                id == &expected_company_id
+                    && expected_latest.is_none()
+                    && blocks.len() == 3
+                    && blocks[0].hash == create_hash
+                    && blocks[1].hash == proof_hash
+                    && blocks[2].hash == valid_update_hash
+                    && blocks.iter().all(|block| block.hash != invalid_hash)
+            })
+            .once()
+            .returning(|_, _, _| Ok(()));
+        let expected_company_id = company_id.clone();
+        tx.expect_insert_company()
+            .withf(move |company| {
+                company.id == expected_company_id && company.name == expected_name_for_tx
+            })
+            .once()
+            .returning(|_| Ok(()));
+        let expected_company_id = company_id.clone();
+        tx.expect_save_company_key_pair()
+            .withf(move |id, keys| id == &expected_company_id && keys.pub_key() == expected_key_pub)
+            .once()
+            .returning(|_, _| Ok(()));
+        tx.expect_set_company_email_confirmation()
+            .withf({
+                let expected_company_id = company_id.clone();
+                move |id, _, _| id == &expected_company_id
+            })
+            .once()
+            .returning(|_, _, _| Ok(()));
+        tx.expect_update_company().never();
+        tx.expect_commit().once().return_once(|| Ok(()));
+        let transaction_mgr = transaction_manager_with(tx);
+
         let handler = CompanyChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
@@ -3457,6 +3410,7 @@ pub mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            Arc::new(transaction_mgr),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -3581,18 +3535,6 @@ pub mod tests {
             .with(eq(company_id.clone()))
             .once()
             .returning(move |_| Ok(local_chain_clone.clone()));
-        // extension, not a fork
-        chain_store.expect_remove_blocks_from_height().times(0);
-
-        // only #4 and #5 are new valid blocks
-        let valid_4_hash = valid_block_4.hash.clone();
-        let valid_5_hash = valid_block_5.hash.clone();
-        chain_store
-            .expect_add_block()
-            .withf(move |_, block| block.hash == valid_4_hash || block.hash == valid_5_hash)
-            .times(2)
-            .returning(|_, _| Ok(()));
-
         let keys_clone = keys.clone();
         store
             .expect_get_key_pair()
@@ -3603,14 +3545,6 @@ pub mod tests {
             .expect_get()
             .once()
             .returning(|| Ok(get_baseline_identity().identity));
-        // must stop at valid #5
-        store
-            .expect_update()
-            .withf(move |_, company| company.name == expected_final_name)
-            .once()
-            .returning(|_, _| Ok(()));
-
-        store.expect_set_email_confirmation().times(0);
         transport
             .expect_resolve_public_chain()
             .with(eq(company_id.to_string()), eq(BlockchainType::Company))
@@ -3620,6 +3554,39 @@ pub mod tests {
             .expect_remove_chain_events()
             .once()
             .returning(|_, _| Ok(()));
+
+        let expected_company_id = company_id.clone();
+        let expected_tip_hash = local_update.hash.clone();
+        let valid_4_hash = valid_block_4.hash.clone();
+        let valid_5_hash = valid_block_5.hash.clone();
+        let invalid_6_hash = invalid_block_6.hash.clone();
+
+        let mut tx = MockPersistenceTransactionApiMock::new();
+
+        tx.expect_append_company_blocks()
+            .withf(move |id, expected_latest, blocks| {
+                id == &expected_company_id
+                    && expected_latest
+                        .as_ref()
+                        .is_some_and(|block| block.hash == expected_tip_hash)
+                    && blocks.len() == 2
+                    && blocks[0].hash == valid_4_hash
+                    && blocks[1].hash == valid_5_hash
+                    && blocks.iter().all(|block| block.hash != invalid_6_hash)
+            })
+            .once()
+            .returning(|_, _, _| Ok(()));
+
+        let expected_company_id = company_id.clone();
+        let expected_name = expected_final_name.clone();
+        tx.expect_update_company()
+            .withf(move |id, company| id == &expected_company_id && company.name == expected_name)
+            .once()
+            .returning(|_, _| Ok(()));
+        tx.expect_set_company_email_confirmation().never();
+        tx.expect_save_company_key_pair().never();
+        tx.expect_commit().once().return_once(|| Ok(()));
+        let transaction_mgr = transaction_manager_with(tx);
 
         // metadata until #5 only
         let allowed_hashes = [
@@ -3650,6 +3617,7 @@ pub mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            Arc::new(transaction_mgr),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -3780,17 +3748,6 @@ pub mod tests {
             .expect_get_chain()
             .once()
             .returning(move |_| Ok(local_chain_clone.clone()));
-        chain_store.expect_remove_blocks_from_height().times(0);
-
-        // only B3 + B4 may be persisted
-        let b3_hash = b3.hash.clone();
-        let b4_hash = b4.hash.clone();
-
-        chain_store
-            .expect_add_block()
-            .withf(move |_, block| block.hash == b3_hash || block.hash == b4_hash)
-            .times(2)
-            .returning(|_, _| Ok(()));
 
         let keys_clone = keys.clone();
         store
@@ -3801,12 +3758,6 @@ pub mod tests {
             .expect_get()
             .once()
             .returning(|| Ok(get_baseline_identity().identity));
-        store
-            .expect_update()
-            .withf(move |_, company| company.name == expected_name)
-            .once()
-            .returning(|_, _| Ok(()));
-        store.expect_set_email_confirmation().times(0);
         transport
             .expect_resolve_public_chain()
             .once()
@@ -3816,6 +3767,44 @@ pub mod tests {
             .expect_remove_chain_events()
             .once()
             .returning(|_, _| Ok(()));
+
+        let expected_company_id = company_id.clone();
+        let expected_tip_hash = proof_block.hash.clone();
+        let b3_hash = b3.hash.clone();
+        let b4_hash = b4.hash.clone();
+        let a3_hash = a3.hash.clone();
+        let bad4_hash = bad4.hash.clone();
+        let bad5_hash = bad5.hash.clone();
+
+        let mut tx = MockPersistenceTransactionApiMock::new();
+        tx.expect_append_company_blocks()
+            .withf(move |id, expected_latest, blocks| {
+                id == &expected_company_id
+                    && expected_latest
+                        .as_ref()
+                        .is_some_and(|block| block.hash == expected_tip_hash)
+                    && blocks.len() == 2
+                    && blocks[0].hash == b3_hash
+                    && blocks[1].hash == b4_hash
+                    && blocks.iter().all(|block| {
+                        block.hash != a3_hash && block.hash != bad4_hash && block.hash != bad5_hash
+                    })
+            })
+            .once()
+            .returning(|_, _, _| Ok(()));
+
+        let expected_company_id = company_id.clone();
+        let expected_name_for_tx = expected_name.clone();
+        tx.expect_update_company()
+            .withf(move |id, company| {
+                id == &expected_company_id && company.name == expected_name_for_tx
+            })
+            .once()
+            .returning(|_, _| Ok(()));
+        tx.expect_set_company_email_confirmation().never();
+        tx.expect_save_company_key_pair().never();
+        tx.expect_commit().once().return_once(|| Ok(()));
+        let transaction_mgr = transaction_manager_with(tx);
 
         // selected B: Create + Proof + B3 + B4
         let selected_hashes = [
@@ -3841,6 +3830,7 @@ pub mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            Arc::new(transaction_mgr),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
