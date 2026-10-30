@@ -11,6 +11,9 @@ use crate::protocol::{
 impl Validate for CompanyValidateActionData {
     fn validate(&self) -> Result<(), ProtocolValidationError> {
         match self.op {
+            CompanyOpCode::MintRecord | CompanyOpCode::MintRecordDispute => {
+                self.check_authorized_signatory()?;
+            }
             CompanyOpCode::Update => {
                 self.check_authorized_signatory()?;
             }

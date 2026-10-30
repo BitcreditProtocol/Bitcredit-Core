@@ -7,6 +7,7 @@ pub mod crypto;
 pub mod event;
 pub mod file_reference;
 pub mod mint;
+pub mod mint_record;
 pub mod serialization;
 /// Test helpers
 #[cfg(test)]

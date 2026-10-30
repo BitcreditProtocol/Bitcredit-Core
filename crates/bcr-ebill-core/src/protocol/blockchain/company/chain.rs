@@ -1,3 +1,4 @@
+use crate::protocol::mint_record::{MintRecordBlockData, MintRecordDisputeBlockData};
 use std::collections::HashMap;
 
 use super::Result;
@@ -88,6 +89,9 @@ impl CompanyBlockchain {
         let mut result = Vec::with_capacity(self.blocks().len());
         for block in self.blocks.iter() {
             let plaintext_data_bytes = match block.op_code() {
+                CompanyOpCode::MintRecord | CompanyOpCode::MintRecordDispute => {
+                    block.get_decrypted_block_bytes(company_keys)?
+                }
                 CompanyOpCode::Create => block.get_decrypted_block_bytes(company_keys)?,
                 CompanyOpCode::Update => block.get_decrypted_block_bytes(company_keys)?,
                 CompanyOpCode::InviteSignatory => block.get_decrypted_block_bytes(company_keys)?,
@@ -425,6 +429,12 @@ impl CompanyBlockPlaintextWrapper {
             serde_json::to_value(&self.block).map_err(|e| Error::JSON(e.to_string()))?;
 
         let block_data: serde_json::Value = match self.block.op_code() {
+            CompanyOpCode::MintRecord => {
+                borsh_to_json_value::<MintRecordBlockData>(&self.plaintext_data_bytes)?
+            }
+            CompanyOpCode::MintRecordDispute => {
+                borsh_to_json_value::<MintRecordDisputeBlockData>(&self.plaintext_data_bytes)?
+            }
             CompanyOpCode::Create => {
                 borsh_to_json_value::<CompanyCreateBlockData>(&self.plaintext_data_bytes)?
             }

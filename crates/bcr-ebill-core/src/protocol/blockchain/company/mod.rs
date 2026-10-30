@@ -36,6 +36,8 @@ pub enum CompanyOpCode {
     SignatoryRejectInvite,
     SignCompanyBill,
     IdentityProof,
+    MintRecord,
+    MintRecordDispute,
 }
 
 #[derive(Debug, Clone)]

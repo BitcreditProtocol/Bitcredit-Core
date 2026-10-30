@@ -12,6 +12,7 @@ use crate::protocol::Timestamp;
 use crate::protocol::base::identity_proof::{EmailIdentityProofData, SignedIdentityProof};
 use crate::protocol::blockchain::{Error, borsh_to_json_value};
 use crate::protocol::crypto::{self, BcrKeys};
+use crate::protocol::mint_record::{MintRecordBlockData, MintRecordDisputeBlockData};
 use crate::protocol::{Address, City, Zip};
 use crate::protocol::{BlockId, EditOptionalFieldMode};
 use crate::protocol::{Field, ProtocolValidationError, Validate};
@@ -48,6 +49,8 @@ pub enum IdentityOpCode {
     RejectSignatoryInvite,
     RemoveSignatory,
     IdentityProof,
+    MintRecord,
+    MintRecordDispute,
 }
 
 #[derive(Debug, Clone)]
@@ -104,6 +107,12 @@ impl IdentityBlockPlaintextWrapper {
             serde_json::to_value(&self.block).map_err(|e| Error::JSON(e.to_string()))?;
 
         let block_data: serde_json::Value = match self.block.op_code() {
+            IdentityOpCode::MintRecord => {
+                borsh_to_json_value::<MintRecordBlockData>(&self.plaintext_data_bytes)?
+            }
+            IdentityOpCode::MintRecordDispute => {
+                borsh_to_json_value::<MintRecordDisputeBlockData>(&self.plaintext_data_bytes)?
+            }
             IdentityOpCode::Create => {
                 borsh_to_json_value::<IdentityCreateBlockData>(&self.plaintext_data_bytes)?
             }
@@ -336,6 +345,8 @@ pub enum IdentityBlockPayload {
     RejectSignatoryInvite(IdentityRejectSignatoryInviteBlockData),
     RemoveSignatory(IdentityRemoveSignatoryBlockData),
     IdentityProof(IdentityProofBlockData),
+    MintRecord(MintRecordBlockData),
+    MintRecordDispute(MintRecordDisputeBlockData),
 }
 
 impl Block for IdentityBlock {
@@ -608,7 +619,7 @@ impl IdentityBlock {
         Ok(block)
     }
 
-    fn encrypt_data_create_block_and_validate<T: borsh::BorshSerialize>(
+    pub(crate) fn encrypt_data_create_block_and_validate<T: borsh::BorshSerialize>(
         previous_block: &Self,
         data: &T,
         keys: &BcrKeys,
@@ -639,6 +650,10 @@ impl IdentityBlock {
     pub fn get_block_data(&self, keys: &BcrKeys) -> Result<IdentityBlockPayload> {
         let data = self.get_decrypted_block_bytes(keys)?;
         let result: IdentityBlockPayload = match self.op_code {
+            IdentityOpCode::MintRecord => IdentityBlockPayload::MintRecord(from_slice(&data)?),
+            IdentityOpCode::MintRecordDispute => {
+                IdentityBlockPayload::MintRecordDispute(from_slice(&data)?)
+            }
             IdentityOpCode::Create => IdentityBlockPayload::Create(from_slice(&data)?),
             IdentityOpCode::Update => IdentityBlockPayload::Update(from_slice(&data)?),
             IdentityOpCode::SignPersonBill => {
@@ -669,7 +684,7 @@ impl IdentityBlock {
         Ok(result)
     }
 
-    fn get_decrypted_block_bytes(&self, keys: &BcrKeys) -> Result<Vec<u8>> {
+    pub(crate) fn get_decrypted_block_bytes(&self, keys: &BcrKeys) -> Result<Vec<u8>> {
         let decrypted_bytes = crypto::decrypt_ecies(&self.data, &keys.get_private_key())?;
         Ok(decrypted_bytes)
     }
@@ -814,6 +829,9 @@ impl IdentityBlockchain {
         let mut result = Vec::with_capacity(self.blocks().len());
         for block in self.blocks.iter() {
             let plaintext_data_bytes = match block.op_code() {
+                IdentityOpCode::MintRecord | IdentityOpCode::MintRecordDispute => {
+                    block.get_decrypted_block_bytes(keys)?
+                }
                 IdentityOpCode::Create => block.get_decrypted_block_bytes(keys)?,
                 IdentityOpCode::Update => block.get_decrypted_block_bytes(keys)?,
                 IdentityOpCode::InviteSignatory => block.get_decrypted_block_bytes(keys)?,

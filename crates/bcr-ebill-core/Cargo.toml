@@ -8,6 +8,7 @@ license.workspace = true
 doctest = false
 
 [dependencies]
+base64.workspace = true
 borsh.workspace = true
 borsh-derive.workspace = true
 serde_json.workspace = true

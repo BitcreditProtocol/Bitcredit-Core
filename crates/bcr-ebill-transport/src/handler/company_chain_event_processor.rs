@@ -775,6 +775,9 @@ impl CompanyChainEventProcessor {
         let company_id = block.company_id.clone();
         let block_id = block.id;
 
+        chain
+            .validate_mint_record_block(block, company_keys)
+            .map_err(|e| Error::Blockchain(e.to_string()))?;
         // structural validation is only done against the clone
         let mut candidate_chain = chain.clone();
 
@@ -1175,6 +1178,7 @@ impl CompanyChainEventProcessor {
                     }
                 }
             }
+            CompanyBlockPayload::MintRecord(_) | CompanyBlockPayload::MintRecordDispute(_) => {}
         }
         Ok(())
     }
@@ -1486,6 +1490,84 @@ pub mod tests {
         transport::create_public_chain_event,
     };
 
+    #[test]
+    fn mint_record_portable_vectors_use_real_receipt_validation() {
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        use bcr_ebill_core::protocol::{SchnorrSignature, mint_record::MintRecordSnapshotPayload};
+        let (
+            chain_store,
+            store,
+            notification_store,
+            contact,
+            bill,
+            identity,
+            chain_event_store,
+            transport,
+            push_service,
+            contact_store,
+        ) = create_mocks();
+        let handler = CompanyChainEventProcessor::new(
+            Arc::new(chain_store),
+            Arc::new(store),
+            Arc::new(MockFileReferenceStore::new()),
+            Arc::new(identity),
+            Arc::new(notification_store),
+            Arc::new(contact),
+            Arc::new(bill),
+            Arc::new(push_service),
+            Arc::new(chain_event_store),
+            Arc::new(transport),
+            Arc::new(contact_store),
+            bitcoin::Network::Regtest,
+        );
+
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../bcr-ebill-wasm/tests/vectors/mint-record-v1.json"
+        ))
+        .unwrap();
+        let mut secret = [0u8; 32];
+        secret[31] = 7;
+        let key =
+            BcrKeys::from_private_key(&bitcoin::secp256k1::SecretKey::from_slice(&secret).unwrap());
+        let mut cases = vec![fixture["positive"]["company"].clone()];
+        for case in cases {
+            let payload: MintRecordSnapshotPayload =
+                serde_json::from_str(case["snapshot"]["payload"].as_str().unwrap()).unwrap();
+            let blocks: Vec<CompanyBlock> = payload
+                .blocks
+                .into_iter()
+                .map(|b| CompanyBlock {
+                    id: b.id,
+                    plaintext_hash: b.plaintext_hash,
+                    hash: b.hash,
+                    timestamp: b.timestamp,
+                    data: STANDARD.decode(b.data).unwrap(),
+                    public_key: b.public_key,
+                    previous_hash: b.previous_hash,
+                    signature: SchnorrSignature::from(
+                        b.signature
+                            .parse::<bitcoin::secp256k1::schnorr::Signature>()
+                            .unwrap(),
+                    ),
+                    op_code: b.op_code.parse().unwrap(),
+                    company_id: b.company_id.unwrap(),
+                    signatory_node_id: b.signatory_node_id.unwrap(),
+                })
+                .collect();
+            let mut chain = CompanyBlockchain::new_from_blocks(vec![blocks[0].clone()]).unwrap();
+            let mut refused = false;
+            for block in blocks.into_iter().skip(1) {
+                if handler
+                    .validate_company_block_for_chain(&mut chain, &block, &key)
+                    .is_err()
+                {
+                    refused = true;
+                    break;
+                }
+            }
+            assert_eq!(refused, case["expected"] == "reject", "{}", case["name"]);
+        }
+    }
     #[tokio::test]
     async fn test_create_event_handler() {
         let (

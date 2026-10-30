@@ -329,3 +329,181 @@ mod tests {
         assert_envelope_eq(&decoded, &envelope);
     }
 }
+
+#[cfg(test)]
+mod mint_record_size_tests {
+    use bcr_common::core::NodeId;
+    use bcr_ebill_core::protocol::{
+        BlockId, SchnorrSignature, Sha256Hash, Timestamp,
+        blockchain::{Block, company::CompanyBlock, identity::IdentityBlock},
+        crypto::BcrKeys,
+        mint_record::*,
+    };
+    use bitcoin::{
+        Network,
+        secp256k1::{Keypair, Message, SECP256K1, Scalar, SecretKey},
+    };
+    use serde_json::{Value, json};
+    fn keys(n: u8) -> BcrKeys {
+        let mut b = [0u8; 32];
+        b[31] = n;
+        BcrKeys::from_private_key(&SecretKey::from_slice(&b).unwrap())
+    }
+    fn node(k: &BcrKeys) -> NodeId {
+        NodeId::new(k.pub_key(), Network::Regtest)
+    }
+    fn ts(n: u64) -> Timestamp {
+        Timestamp::new(1793361600 + n).unwrap()
+    }
+    fn sign(hash: [u8; 32], key: &SecretKey) -> bitcoin::secp256k1::schnorr::Signature {
+        SECP256K1.sign_schnorr_with_aux_rand(
+            &Message::from_digest(hash),
+            &Keypair::from_secret_key(SECP256K1, key),
+            &[0; 32],
+        )
+    }
+    fn signed_entry(value: Value, issuer: u8) -> MintRecordBlockData {
+        let entry = serde_json::to_vec(&value).unwrap();
+        let signature = sign(
+            domain_hash(ENTRY_DOMAIN, &entry),
+            &keys(issuer).get_private_key(),
+        )
+        .serialize();
+        MintRecordBlockData { entry, signature }
+    }
+    fn entry(
+        person: &NodeId,
+        company: Option<&NodeId>,
+        _issuer: u8,
+        _sequence: u64,
+        _previous: Option<String>,
+    ) -> MintRecordBlockData {
+        signed_entry(
+            json!({"schema":"mint-record-entry-v1","network":"regtest","issuer":{"signingKey":keys(5).pub_key().x_only_public_key().0.to_string(),"mintNodeId":node(&keys(5)),"name":"Synthetic Mint"},"subject":{"chain":if company.is_some(){"company"}else{"identity"},"nodeId":person,"companyNodeId":company},"sequence":1,"previousEntryDigest":null,"createdAt":"2026-10-30T12:00:00Z","reason":"applicant_request","record":{},"omissions":[]}),
+            5,
+        )
+    }
+    fn encrypt(plaintext: &[u8], key: &BcrKeys, _id: BlockId) -> Vec<u8> {
+        bcr_ebill_core::protocol::crypto::encrypt_ecies(plaintext, &key.pub_key()).unwrap()
+    }
+    fn stable_company(
+        block: &mut CompanyBlock,
+        plaintext: &[u8],
+        personal: &BcrKeys,
+        key: &BcrKeys,
+    ) {
+        block.data = borsh::to_vec(&(encrypt(plaintext, key, block.id), None::<String>)).unwrap();
+        block.hash = CompanyBlock::calculate_hash(block.get_block_data_to_hash()).unwrap();
+        let aggregate = personal
+            .get_private_key()
+            .add_tweak(&Scalar::from(key.get_private_key()))
+            .unwrap();
+        block.signature = SchnorrSignature::from(sign(block.hash.decode_to_array(), &aggregate));
+    }
+    #[test]
+    fn mint_record_max_entry_fits_single_block_nostr_events() {
+        use bcr_ebill_core::protocol::{blockchain::BlockchainType, event::IdentityChainEvent};
+        use nostr::event::{EventBuilder, FinalizeEvent};
+        let key = keys(3);
+        let subject = node(&key);
+        let mut value: Value =
+            serde_json::from_slice(&entry(&subject, None, 5, 1, None).entry).unwrap();
+        value["record"]["padding"] = json!("");
+        let overhead = serde_json::to_vec(&value).unwrap().len();
+        value["record"]["padding"] = json!("x".repeat(MAX_MINT_RECORD_ENTRY_BYTES - overhead));
+        let data = signed_entry(value, 5);
+        assert_eq!(data.entry.len(), MAX_MINT_RECORD_ENTRY_BYTES);
+        let block = IdentityBlock {
+            id: BlockId::first().add(1),
+            plaintext_hash: Sha256Hash::from_bytes(&borsh::to_vec(&data).unwrap()),
+            hash: Sha256Hash::from_bytes(b"sizing"),
+            timestamp: ts(1),
+            data: encrypt(
+                &borsh::to_vec(&data).unwrap(),
+                &key,
+                BlockId::first().add(1),
+            ),
+            public_key: key.pub_key(),
+            previous_hash: Sha256Hash::from_bytes(key.get_public_key().as_bytes()),
+            signature: SchnorrSignature::from(sign([0; 32], &key.get_private_key())),
+            op_code: bcr_ebill_core::protocol::blockchain::identity::IdentityOpCode::MintRecord,
+        };
+        let envelope = IdentityChainEvent::new(&subject, &block, &key)
+            .generate_blockchain_message()
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let root = EventBuilder::new(nostr::event::Kind::TextNote, "synthetic-root")
+            .finalize(&key.get_nostr_keys())
+            .unwrap();
+        let event = super::create_public_chain_event(
+            &subject.to_string(),
+            envelope,
+            ts(1),
+            BlockchainType::Identity,
+            Some(root.clone()),
+            Some(root.clone()),
+        )
+        .unwrap()
+        .finalize(&key.get_nostr_keys())
+        .unwrap();
+        assert!(
+            serde_json::to_vec(&event).unwrap().len() < 65536,
+            "identity event bytes: {}",
+            serde_json::to_vec(&event).unwrap().len()
+        );
+        let company_key = keys(7);
+        let company = node(&company_key);
+        let mut value: Value =
+            serde_json::from_slice(&entry(&subject, Some(&company), 5, 1, None).entry).unwrap();
+        value["record"]["padding"] = json!("");
+        let overhead = serde_json::to_vec(&value).unwrap().len();
+        value["record"]["padding"] = json!("x".repeat(MAX_MINT_RECORD_ENTRY_BYTES - overhead));
+        let data = signed_entry(value, 5);
+        assert_eq!(data.entry.len(), MAX_MINT_RECORD_ENTRY_BYTES);
+        let mut block = CompanyBlock {
+            company_id: company.clone(),
+            id: BlockId::first().add(2),
+            plaintext_hash: Sha256Hash::from_bytes(&borsh::to_vec(&data).unwrap()),
+            hash: Sha256Hash::from_bytes(b"sizing"),
+            timestamp: ts(2),
+            data: vec![],
+            public_key: key.pub_key().combine(&company_key.pub_key()).unwrap(),
+            signatory_node_id: subject,
+            previous_hash: Sha256Hash::from_bytes(b"sizing-parent"),
+            signature: SchnorrSignature::from(sign([0; 32], &key.get_private_key())),
+            op_code: bcr_ebill_core::protocol::blockchain::company::CompanyOpCode::MintRecord,
+        };
+        stable_company(
+            &mut block,
+            &borsh::to_vec(&data).unwrap(),
+            &key,
+            &company_key,
+        );
+        let envelope = bcr_ebill_core::protocol::event::Event::new_company_chain(
+            bcr_ebill_core::protocol::event::CompanyBlockEvent {
+                node_id: company.clone(),
+                block_height: 3,
+                block,
+            },
+        )
+        .try_into()
+        .unwrap();
+        let event = super::create_public_chain_event(
+            &company.to_string(),
+            envelope,
+            ts(2),
+            BlockchainType::Company,
+            Some(root.clone()),
+            Some(root),
+        )
+        .unwrap()
+        .finalize(&company_key.get_nostr_keys())
+        .unwrap();
+        assert!(
+            serde_json::to_vec(&event).unwrap().len() < 65536,
+            "company event bytes: {}",
+            serde_json::to_vec(&event).unwrap().len()
+        );
+    }
+}

@@ -10,6 +10,7 @@ use crate::protocol::Sha256Hash;
 use crate::protocol::Timestamp;
 use crate::protocol::base::identity_proof::{EmailIdentityProofData, SignedIdentityProof};
 use crate::protocol::crypto::{self, BcrKeys};
+use crate::protocol::mint_record::{MintRecordBlockData, MintRecordDisputeBlockData};
 use crate::protocol::{Address, Country, Zip};
 use crate::protocol::{BlockId, ProtocolValidationError};
 use crate::protocol::{City, EditOptionalFieldMode};
@@ -170,6 +171,8 @@ pub enum CompanyBlockPayload {
     SignatoryRejectInvite(CompanySignatoryRejectInviteBlockData),
     RemoveSignatory(CompanyRemoveSignatoryBlockData),
     IdentityProof(CompanyIdentityProofBlockData),
+    MintRecord(MintRecordBlockData),
+    MintRecordDispute(MintRecordDisputeBlockData),
 }
 
 impl Block for CompanyBlock {
@@ -499,6 +502,10 @@ impl CompanyBlock {
     pub fn get_block_data(&self, company_keys: &BcrKeys) -> Result<CompanyBlockPayload> {
         let data = self.get_decrypted_block_bytes(company_keys)?;
         let result: CompanyBlockPayload = match self.op_code {
+            CompanyOpCode::MintRecord => CompanyBlockPayload::MintRecord(from_slice(&data)?),
+            CompanyOpCode::MintRecordDispute => {
+                CompanyBlockPayload::MintRecordDispute(from_slice(&data)?)
+            }
             CompanyOpCode::Create => CompanyBlockPayload::Create(from_slice(&data)?),
             CompanyOpCode::Update => CompanyBlockPayload::Update(from_slice(&data)?),
             CompanyOpCode::InviteSignatory => {
@@ -519,14 +526,14 @@ impl CompanyBlock {
         Ok(result)
     }
 
-    pub(super) fn get_decrypted_block_bytes(&self, company_keys: &BcrKeys) -> Result<Vec<u8>> {
+    pub(crate) fn get_decrypted_block_bytes(&self, company_keys: &BcrKeys) -> Result<Vec<u8>> {
         let block_data: CompanyBlockData = from_slice(&self.data)?;
         let decrypted_bytes =
             crypto::decrypt_ecies(&block_data.data, &company_keys.get_private_key())?;
         Ok(decrypted_bytes)
     }
 
-    fn encrypt_data_create_block_and_validate<T: borsh::BorshSerialize>(
+    pub(crate) fn encrypt_data_create_block_and_validate<T: borsh::BorshSerialize>(
         company_id: NodeId,
         previous_block: &Self,
         data: &T,
@@ -584,6 +591,9 @@ impl CompanyBlock {
             .get_block_data(company_keys)?
         {
             CompanyBlockPayload::Create(data) => (data.creator, None, None, None),
+            CompanyBlockPayload::MintRecord(_) | CompanyBlockPayload::MintRecordDispute(_) => {
+                (self.signatory_node_id.clone(), None, None, None)
+            }
             CompanyBlockPayload::Update(_) => (self.signatory_node_id.clone(), None, None, None),
             CompanyBlockPayload::SignBill(_) => (self.signatory_node_id.clone(), None, None, None),
             CompanyBlockPayload::InviteSignatory(data) => {

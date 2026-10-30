@@ -22,6 +22,8 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// Generic error type
 #[derive(Debug, Error)]
 pub enum Error {
+    #[error("Mint record: {0}")]
+    MintRecord(String),
     /// Errors from io handling, or binary serialization/deserialization
     #[error("io error {0}")]
     Io(#[from] std::io::Error),

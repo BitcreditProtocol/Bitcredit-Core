@@ -7,7 +7,10 @@ impl Validate for IdentityValidateActionData {
     fn validate(&self) -> std::result::Result<(), crate::protocol::ProtocolValidationError> {
         match self.op {
             // anon users can update identity and sign personal bills
-            IdentityOpCode::Update | IdentityOpCode::SignPersonBill => {
+            IdentityOpCode::MintRecord
+            | IdentityOpCode::MintRecordDispute
+            | IdentityOpCode::Update
+            | IdentityOpCode::SignPersonBill => {
                 self.check_signer()?;
             }
             // only identified users can do these

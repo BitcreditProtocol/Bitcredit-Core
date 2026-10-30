@@ -41,6 +41,10 @@ use bcr_ebill_core::protocol::blockchain::identity::{
 use bcr_ebill_core::protocol::blockchain::identity::{IdentityBlockchain, IdentityType};
 use bcr_ebill_core::protocol::blockchain::{Block, Blockchain};
 use bcr_ebill_core::protocol::crypto::{self, BcrKeys, DeriveKeypair};
+use bcr_ebill_core::protocol::mint_record::{
+    AddMintRecordResult, MintRecordBlockData, MintRecordDisputeBlockData, MintRecordSnapshot,
+    MintRecordSnapshotRequest, MintRecordView,
+};
 use bcr_ebill_core::protocol::{Address, Name, Zip};
 use bcr_ebill_core::protocol::{BlockId, Email};
 use bcr_ebill_core::protocol::{City, ProtocolValidationError};
@@ -68,6 +72,24 @@ use uuid::Uuid;
 
 #[async_trait]
 pub trait CompanyServiceApi: ServiceTraitBounds {
+    async fn add_mint_record(
+        &self,
+        id: &NodeId,
+        data: MintRecordBlockData,
+    ) -> Result<AddMintRecordResult>;
+    async fn mint_records(&self, id: &NodeId) -> Result<Vec<MintRecordView>>;
+    async fn add_mint_record_dispute(
+        &self,
+        id: &NodeId,
+        entry_block_id: bcr_ebill_core::protocol::BlockId,
+        statement: String,
+    ) -> Result<()>;
+    async fn mint_record_snapshot(
+        &self,
+        id: &NodeId,
+        request: MintRecordSnapshotRequest,
+    ) -> Result<MintRecordSnapshot>;
+
     /// List signatories for company
     async fn list_signatories(&self, id: &NodeId) -> Result<Vec<(CompanySignatory, Contact)>>;
 
@@ -434,6 +456,107 @@ impl ServiceTraitBounds for CompanyService {}
 
 #[async_trait]
 impl CompanyServiceApi for CompanyService {
+    async fn add_mint_record(
+        &self,
+        id: &NodeId,
+        data: MintRecordBlockData,
+    ) -> Result<AddMintRecordResult> {
+        validate_node_id_network(id)?;
+        let company = self.store.get(id).await?;
+        let keys = self.store.get_key_pair(id).await?;
+        let identity_keys = self.identity_store.get_key_pair().await?;
+        let mut chain = self.company_blockchain_store.get_chain(id).await?;
+        chain
+            .authorize_mint_record_signer(&identity_keys, &keys)
+            .map_err(|e| Error::Protocol(e.into()))?;
+        data.header().map_err(|e| Error::Protocol(e.into()))?;
+        let records = chain
+            .mint_records(&keys)
+            .map_err(|e| Error::Protocol(e.into()))?;
+        if let Some(existing) = records
+            .iter()
+            .find(|r| r.entry.as_bytes() == data.entry.as_slice())
+        {
+            return Ok(existing.append_result(true));
+        }
+        let block = chain
+            .create_mint_record(&data, &identity_keys, &keys, Timestamp::now())
+            .map_err(|e| Error::Protocol(e.into()))?;
+        let header = data.header().map_err(|e| Error::Protocol(e.into()))?;
+        let result = AddMintRecordResult {
+            block_id: block.id,
+            sequence: header.sequence,
+            signing_key: header.issuer.signing_key,
+            already_present: false,
+        };
+        self.validate_and_add_block(id, &mut chain, block).await?;
+        self.populate_block(&company, &chain, &keys, None).await?;
+        Ok(result)
+    }
+    async fn mint_records(&self, id: &NodeId) -> Result<Vec<MintRecordView>> {
+        validate_node_id_network(id)?;
+        let keys = self.store.get_key_pair(id).await?;
+        let identity_keys = self.identity_store.get_key_pair().await?;
+        let chain = self.company_blockchain_store.get_chain(id).await?;
+        chain
+            .authorize_mint_record_signer(&identity_keys, &keys)
+            .map_err(|e| Error::Protocol(e.into()))?;
+        chain
+            .mint_records(&keys)
+            .map_err(|e| Error::Protocol(e.into()))
+    }
+    async fn add_mint_record_dispute(
+        &self,
+        id: &NodeId,
+        entry_block_id: bcr_ebill_core::protocol::BlockId,
+        statement: String,
+    ) -> Result<()> {
+        validate_node_id_network(id)?;
+        let company = self.store.get(id).await?;
+        let keys = self.store.get_key_pair(id).await?;
+        let identity_keys = self.identity_store.get_key_pair().await?;
+        let mut chain = self.company_blockchain_store.get_chain(id).await?;
+        chain
+            .authorize_mint_record_signer(&identity_keys, &keys)
+            .map_err(|e| Error::Protocol(e.into()))?;
+        let records = chain
+            .mint_records(&keys)
+            .map_err(|e| Error::Protocol(e.into()))?;
+        let record = records
+            .iter()
+            .find(|r| r.block_id == entry_block_id)
+            .ok_or(Error::NotFound)?;
+        let timestamp = Timestamp::now();
+        let data = MintRecordDisputeBlockData {
+            entry_block_id,
+            entry_digest: record.digest.clone(),
+            statement,
+            created_at: timestamp,
+        };
+        let block = chain
+            .create_mint_record_dispute(&data, &identity_keys, &keys, timestamp)
+            .map_err(|e| Error::Protocol(e.into()))?;
+        self.validate_and_add_block(id, &mut chain, block).await?;
+        self.populate_block(&company, &chain, &keys, None).await?;
+        Ok(())
+    }
+    async fn mint_record_snapshot(
+        &self,
+        id: &NodeId,
+        request: MintRecordSnapshotRequest,
+    ) -> Result<MintRecordSnapshot> {
+        validate_node_id_network(id)?;
+        let keys = self.store.get_key_pair(id).await?;
+        let identity_keys = self.identity_store.get_key_pair().await?;
+        let chain = self.company_blockchain_store.get_chain(id).await?;
+        chain
+            .authorize_mint_record_signer(&identity_keys, &keys)
+            .map_err(|e| Error::Protocol(e.into()))?;
+        chain
+            .mint_record_snapshot(&keys, request, Timestamp::now())
+            .map_err(|e| Error::Protocol(e.into()))
+    }
+
     async fn list_signatories(&self, id: &NodeId) -> Result<Vec<(CompanySignatory, Contact)>> {
         validate_node_id_network(id, self.config.bitcoin_network())?;
         if !self.store.exists(id).await {

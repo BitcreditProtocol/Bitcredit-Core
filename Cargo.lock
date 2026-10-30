@@ -486,6 +486,7 @@ name = "bcr-ebill-core"
 version = "0.6.0"
 dependencies = [
  "ammonia",
+ "base64 0.23.1",
  "bcr-common",
  "bip39 3.0.0",
  "bitcoin",
@@ -540,6 +541,7 @@ version = "0.6.0"
 dependencies = [
  "async-broadcast",
  "async-trait",
+ "base64 0.23.1",
  "bcr-common",
  "bcr-ebill-api",
  "bcr-ebill-core",

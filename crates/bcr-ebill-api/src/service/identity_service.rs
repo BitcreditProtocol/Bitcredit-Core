@@ -16,6 +16,10 @@ use crate::util::validate_node_id_network;
 use crate::{Config, util};
 use bcr_ebill_core::application::contact::Contact;
 use bcr_ebill_core::protocol::blockchain::bill::ContactType;
+use bcr_ebill_core::protocol::mint_record::{
+    AddMintRecordResult, MintRecordBlockData, MintRecordDisputeBlockData, MintRecordSnapshot,
+    MintRecordSnapshotRequest, MintRecordView,
+};
 use bcr_ebill_core::protocol::{Address, EditOptionalFieldMode, Zip};
 
 use async_trait::async_trait;
@@ -52,6 +56,18 @@ use uuid::Uuid;
 
 #[async_trait]
 pub trait IdentityServiceApi: ServiceTraitBounds {
+    async fn add_mint_record(&self, data: MintRecordBlockData) -> Result<AddMintRecordResult>;
+    async fn mint_records(&self) -> Result<Vec<MintRecordView>>;
+    async fn add_mint_record_dispute(
+        &self,
+        entry_block_id: bcr_ebill_core::protocol::BlockId,
+        statement: String,
+    ) -> Result<()>;
+    async fn mint_record_snapshot(
+        &self,
+        request: MintRecordSnapshotRequest,
+    ) -> Result<MintRecordSnapshot>;
+
     /// Updates the identity
     async fn update_identity(
         &self,
@@ -389,6 +405,83 @@ impl ServiceTraitBounds for IdentityService {}
 
 #[async_trait]
 impl IdentityServiceApi for IdentityService {
+    async fn add_mint_record(&self, data: MintRecordBlockData) -> Result<AddMintRecordResult> {
+        let full = self.get_full_identity().await?;
+        let keys = full.key_pair;
+        let mut chain = self.blockchain_store.get_chain().await?;
+        data.header().map_err(|e| Error::Protocol(e.into()))?;
+        let records = chain
+            .mint_records(&keys)
+            .map_err(|e| Error::Protocol(e.into()))?;
+        if let Some(existing) = records
+            .iter()
+            .find(|r| r.entry.as_bytes() == data.entry.as_slice())
+        {
+            return Ok(existing.append_result(true));
+        }
+        let block = chain
+            .create_mint_record(&data, &keys, Timestamp::now())
+            .map_err(|e| Error::Protocol(e.into()))?;
+        let header = data.header().map_err(|e| Error::Protocol(e.into()))?;
+        let result = AddMintRecordResult {
+            block_id: block.id,
+            sequence: header.sequence,
+            signing_key: header.issuer.signing_key,
+            already_present: false,
+        };
+        self.validate_and_add_block(&mut chain, block.clone())
+            .await?;
+        self.populate_block(&full.identity, &block, &keys).await?;
+        Ok(result)
+    }
+    async fn mint_records(&self) -> Result<Vec<MintRecordView>> {
+        let keys = self.get_keys().await?;
+        let chain = self.blockchain_store.get_chain().await?;
+        chain
+            .mint_records(&keys)
+            .map_err(|e| Error::Protocol(e.into()))
+    }
+    async fn add_mint_record_dispute(
+        &self,
+        entry_block_id: bcr_ebill_core::protocol::BlockId,
+        statement: String,
+    ) -> Result<()> {
+        let full = self.get_full_identity().await?;
+        let keys = full.key_pair;
+        let mut chain = self.blockchain_store.get_chain().await?;
+        let records = chain
+            .mint_records(&keys)
+            .map_err(|e| Error::Protocol(e.into()))?;
+        let record = records
+            .iter()
+            .find(|r| r.block_id == entry_block_id)
+            .ok_or(Error::NotFound)?;
+        let timestamp = Timestamp::now();
+        let data = MintRecordDisputeBlockData {
+            entry_block_id,
+            entry_digest: record.digest.clone(),
+            statement,
+            created_at: timestamp,
+        };
+        let block = chain
+            .create_mint_record_dispute(&data, &keys, timestamp)
+            .map_err(|e| Error::Protocol(e.into()))?;
+        self.validate_and_add_block(&mut chain, block.clone())
+            .await?;
+        self.populate_block(&full.identity, &block, &keys).await?;
+        Ok(())
+    }
+    async fn mint_record_snapshot(
+        &self,
+        request: MintRecordSnapshotRequest,
+    ) -> Result<MintRecordSnapshot> {
+        let keys = self.get_keys().await?;
+        let chain = self.blockchain_store.get_chain().await?;
+        chain
+            .mint_record_snapshot(&keys, request, Timestamp::now())
+            .map_err(|e| Error::Protocol(e.into()))
+    }
+
     async fn get_full_identity(&self) -> Result<IdentityWithAll> {
         let identity = self.store.get_full().await?;
         Ok(identity)
@@ -1319,6 +1412,75 @@ mod tests {
         manager
     }
 
+    #[tokio::test]
+    async fn mint_record_retry_is_idempotent_without_persistence_or_transport() {
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        use bcr_ebill_core::protocol::mint_record::MintRecordSnapshotPayload;
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../bcr-ebill-wasm/tests/vectors/mint-record-v1.json"
+        ))
+        .unwrap();
+        let case = &fixture["positive"]["identity"];
+        let payload: MintRecordSnapshotPayload =
+            serde_json::from_str(case["snapshot"]["payload"].as_str().unwrap()).unwrap();
+        let blocks = payload
+            .blocks
+            .into_iter()
+            .map(|b| IdentityBlock {
+                id: b.id,
+                plaintext_hash: b.plaintext_hash,
+                hash: b.hash,
+                timestamp: b.timestamp,
+                data: STANDARD.decode(b.data).unwrap(),
+                public_key: b.public_key,
+                previous_hash: b.previous_hash,
+                signature: bcr_ebill_core::protocol::SchnorrSignature::from(
+                    b.signature
+                        .parse::<bitcoin::secp256k1::schnorr::Signature>()
+                        .unwrap(),
+                ),
+                op_code: b.op_code.parse().unwrap(),
+            })
+            .collect();
+        let chain = IdentityBlockchain::new_from_blocks(blocks).unwrap();
+        let mut secret = [0u8; 32];
+        secret[31] = 3;
+        let key = BcrKeys::from_private_key(&SecretKey::from_slice(&secret).unwrap());
+        let mut identity = empty_identity();
+        identity.node_id = bcr_common::core::NodeId::new(key.pub_key(), bitcoin::Network::Regtest);
+        let full = IdentityWithAll {
+            identity,
+            key_pair: key,
+        };
+        let mut store = MockIdentityStoreApiMock::new();
+        store
+            .expect_get_full()
+            .times(2)
+            .returning(move || Ok(full.clone()));
+        let mut chain_store = MockIdentityChainStoreApiMock::new();
+        chain_store
+            .expect_get_chain()
+            .times(2)
+            .returning(move || Ok(chain.clone()));
+        let service =
+            get_service_with_chain_storage(store, chain_store, MockTransportServiceApi::new());
+        let e = &case["entries"][0];
+        let data = MintRecordBlockData::from_text(
+            e["entry"].as_str().unwrap().into(),
+            e["signature"].as_str().unwrap(),
+        )
+        .unwrap();
+        for _ in 0..2 {
+            let result = service.add_mint_record(data.clone()).await.unwrap();
+            assert!(result.already_present);
+            assert_eq!(result.block_id.inner(), 2);
+            assert_eq!(result.sequence, 1);
+            assert_eq!(
+                result.signing_key,
+                e["header"]["issuer"]["signingKey"].as_str().unwrap()
+            );
+        }
+    }
     fn get_service(mock_storage: MockIdentityStoreApiMock) -> IdentityService {
         let mut transport_service = MockTransportServiceApi::new();
         transport_service

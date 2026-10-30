@@ -773,6 +773,9 @@ impl IdentityChainEventProcessor {
         keys: &BcrKeys,
         identity_id: &NodeId,
     ) -> Result<IdentityBlockchain> {
+        chain
+            .validate_mint_record_block(block, keys)
+            .map_err(|e| Error::Blockchain(e.to_string()))?;
         let block_id = block.id;
         // verify signature and signer of the block and get data to validate
         let verify_and_get_signer = match block.verify_and_get_signer(keys) {
@@ -1065,6 +1068,105 @@ pub mod tests {
     use nostr::event::FinalizeEvent;
     use std::sync::Arc;
 
+    #[test]
+    fn mint_record_portable_vectors_use_real_receipt_validation() {
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        use bcr_ebill_core::protocol::{SchnorrSignature, mint_record::MintRecordSnapshotPayload};
+        let (
+            chain_store,
+            store,
+            contact,
+            company_invite,
+            bill_invite,
+            chain_event_store,
+            transport,
+            contact_store,
+        ) = create_mocks();
+        let handler = IdentityChainEventProcessor::new(
+            Arc::new(chain_store),
+            Arc::new(store),
+            Arc::new(MockFileReferenceStore::new()),
+            Arc::new(company_invite),
+            Arc::new(bill_invite),
+            Arc::new(contact),
+            Arc::new(chain_event_store),
+            Arc::new(transport),
+            Arc::new(contact_store),
+            bitcoin::Network::Regtest,
+        );
+
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../bcr-ebill-wasm/tests/vectors/mint-record-v1.json"
+        ))
+        .unwrap();
+        let mut secret = [0u8; 32];
+        secret[31] = 3;
+        let key =
+            BcrKeys::from_private_key(&bitcoin::secp256k1::SecretKey::from_slice(&secret).unwrap());
+        let mut cases = vec![fixture["positive"]["identity"].clone()];
+        cases.extend(
+            fixture["negative"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|c| {
+                    matches!(
+                        c["name"].as_str().unwrap(),
+                        "bad_entry_signature"
+                            | "wrong_network"
+                            | "wrong_subject"
+                            | "sequence_gap"
+                            | "wrong_previous_entry_digest"
+                            | "oversize_entry"
+                            | "wrong_schema"
+                            | "dispute_with_wrong_digest"
+                            | "broken_previous_hash_link"
+                            | "bad_block_signature"
+                    )
+                })
+                .cloned(),
+        );
+        for case in cases {
+            let payload: MintRecordSnapshotPayload =
+                serde_json::from_str(case["snapshot"]["payload"].as_str().unwrap()).unwrap();
+            let blocks: Vec<IdentityBlock> = payload
+                .blocks
+                .into_iter()
+                .map(|b| IdentityBlock {
+                    id: b.id,
+                    plaintext_hash: b.plaintext_hash,
+                    hash: b.hash,
+                    timestamp: b.timestamp,
+                    data: STANDARD.decode(b.data).unwrap(),
+                    public_key: b.public_key,
+                    previous_hash: b.previous_hash,
+                    signature: SchnorrSignature::from(
+                        b.signature
+                            .parse::<bitcoin::secp256k1::schnorr::Signature>()
+                            .unwrap(),
+                    ),
+                    op_code: b.op_code.parse().unwrap(),
+                })
+                .collect();
+            let mut chain = IdentityBlockchain::new_from_blocks(vec![blocks[0].clone()]).unwrap();
+            let mut refused = false;
+            for block in blocks.into_iter().skip(1) {
+                if handler
+                    .validate_identity_block_for_chain(
+                        &mut chain,
+                        &block,
+                        &key,
+                        &payload.subject_node_id,
+                    )
+                    .is_err()
+                {
+                    refused = true;
+                    break;
+                }
+            }
+            assert_eq!(refused, case["expected"] == "reject", "{}", case["name"]);
+        }
+    }
     #[tokio::test]
     async fn test_create_event_handler() {
         let (
