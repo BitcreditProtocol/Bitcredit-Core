@@ -1491,7 +1491,7 @@ pub mod tests {
     };
 
     #[test]
-    fn mint_record_portable_vectors_use_real_receipt_validation() {
+    fn mint_record_portable_vectors_and_invalid_blocks_use_real_receipt_validation() {
         use base64::{Engine as _, engine::general_purpose::STANDARD};
         use bcr_ebill_core::protocol::{SchnorrSignature, mint_record::MintRecordSnapshotPayload};
         let (
@@ -1529,7 +1529,7 @@ pub mod tests {
         secret[31] = 7;
         let key =
             BcrKeys::from_private_key(&bitcoin::secp256k1::SecretKey::from_slice(&secret).unwrap());
-        let mut cases = vec![fixture["positive"]["company"].clone()];
+        let cases = vec![fixture["positive"]["company"].clone()];
         for case in cases {
             let payload: MintRecordSnapshotPayload =
                 serde_json::from_str(case["snapshot"]["payload"].as_str().unwrap()).unwrap();
@@ -1566,6 +1566,134 @@ pub mod tests {
                 }
             }
             assert_eq!(refused, case["expected"] == "reject", "{}", case["name"]);
+            if !refused {
+                use bcr_ebill_core::protocol::{
+                    blockchain::{Block, company::CompanyOpCode},
+                    mint_record::{
+                        ENTRY_DOMAIN, MintRecordBlockData, MintRecordDisputeBlockData, domain_hash,
+                    },
+                };
+                use bitcoin::secp256k1::{Keypair, Message, SECP256K1};
+
+                // All malformed payloads have valid issuer and block signatures. Only the
+                // receipt path's plaintext validation can reject them for these reasons.
+                let mut issuer_secret = [0u8; 32];
+                issuer_secret[31] = 5;
+                let issuer = BcrKeys::from_private_key(
+                    &bitcoin::secp256k1::SecretKey::from_slice(&issuer_secret).unwrap(),
+                );
+                let mut personal_secret = [0u8; 32];
+                personal_secret[31] = 3;
+                let personal = BcrKeys::from_private_key(
+                    &bitcoin::secp256k1::SecretKey::from_slice(&personal_secret).unwrap(),
+                );
+                let records = chain.mint_records(&key).unwrap();
+                let record = records
+                    .iter()
+                    .rev()
+                    .find(|r| {
+                        r.header.issuer.signing_key
+                            == issuer.pub_key().x_only_public_key().0.to_string()
+                    })
+                    .unwrap();
+                let mut next: serde_json::Value = serde_json::from_str(&record.entry).unwrap();
+                next["sequence"] = (record.header.sequence + 1).into();
+                next["previousEntryDigest"] = record.digest.clone().into();
+                let timestamp = chain.get_latest_block().timestamp;
+                let original_head = chain.get_latest_block().hash.clone();
+                let previous = chain.get_latest_block().clone();
+                let received_block = |plaintext: Vec<u8>, op_code| {
+                    let mut block = previous.clone();
+                    block.id = previous.id.add(1);
+                    block.previous_hash = previous.hash.clone();
+                    block.op_code = op_code;
+                    block.plaintext_hash = Sha256Hash::from_bytes(&plaintext);
+                    let encrypted =
+                        bcr_ebill_core::protocol::crypto::encrypt_ecies(&plaintext, &key.pub_key())
+                            .unwrap();
+                    block.data = borsh::to_vec(&(encrypted, None::<String>)).unwrap();
+                    block.hash =
+                        CompanyBlock::calculate_hash(block.get_block_data_to_hash()).unwrap();
+                    let signing_key = personal
+                        .get_private_key()
+                        .add_tweak(&bitcoin::secp256k1::Scalar::from(key.get_private_key()))
+                        .unwrap();
+                    block.signature = SchnorrSignature::from(SECP256K1.sign_schnorr_no_aux_rand(
+                        &Message::from_digest(block.hash.decode_to_array()),
+                        &Keypair::from_secret_key(SECP256K1, &signing_key),
+                    ));
+                    assert!(block.validate_with_previous(&previous));
+                    assert!(block.validate_plaintext_hash(&key.get_private_key()));
+                    block
+                };
+                for (field, value, expected) in [
+                    ("network", serde_json::json!("signet"), "wrong network"),
+                    (
+                        "sequence",
+                        serde_json::json!(record.header.sequence + 2),
+                        "sequence gap",
+                    ),
+                    (
+                        "previousEntryDigest",
+                        serde_json::json!("sha256:00"),
+                        "wrong previousEntryDigest",
+                    ),
+                ] {
+                    let mut value_with_error = next.clone();
+                    value_with_error[field] = value;
+                    let entry = serde_json::to_vec(&value_with_error).unwrap();
+                    let signature = SECP256K1
+                        .sign_schnorr_no_aux_rand(
+                            &Message::from_digest(domain_hash(ENTRY_DOMAIN, &entry)),
+                            &Keypair::from_secret_key(SECP256K1, &issuer.get_private_key()),
+                        )
+                        .serialize();
+                    let data = MintRecordBlockData { entry, signature };
+                    let block =
+                        received_block(borsh::to_vec(&data).unwrap(), CompanyOpCode::MintRecord);
+                    let error = handler
+                        .validate_company_block_for_chain(&mut chain, &block, &key)
+                        .unwrap_err();
+                    assert!(
+                        matches!(error, bcr_ebill_api::service::transport_service::Error::Blockchain(ref reason)
+                        if reason == &format!("Mint record: {expected}")),
+                        "{field}: {error:?}"
+                    );
+                    assert_eq!(chain.get_latest_block().hash, original_head);
+                }
+                for (entry_block_id, entry_digest, expected) in [
+                    (
+                        record.block_id,
+                        "sha256:00".to_string(),
+                        "dispute with wrong digest",
+                    ),
+                    (
+                        chain.get_latest_block().id.add(10),
+                        record.digest.clone(),
+                        "dispute entry not found",
+                    ),
+                ] {
+                    let data = MintRecordDisputeBlockData {
+                        entry_block_id,
+                        entry_digest,
+                        statement: "I dispute the recorded date.".into(),
+                        created_at: timestamp,
+                    };
+                    let block = received_block(
+                        borsh::to_vec(&data).unwrap(),
+                        CompanyOpCode::MintRecordDispute,
+                    );
+                    let error = handler
+                        .validate_company_block_for_chain(&mut chain, &block, &key)
+                        .unwrap_err();
+                    assert!(
+                        matches!(error, bcr_ebill_api::service::transport_service::Error::Blockchain(ref reason)
+                        if reason == &format!("Mint record: {expected}")),
+                        "{expected}: {error:?}"
+                    );
+                    assert_eq!(chain.get_latest_block().hash, original_head);
+                }
+            }
         }
     }
     #[tokio::test]
