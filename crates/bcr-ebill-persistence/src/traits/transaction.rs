@@ -1,11 +1,14 @@
 use crate::Result;
 use async_trait::async_trait;
-use bcr_common::core::NodeId;
+use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::{
-    application::{ServiceTraitBounds, company::Company, identity::Identity},
+    application::{
+        ServiceTraitBounds, bill::BitcreditBillResult, company::Company, identity::Identity,
+    },
     protocol::{
-        BlockId, EmailIdentityProofData, SignedIdentityProof, blockchain::company::CompanyBlock,
-        blockchain::identity::IdentityBlock,
+        BlockId, EmailIdentityProofData, SignedIdentityProof,
+        blockchain::{bill::BillBlock, company::CompanyBlock, identity::IdentityBlock},
+        crypto::BcrKeys,
     },
 };
 
@@ -31,7 +34,9 @@ pub trait TransactionManagerApi: ServiceTraitBounds {
 /// When multiple chain locks are acquired, callers must follow the
 /// lock ordering mentioned above
 #[async_trait]
-pub trait PersistenceTransactionApi: IdentityTransactionApi + CompanyTransactionApi + Send {
+pub trait PersistenceTransactionApi:
+    IdentityTransactionApi + CompanyTransactionApi + BillTransactionApi + Send
+{
     async fn commit(self: Box<Self>) -> Result<()>;
 }
 
@@ -81,5 +86,29 @@ pub trait CompanyTransactionApi: Send {
         company_id: &NodeId,
         proof: &SignedIdentityProof,
         data: &EmailIdentityProofData,
+    ) -> Result<()>;
+}
+
+#[async_trait]
+pub trait BillTransactionApi: Send {
+    async fn append_bill_blocks(
+        &mut self,
+        bill_id: &BillId,
+        expected_latest: Option<&BillBlock>,
+        blocks: &[BillBlock],
+    ) -> Result<()>;
+    async fn replace_bill_blocks_from_height(
+        &mut self,
+        bill_id: &BillId,
+        expected_latest: &BillBlock,
+        from_block_id: BlockId,
+        replacement_blocks: &[BillBlock],
+    ) -> Result<()>;
+    async fn save_bill_keys(&mut self, bill_id: &BillId, keys: &BcrKeys) -> Result<()>;
+    async fn save_bill_to_cache(
+        &mut self,
+        bill_id: &BillId,
+        identity_node_id: &NodeId,
+        bill: &BitcreditBillResult,
     ) -> Result<()>;
 }

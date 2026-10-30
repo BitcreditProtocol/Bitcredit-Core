@@ -106,6 +106,7 @@ impl Context {
             mint_client.clone(),
             court_client,
             db.nostr_contact_store.clone(),
+            db.transaction_mgr.clone(),
         ));
 
         let identity_service = IdentityService::new(
