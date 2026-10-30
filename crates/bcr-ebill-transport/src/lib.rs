@@ -149,6 +149,7 @@ pub async fn create_transport_service(
         db_context.nostr_chain_event_store.clone(),
         transport.clone(),
         mint_client,
+        db_context.transaction_mgr.clone(),
         config.bitcoin_network(),
         config.clone(),
     ));
@@ -168,6 +169,7 @@ pub async fn create_transport_service(
         db_context.nostr_chain_event_store.clone(),
         transport.clone(),
         db_context.contact_store.clone(),
+        db_context.transaction_mgr.clone(),
         config.bitcoin_network(),
         config.clone(),
     ));
@@ -186,6 +188,7 @@ pub async fn create_transport_service(
         db_context.nostr_chain_event_store.clone(),
         transport.clone(),
         db_context.contact_store.clone(),
+        db_context.transaction_mgr.clone(),
         config.bitcoin_network(),
         config.clone(),
     ));
@@ -263,6 +266,7 @@ pub async fn create_nostr_consumer(
         db_context.nostr_chain_event_store.clone(),
         transport.clone(),
         mint_client,
+        db_context.transaction_mgr.clone(),
         config.bitcoin_network(),
         config.clone(),
     ));
@@ -284,6 +288,7 @@ pub async fn create_nostr_consumer(
         db_context.nostr_chain_event_store.clone(),
         transport.clone(),
         db_context.contact_store.clone(),
+        db_context.transaction_mgr.clone(),
         config.bitcoin_network(),
         config.clone(),
     ));
@@ -304,6 +309,7 @@ pub async fn create_nostr_consumer(
         db_context.nostr_chain_event_store.clone(),
         transport.clone(),
         db_context.contact_store.clone(),
+        db_context.transaction_mgr.clone(),
         config.bitcoin_network(),
         config.clone(),
     ));
@@ -398,6 +404,7 @@ pub async fn create_restore_account_service(
         db_context.nostr_chain_event_store.clone(),
         nostr_client.clone(),
         mint_client,
+        db_context.transaction_mgr.clone(),
         config.bitcoin_network(),
         config.clone(),
     ));
@@ -419,6 +426,7 @@ pub async fn create_restore_account_service(
         db_context.nostr_chain_event_store.clone(),
         nostr_client.clone(),
         db_context.contact_store.clone(),
+        db_context.transaction_mgr.clone(),
         config.bitcoin_network(),
         config.clone(),
     ));
@@ -448,6 +456,7 @@ pub async fn create_restore_account_service(
         db_context.nostr_chain_event_store.clone(),
         nostr_client.clone(),
         db_context.contact_store.clone(),
+        db_context.transaction_mgr.clone(),
         config.bitcoin_network(),
         config.clone(),
     ));

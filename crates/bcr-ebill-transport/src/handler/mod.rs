@@ -383,16 +383,20 @@ mod test_utils {
         CompanyUpdateBlockData, SignatoryType,
     };
     use bcr_ebill_core::protocol::blockchain::identity::IdentityUpdateBlockData;
+    use bcr_ebill_core::protocol::blockchain::{
+        bill::BillBlock, company::CompanyBlock, identity::IdentityBlock,
+    };
     use bcr_ebill_core::protocol::{
         Address, BlockId, City, Country, Date, Email, Identification, Name, OptionalPostalAddress,
         PostalAddress, PublicKey, SecretKey, Sum, Timestamp,
         blockchain::bill::participant::{BillIdentParticipant, BillParticipant},
         blockchain::{
+            BlockchainType,
             bill::{
-                BillBlock, BillBlockchain, BillOpCode, BitcreditBill,
+                BillBlockchain, BillOpCode, BitcreditBill,
                 block::{BillIssueBlockData, ContactType},
             },
-            company::{CompanyBlock, CompanyBlockchain},
+            company::CompanyBlockchain,
             identity::IdentityType,
         },
         crypto::BcrKeys,
@@ -402,12 +406,18 @@ mod test_utils {
         BitcoinAddress, EditOptionalFieldMode, EmailIdentityProofData, Sha256Hash,
         SignedIdentityProof, blockchain::bill::BillToShareWithExternalParty,
     };
+    use bcr_ebill_persistence::traits::transaction::{
+        BillTransactionApi, CompanyTransactionApi, IdentityTransactionApi,
+        NostrChainEventTransactionApi, PersistenceTransactionApi, TransactionManagerApi,
+    };
     use bcr_ebill_persistence::{
         NostrChainEventStoreApi, NotificationStoreApi, Result, ShareDirection,
         traits::bill::{BillChainStoreApi, BillStoreApi},
         traits::company::{CompanyChainStoreApi, CompanyStoreApi},
         traits::identity::{IdentityChainStoreApi, IdentityStoreApi},
-        traits::nostr::{NostrContactStoreApi, PendingContactShare, RelaySyncStatus, SyncStatus},
+        traits::nostr::{
+            NostrChainEvent, NostrContactStoreApi, PendingContactShare, RelaySyncStatus, SyncStatus,
+        },
         traits::notification::NotificationFilter,
     };
     use mockall::mock;
@@ -765,6 +775,259 @@ mod test_utils {
         }
     }
 
+    mock! {
+        pub TransactionManagerApiMock {}
+
+        impl ServiceTraitBounds for TransactionManagerApiMock{}
+
+        #[async_trait]
+        impl TransactionManagerApi for TransactionManagerApiMock{
+            async fn begin(&self) -> Result<Box<dyn bcr_ebill_persistence::traits::transaction::PersistenceTransactionApi>>;
+        }
+    }
+
+    // Workaround for https://github.com/asomers/mockall/issues/571 because of Option<&IdentityBlock>
+    mock! {
+        pub PersistenceTransactionApiMock {
+            pub async fn append_identity_blocks<'a>(
+                &'a mut self,
+                expected_latest: Option<&'a IdentityBlock>,
+                blocks: &[IdentityBlock],
+            ) -> Result<()>;
+            pub async fn replace_identity_blocks_from_height(
+                &mut self,
+                expected_latest: &IdentityBlock,
+                from_block_id: BlockId,
+                replacement_blocks: &[IdentityBlock],
+            ) -> Result<()>;
+            pub async fn save_identity(
+                &mut self,
+                identity: &Identity,
+            ) -> Result<()>;
+            pub async fn set_identity_email_confirmation(
+                &mut self,
+                proof: &SignedIdentityProof,
+                data: &EmailIdentityProofData,
+            ) -> Result<()>;
+            pub async fn append_company_blocks<'a>(
+                &'a mut self,
+                company_id: &NodeId,
+                expected_latest: Option<&'a CompanyBlock>,
+                blocks: &[CompanyBlock],
+            ) -> Result<()>;
+            pub async fn replace_company_blocks_from_height(
+                &mut self,
+                company_id: &NodeId,
+                expected_latest: &CompanyBlock,
+                from_block_id: BlockId,
+                replacement_blocks: &[CompanyBlock],
+            ) -> Result<()>;
+            pub async fn insert_company(&mut self, company: &Company) -> Result<()>;
+            pub async fn update_company(&mut self, company_id: &NodeId, company: &Company) -> Result<()>;
+            pub async fn set_company_email_confirmation(
+                &mut self,
+                company_id: &NodeId,
+                proof: &SignedIdentityProof,
+                data: &EmailIdentityProofData,
+            ) -> Result<()>;
+            pub async fn save_company_key_pair(&mut self, company_id: &NodeId, keys: &BcrKeys) -> Result<()>;
+            pub async fn append_bill_blocks<'a>(
+                &'a mut self,
+                bill_id: &BillId,
+                expected_latest: Option<&'a BillBlock>,
+                blocks: &[BillBlock],
+            ) -> Result<()>;
+            pub async fn replace_bill_blocks_from_height(
+                &mut self,
+                bill_id: &BillId,
+                expected_latest: &BillBlock,
+                from_block_id: BlockId,
+                replacement_blocks: &[BillBlock],
+            ) -> Result<()>;
+            pub async fn save_bill_keys(&mut self, bill_id: &BillId, keys: &BcrKeys) -> Result<()>;
+            pub async fn save_bill_to_cache(
+                &mut self,
+                bill_id: &BillId,
+                identity_node_id: &NodeId,
+                bill: &BitcreditBillResult,
+            ) -> Result<()>;
+            async fn add_chain_event(&mut self, event: &NostrChainEvent) -> Result<()>;
+            async fn remove_chain_events(
+                &mut self,
+                chain_id: &str,
+                chain_type: BlockchainType,
+            ) -> Result<()>;
+        }
+
+        impl ServiceTraitBounds for PersistenceTransactionApiMock {}
+
+        #[async_trait]
+        impl PersistenceTransactionApi for PersistenceTransactionApiMock {
+            async fn commit(self: Box<Self>) -> Result<()>;
+        }
+    }
+
+    // Workaround for https://github.com/asomers/mockall/issues/571 because of Option<&IdentityBlock>
+    #[async_trait]
+    impl IdentityTransactionApi for MockPersistenceTransactionApiMock {
+        async fn append_identity_blocks(
+            &mut self,
+            expected_latest: Option<&IdentityBlock>,
+            blocks: &[IdentityBlock],
+        ) -> Result<()> {
+            MockPersistenceTransactionApiMock::append_identity_blocks(self, expected_latest, blocks)
+                .await
+        }
+        async fn replace_identity_blocks_from_height(
+            &mut self,
+            expected_latest: &IdentityBlock,
+            from_block_id: BlockId,
+            replacement_blocks: &[IdentityBlock],
+        ) -> Result<()> {
+            MockPersistenceTransactionApiMock::replace_identity_blocks_from_height(
+                self,
+                expected_latest,
+                from_block_id,
+                replacement_blocks,
+            )
+            .await
+        }
+        async fn save_identity(&mut self, identity: &Identity) -> Result<()> {
+            MockPersistenceTransactionApiMock::save_identity(self, identity).await
+        }
+        async fn set_identity_email_confirmation(
+            &mut self,
+            proof: &SignedIdentityProof,
+            data: &EmailIdentityProofData,
+        ) -> Result<()> {
+            MockPersistenceTransactionApiMock::set_identity_email_confirmation(self, proof, data)
+                .await
+        }
+    }
+
+    #[async_trait]
+    impl CompanyTransactionApi for MockPersistenceTransactionApiMock {
+        async fn append_company_blocks(
+            &mut self,
+            company_id: &NodeId,
+            expected_latest: Option<&CompanyBlock>,
+            blocks: &[CompanyBlock],
+        ) -> Result<()> {
+            MockPersistenceTransactionApiMock::append_company_blocks(
+                self,
+                company_id,
+                expected_latest,
+                blocks,
+            )
+            .await
+        }
+        async fn replace_company_blocks_from_height(
+            &mut self,
+            company_id: &NodeId,
+            expected_latest: &CompanyBlock,
+            from_block_id: BlockId,
+            replacement_blocks: &[CompanyBlock],
+        ) -> Result<()> {
+            MockPersistenceTransactionApiMock::replace_company_blocks_from_height(
+                self,
+                company_id,
+                expected_latest,
+                from_block_id,
+                replacement_blocks,
+            )
+            .await
+        }
+        async fn insert_company(&mut self, company: &Company) -> Result<()> {
+            MockPersistenceTransactionApiMock::insert_company(self, company).await
+        }
+        async fn update_company(&mut self, company_id: &NodeId, company: &Company) -> Result<()> {
+            MockPersistenceTransactionApiMock::update_company(self, company_id, company).await
+        }
+        async fn set_company_email_confirmation(
+            &mut self,
+            company_id: &NodeId,
+            proof: &SignedIdentityProof,
+            data: &EmailIdentityProofData,
+        ) -> Result<()> {
+            MockPersistenceTransactionApiMock::set_company_email_confirmation(
+                self, company_id, proof, data,
+            )
+            .await
+        }
+        async fn save_company_key_pair(
+            &mut self,
+            company_id: &NodeId,
+            keys: &BcrKeys,
+        ) -> Result<()> {
+            MockPersistenceTransactionApiMock::save_company_key_pair(self, company_id, keys).await
+        }
+    }
+
+    #[async_trait]
+    impl BillTransactionApi for MockPersistenceTransactionApiMock {
+        async fn append_bill_blocks(
+            &mut self,
+            bill_id: &BillId,
+            expected_latest: Option<&BillBlock>,
+            blocks: &[BillBlock],
+        ) -> Result<()> {
+            MockPersistenceTransactionApiMock::append_bill_blocks(
+                self,
+                bill_id,
+                expected_latest,
+                blocks,
+            )
+            .await
+        }
+        async fn replace_bill_blocks_from_height(
+            &mut self,
+            bill_id: &BillId,
+            expected_latest: &BillBlock,
+            from_block_id: BlockId,
+            replacement_blocks: &[BillBlock],
+        ) -> Result<()> {
+            MockPersistenceTransactionApiMock::replace_bill_blocks_from_height(
+                self,
+                bill_id,
+                expected_latest,
+                from_block_id,
+                replacement_blocks,
+            )
+            .await
+        }
+        async fn save_bill_keys(&mut self, bill_id: &BillId, keys: &BcrKeys) -> Result<()> {
+            MockPersistenceTransactionApiMock::save_bill_keys(self, bill_id, keys).await
+        }
+        async fn save_bill_to_cache(
+            &mut self,
+            bill_id: &BillId,
+            identity_node_id: &NodeId,
+            bill: &BitcreditBillResult,
+        ) -> Result<()> {
+            MockPersistenceTransactionApiMock::save_bill_to_cache(
+                self,
+                bill_id,
+                identity_node_id,
+                bill,
+            )
+            .await
+        }
+    }
+
+    #[async_trait]
+    impl NostrChainEventTransactionApi for MockPersistenceTransactionApiMock {
+        async fn add_chain_event(&mut self, event: &NostrChainEvent) -> Result<()> {
+            MockPersistenceTransactionApiMock::add_chain_event(self, event).await
+        }
+        async fn remove_chain_events(
+            &mut self,
+            chain_id: &str,
+            chain_type: BlockchainType,
+        ) -> Result<()> {
+            MockPersistenceTransactionApiMock::remove_chain_events(self, chain_id, chain_type).await
+        }
+    }
+
     pub fn get_test_nostr_event() -> nostr::event::Event {
         EventBuilder::new(nostr::event::Kind::TextNote, "message")
             .finalize(&nostr::key::Keys::generate())
@@ -999,5 +1262,16 @@ mod test_utils {
             profile_picture_file: EditOptionalFieldMode::Ignore,
             identity_document_file: EditOptionalFieldMode::Ignore,
         }
+    }
+
+    pub fn transaction_manager_with(
+        tx: MockPersistenceTransactionApiMock,
+    ) -> MockTransactionManagerApiMock {
+        let mut manager = MockTransactionManagerApiMock::new();
+        manager
+            .expect_begin()
+            .once()
+            .return_once(move || Ok(Box::new(tx) as Box<dyn PersistenceTransactionApi>));
+        manager
     }
 }

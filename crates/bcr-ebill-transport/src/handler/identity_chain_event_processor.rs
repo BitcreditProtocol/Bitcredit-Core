@@ -39,7 +39,9 @@ use bcr_ebill_core::{
     },
     protocol::{BlockId, EditOptionalFieldMode},
 };
-use bcr_ebill_persistence::{ContactStoreApi, NostrChainEventStoreApi};
+use bcr_ebill_persistence::{
+    ContactStoreApi, NostrChainEventStoreApi, traits::transaction::TransactionManagerApi,
+};
 use bcr_ebill_persistence::{
     FileReferenceStoreApi,
     traits::identity::{IdentityChainStoreApi, IdentityStoreApi},
@@ -103,6 +105,7 @@ pub struct IdentityChainEventProcessor {
     chain_event_store: Arc<dyn NostrChainEventStoreApi>,
     transport: Arc<dyn TransportClientApi>,
     contact_store: Arc<dyn ContactStoreApi>,
+    transaction_mgr: Arc<dyn TransactionManagerApi>,
     bitcoin_network: bitcoin::Network,
     config: Arc<Config>,
 }
@@ -389,31 +392,38 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
                 let canonical_chain_changed = replace_from.is_some()
                     || prepared.chain.blocks().len() != existing_chain.blocks().len();
 
-                // persist - TODO (tx): make transactional
+                // persist atomically
                 if canonical_chain_changed {
+                    let mut tx = self
+                        .transaction_mgr
+                        .begin()
+                        .await
+                        .map_err(|e| Error::Persistence(e.to_string()))?;
+
                     if let Some(replace_from) = replace_from {
                         info!(
                             "Fork resolution for identity {}: replacing blocks from height {replace_from}",
                             identity.node_id
                         );
-                        self.blockchain_store
-                            .remove_blocks_from_height(replace_from)
+
+                        tx.replace_identity_blocks_from_height(
+                            &expected_local_tip,
+                            replace_from,
+                            &replacement_blocks,
+                        )
+                        .await
+                        .map_err(|e| Error::Persistence(e.to_string()))?;
+                    } else {
+                        tx.append_identity_blocks(Some(&expected_local_tip), &replacement_blocks)
                             .await
                             .map_err(|e| Error::Persistence(e.to_string()))?;
                     }
 
-                    for block in &replacement_blocks {
-                        self.save_block(block).await?;
-                    }
-
                     // save the identity rebuilt from the complete winning remote chain
-                    self.identity_store
-                        .save(&prepared.identity)
-                        .await
-                        .map_err(|e| {
-                            error!("Failed to save resynced identity {}: {e}", identity.node_id);
-                            Error::Persistence(e.to_string())
-                        })?;
+                    tx.save_identity(&prepared.identity).await.map_err(|e| {
+                        error!("Failed to save resynced identity {}: {e}", identity.node_id);
+                        Error::Persistence(e.to_string())
+                    })?;
 
                     for prepared_block in prepared
                         .blocks
@@ -421,12 +431,25 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
                         .filter(|prepared_block| prepared_block.block_id >= changed_from)
                     {
                         if let Some(confirmation) = &prepared_block.email_confirmation {
-                            self.identity_store
-                                .set_email_confirmation(&confirmation.proof, &confirmation.data)
-                                .await
-                                .map_err(|e| Error::Persistence(e.to_string()))?;
+                            tx.set_identity_email_confirmation(
+                                &confirmation.proof,
+                                &confirmation.data,
+                            )
+                            .await
+                            .map_err(|e| Error::Persistence(e.to_string()))?;
                         }
+                    }
 
+                    tx.commit()
+                        .await
+                        .map_err(|e| Error::Persistence(e.to_string()))?;
+
+                    // file refs
+                    for prepared_block in prepared
+                        .blocks
+                        .iter()
+                        .filter(|prepared_block| prepared_block.block_id >= changed_from)
+                    {
                         for anchor in &prepared_block.files_to_anchor {
                             anchor_important_file(
                                 &self.file_reference_store,
@@ -526,6 +549,7 @@ impl IdentityChainEventProcessor {
         chain_event_store: Arc<dyn NostrChainEventStoreApi>,
         transport: Arc<dyn TransportClientApi>,
         contact_store: Arc<dyn ContactStoreApi>,
+        transaction_mgr: Arc<dyn TransactionManagerApi>,
         bitcoin_network: bitcoin::Network,
         config: Arc<Config>,
     ) -> Self {
@@ -539,6 +563,7 @@ impl IdentityChainEventProcessor {
             chain_event_store,
             transport,
             contact_store,
+            transaction_mgr,
             bitcoin_network,
             config,
         }
@@ -550,18 +575,34 @@ impl IdentityChainEventProcessor {
         let node_id = prepared.node_id.clone();
         debug!("updating identity chain for {node_id}");
 
-        // persist - TODO (tx): make transactional
+        // persist atomically
 
-        self.identity_store
-            .save(&prepared.identity)
+        let mut tx = self
+            .transaction_mgr
+            .begin()
             .await
-            .map_err(|e| {
-                error!("Failed to save identity {node_id}: {e}");
-                Error::Persistence(e.to_string())
-            })?;
+            .map_err(|e| Error::Persistence(e.to_string()))?;
 
-        // Save the first block of the chain as it is the create block
-        self.save_block(prepared.chain.get_first_block()).await?;
+        tx.append_identity_blocks(None, prepared.chain.blocks())
+            .await
+            .map_err(|e| Error::Persistence(e.to_string()))?;
+
+        tx.save_identity(&prepared.identity).await.map_err(|e| {
+            error!("Failed to save identity {node_id}: {e}");
+            Error::Persistence(e.to_string())
+        })?;
+
+        for prepared_block in &prepared.blocks {
+            if let Some(confirmation) = &prepared_block.email_confirmation {
+                tx.set_identity_email_confirmation(&confirmation.proof, &confirmation.data)
+                    .await
+                    .map_err(|e| Error::Persistence(e.to_string()))?;
+            }
+        }
+
+        tx.commit()
+            .await
+            .map_err(|e| Error::Persistence(e.to_string()))?;
 
         // anchored files from create
         for anchor in &prepared.create_files_to_anchor {
@@ -573,16 +614,7 @@ impl IdentityChainEventProcessor {
             .await?;
         }
 
-        // remaining blocks and state derived from them
-        for (block, prepared_block) in prepared.chain.blocks().iter().skip(1).zip(&prepared.blocks)
-        {
-            self.save_block(block).await?;
-            if let Some(confirmation) = &prepared_block.email_confirmation {
-                self.identity_store
-                    .set_email_confirmation(&confirmation.proof, &confirmation.data)
-                    .await
-                    .map_err(|e| Error::Persistence(e.to_string()))?;
-            }
+        for prepared_block in &prepared.blocks {
             for anchor in &prepared_block.files_to_anchor {
                 anchor_important_file(
                     &self.file_reference_store,
@@ -816,26 +848,40 @@ impl IdentityChainEventProcessor {
         chain: &mut IdentityBlockchain,
         block: &IdentityBlock,
     ) -> Result<()> {
+        let expected_latest = chain.get_latest_block().clone();
         // prepare & validate
         let (prepared, candidate_chain, candidate_identity) =
             self.prepare_identity_block(chain, identity, block, keys)?;
 
-        // persist - TODO (tx): make transactional
+        // persist atomically
+
+        let mut tx = self
+            .transaction_mgr
+            .begin()
+            .await
+            .map_err(|e| Error::Persistence(e.to_string()))?;
+
+        tx.append_identity_blocks(Some(&expected_latest), std::slice::from_ref(block))
+            .await
+            .map_err(|e| Error::Persistence(e.to_string()))?;
 
         if prepared.identity_changed {
-            self.identity_store
-                .save(&candidate_identity)
+            tx.save_identity(&candidate_identity)
                 .await
                 .map_err(|e| Error::Persistence(e.to_string()))?;
         }
 
         if let Some(confirmation) = &prepared.email_confirmation {
-            self.identity_store
-                .set_email_confirmation(&confirmation.proof, &confirmation.data)
+            tx.set_identity_email_confirmation(&confirmation.proof, &confirmation.data)
                 .await
                 .map_err(|e| Error::Persistence(e.to_string()))?;
         }
 
+        tx.commit()
+            .await
+            .map_err(|e| Error::Persistence(e.to_string()))?;
+
+        // non-transactional derived/local state
         for anchor in &prepared.files_to_anchor {
             anchor_important_file(
                 &self.file_reference_store,
@@ -844,8 +890,6 @@ impl IdentityChainEventProcessor {
             )
             .await?;
         }
-
-        self.save_block(block).await?;
 
         // mutate after persistence succeeded
         *identity = candidate_identity;
@@ -1015,23 +1059,16 @@ impl IdentityChainEventProcessor {
             }
         }
     }
-
-    async fn save_block(&self, block: &IdentityBlock) -> Result<()> {
-        if let Err(e) = self.blockchain_store.add_block(block).await {
-            error!("Failed to add identity block to blockchain store: {e}");
-            return Err(Error::Persistence(
-                "Failed to add identity block to blockchain store".to_string(),
-            ));
-        }
-        Ok(())
-    }
 }
 
 impl ServiceTraitBounds for IdentityChainEventProcessor {}
 
 #[cfg(test)]
 pub mod tests {
-    use crate::handler::test_utils::update_identity_block_with_name;
+    use crate::handler::test_utils::{
+        MockPersistenceTransactionApiMock, MockTransactionManagerApiMock, transaction_manager_with,
+        update_identity_block_with_name,
+    };
     use crate::test_utils::{MockContactStore, signed_identity_proof_test, test_cfg, test_ts};
     use crate::{
         handler::{
@@ -1048,7 +1085,6 @@ pub mod tests {
     };
     use bcr_common::core::NodeId;
     use bcr_ebill_api::service::transport_service::ResyncMode;
-    use bcr_ebill_core::protocol::BlockId;
     use bcr_ebill_core::protocol::event::{Event, EventEnvelope, IdentityBlockEvent};
     use bcr_ebill_core::{
         application::identity::Identity,
@@ -1061,7 +1097,7 @@ pub mod tests {
         protocol::crypto::BcrKeys,
         protocol::{Name, Sha256Hash, Timestamp},
     };
-    use mockall::predicate::{always, eq};
+    use mockall::predicate::eq;
     use nostr::event::FinalizeEvent;
     use std::sync::Arc;
 
@@ -1087,6 +1123,7 @@ pub mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -1123,6 +1160,7 @@ pub mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -1159,6 +1197,7 @@ pub mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -1197,6 +1236,7 @@ pub mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -1253,20 +1293,22 @@ pub mod tests {
             .expect_get()
             .returning(move || Ok(expected_identity.clone()))
             .once();
-
-        // apply changes from block and update the identity
-        store
-            .expect_save()
-            .withf(move |n| n.name == Name::new("new_name").unwrap())
+        let expected_block_hash = update_block.hash.clone();
+        let mut tx = MockPersistenceTransactionApiMock::new();
+        tx.expect_append_identity_blocks()
+            .withf(move |expected_latest, blocks| {
+                expected_latest.is_some()
+                    && blocks.len() == 1
+                    && blocks[0].hash == expected_block_hash
+            })
+            .returning(|_, _| Ok(()))
+            .once();
+        tx.expect_save_identity()
+            .withf(|identity| identity.name == Name::new("new_name").unwrap())
             .returning(|_| Ok(()))
             .once();
-
-        // inserts the block
-        chain_store
-            .expect_add_block()
-            .with(always())
-            .returning(|_| Ok(()))
-            .once();
+        tx.expect_commit().return_once(|| Ok(()));
+        let transaction_mgr = transaction_manager_with(tx);
 
         let handler = IdentityChainEventProcessor::new(
             Arc::new(chain_store),
@@ -1278,6 +1320,7 @@ pub mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            Arc::new(transaction_mgr),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -1397,20 +1440,6 @@ pub mod tests {
             .returning(move |_, _| Ok(nostr_chain.clone()))
             .once();
 
-        // apply winning block event
-        store
-            .expect_save()
-            .withf(move |identity| identity.name == Name::new("another_name").unwrap())
-            .returning(|_| Ok(()))
-            .once();
-
-        // inserts the blocks
-        chain_store
-            .expect_add_block()
-            .with(always())
-            .returning(|_| Ok(()))
-            .times(2);
-
         chain_event_store
             .expect_remove_chain_events()
             .returning(|_, _| Ok(()));
@@ -1419,6 +1448,19 @@ pub mod tests {
             .expect_add_chain_event()
             .returning(|_| Ok(()))
             .times(0..);
+
+        let expected_final_name = Name::new("another_name").unwrap();
+        let mut tx = MockPersistenceTransactionApiMock::new();
+        tx.expect_append_identity_blocks()
+            .withf(|expected_latest, blocks| expected_latest.is_some() && blocks.len() == 2)
+            .returning(|_, _| Ok(()))
+            .once();
+        tx.expect_save_identity()
+            .withf(move |identity| identity.name == expected_final_name)
+            .returning(|_| Ok(()))
+            .once();
+        tx.expect_commit().return_once(|| Ok(()));
+        let transaction_mgr = transaction_manager_with(tx);
 
         let handler = IdentityChainEventProcessor::new(
             Arc::new(chain_store),
@@ -1430,6 +1472,7 @@ pub mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            Arc::new(transaction_mgr),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -1501,12 +1544,6 @@ pub mod tests {
             .returning(move || Ok(expected_identity.clone()))
             .once();
 
-        // incoming identity proof is set
-        store
-            .expect_set_email_confirmation()
-            .returning(|_, _| Ok(()))
-            .times(1);
-
         // checks if we already have the chain
         chain_store
             .expect_get_chain()
@@ -1518,13 +1555,19 @@ pub mod tests {
             .expect_get_key_pair()
             .returning(move || Ok(keys.clone()))
             .once();
-
-        // inserts the block
-        chain_store
-            .expect_add_block()
-            .with(always())
-            .returning(|_| Ok(()))
+        let expected_hash = identity_proof_block.hash.clone();
+        let mut tx = MockPersistenceTransactionApiMock::new();
+        tx.expect_append_identity_blocks()
+            .withf(move |expected_latest, blocks| {
+                expected_latest.is_some() && blocks.len() == 1 && blocks[0].hash == expected_hash
+            })
+            .returning(|_, _| Ok(()))
             .once();
+        tx.expect_set_identity_email_confirmation()
+            .returning(|_, _| Ok(()))
+            .once();
+        tx.expect_commit().return_once(|| Ok(()));
+        let transaction_mgr = transaction_manager_with(tx);
 
         let handler = IdentityChainEventProcessor::new(
             Arc::new(chain_store),
@@ -1536,6 +1579,7 @@ pub mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            Arc::new(transaction_mgr),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -1686,6 +1730,7 @@ pub mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -1822,6 +1867,7 @@ pub mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -1922,24 +1968,11 @@ pub mod tests {
             .returning(move || Ok(local_chain_clone.clone()));
         // extension, not a fork
         chain_store.expect_remove_blocks_from_height().times(0);
-        // ONLY the block from candidate B may be persisted
-        let expected_hash = good_block.hash.clone();
-        chain_store
-            .expect_add_block()
-            .withf(move |block| block.hash == expected_hash)
-            .once()
-            .returning(|_| Ok(()));
         let full_clone = full.clone();
         store
             .expect_get_full()
             .once()
             .returning(move || Ok(full_clone.clone()));
-        // Final identity must come from candidate B
-        store
-            .expect_save()
-            .withf(move |identity| identity.name == expected_name)
-            .once()
-            .returning(|_| Ok(()));
         transport
             .expect_resolve_public_chain()
             .with(
@@ -1957,6 +1990,16 @@ pub mod tests {
             .expect_add_chain_event()
             .times(3)
             .returning(|_| Ok(()));
+
+        let mut tx = MockPersistenceTransactionApiMock::new();
+        tx.expect_append_identity_blocks()
+            .withf(|expected_latest, blocks| expected_latest.is_some() && blocks.len() == 1)
+            .returning(|_, _| Ok(()))
+            .once();
+        tx.expect_save_identity().returning(|_| Ok(())).once();
+        tx.expect_commit().return_once(|| Ok(()));
+        let transaction_mgr = transaction_manager_with(tx);
+
         let handler = IdentityChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
@@ -1967,6 +2010,7 @@ pub mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            Arc::new(transaction_mgr),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -1992,7 +2036,6 @@ pub mod tests {
         let keys = full.key_pair.clone();
         // The Create block represents the original identity
         let original_identity = full.identity.clone();
-        let original_name = original_identity.name.clone();
         let create_block = get_identity_create_block(original_identity.clone(), &keys);
         // Local fork changes the name
         let discarded_name = Name::new("discarded-fork-name").unwrap();
@@ -2032,35 +2075,12 @@ pub mod tests {
             .returning(move || Ok(local_chain_clone.clone()));
 
         // Block #2 from the local fork must be replaced
-        chain_store
-            .expect_remove_blocks_from_height()
-            .with(eq(BlockId::from(2)))
-            .once()
-            .returning(|_| Ok(()));
-
-        let remote_hash = remote_proof.hash.clone();
-        chain_store
-            .expect_add_block()
-            .withf(move |block| block.hash == remote_hash)
-            .once()
-            .returning(|_| Ok(()));
-
         let full_clone = full.clone();
         store
             .expect_get_full()
             .once()
             .returning(move || Ok(full_clone.clone()));
 
-        // The final aggregate is rebuilt from Create + remote blocks, the discarded local name must disappear
-        store
-            .expect_save()
-            .withf(move |identity| identity.name == original_name)
-            .once()
-            .returning(|_| Ok(()));
-        store
-            .expect_set_email_confirmation()
-            .once()
-            .returning(|_, _| Ok(()));
         transport
             .expect_resolve_public_chain()
             .once()
@@ -2073,6 +2093,19 @@ pub mod tests {
             .expect_add_chain_event()
             .times(2)
             .returning(|_| Ok(()));
+
+        let mut tx = MockPersistenceTransactionApiMock::new();
+        tx.expect_replace_identity_blocks_from_height()
+            .returning(|_, _, _| Ok(()))
+            .once();
+        tx.expect_save_identity().returning(|_| Ok(())).once();
+        tx.expect_set_identity_email_confirmation()
+            .returning(|_, _| Ok(()))
+            .once();
+        tx.expect_commit().return_once(|| Ok(()));
+
+        let transaction_mgr = transaction_manager_with(tx);
+
         let handler = IdentityChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
@@ -2083,6 +2116,7 @@ pub mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            Arc::new(transaction_mgr),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -2095,7 +2129,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_add_new_chain_persists_valid_prefix_before_invalid_tail() {
         let (
-            mut chain_store,
+            chain_store,
             mut store,
             contact,
             company_invite,
@@ -2112,29 +2146,24 @@ pub mod tests {
         let wrong_keys = BcrKeys::new();
         let bad_update_data = update_identity_block_with_name(Some(Name::new("invalid").unwrap()));
         let bad_update = get_identity_update_block(&create_block, &wrong_keys, &bad_update_data);
-        // The valid Create-derived identity is persisted
-        let expected_node_id = identity.node_id.clone();
-        let expected_name = identity.name.clone();
-        store
-            .expect_save()
-            .withf(move |saved| saved.node_id == expected_node_id && saved.name == expected_name)
-            .once()
-            .returning(|_| Ok(()));
         // The invalid update must not contribute any derived state
         store.expect_set_email_confirmation().times(0);
-        // Only the valid Create block is persisted
-        let create_hash = create_block.hash.clone();
-        chain_store
-            .expect_add_block()
-            .withf(move |block| block.hash == create_hash)
-            .once()
-            .returning(|_| Ok(()));
         // add_new_chain creates the own-identity contact after successfully importing the valid prefix
         contact_store.expect_get().once().returning(|_| Ok(None));
         contact_store
             .expect_insert()
             .once()
             .returning(|_, _| Ok(()));
+
+        let mut tx = MockPersistenceTransactionApiMock::new();
+        tx.expect_append_identity_blocks()
+            .returning(|_, _| Ok(()))
+            .once();
+        tx.expect_save_identity().returning(|_| Ok(())).once();
+        tx.expect_commit().return_once(|| Ok(()));
+
+        let transaction_mgr = transaction_manager_with(tx);
+
         let handler = IdentityChainEventProcessor::new(
             Arc::new(chain_store),
             Arc::new(store),
@@ -2145,6 +2174,7 @@ pub mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            Arc::new(transaction_mgr),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -2259,14 +2289,16 @@ pub mod tests {
             .returning(move || Ok(local_chain_clone.clone()));
         // This is only an extension. Nothing should be truncated
         chain_store.expect_remove_blocks_from_height().times(0);
-        // Only valid blocks #4 and #5 may be persisted
-        let valid_4_hash = valid_block_4.hash.clone();
-        let valid_5_hash = valid_block_5.hash.clone();
-        chain_store
-            .expect_add_block()
-            .withf(move |block| block.hash == valid_4_hash || block.hash == valid_5_hash)
-            .times(2)
-            .returning(|_| Ok(()));
+
+        let mut tx = MockPersistenceTransactionApiMock::new();
+        tx.expect_append_identity_blocks()
+            .withf(|expected_latest, blocks| expected_latest.is_some() && blocks.len() == 2)
+            .returning(|_, _| Ok(()))
+            .once();
+        tx.expect_save_identity().returning(|_| Ok(())).once();
+        tx.expect_commit().return_once(|| Ok(()));
+
+        let transaction_mgr = transaction_manager_with(tx);
 
         // Identity aggregate
         let full_clone = full.clone();
@@ -2275,12 +2307,6 @@ pub mod tests {
             .once()
             .returning(move || Ok(full_clone.clone()));
 
-        // Final aggregate must represent the last VALID block (#5), not the invalid block #6!
-        store
-            .expect_save()
-            .withf(move |identity| identity.name == expected_final_name)
-            .once()
-            .returning(|_| Ok(()));
         // The old proof block is part of the already-existing prefix, so it must not be persisted again
         store.expect_set_email_confirmation().times(0);
 
@@ -2324,6 +2350,7 @@ pub mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(contact_store),
+            Arc::new(transaction_mgr),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );

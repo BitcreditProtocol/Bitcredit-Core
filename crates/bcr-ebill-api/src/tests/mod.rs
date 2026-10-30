@@ -47,7 +47,7 @@ pub mod tests {
     use bcr_ebill_persistence::traits::notification::EmailNotificationStoreApi;
     use bcr_ebill_persistence::traits::transaction::{
         BillTransactionApi, CompanyTransactionApi, IdentityTransactionApi,
-        PersistenceTransactionApi, TransactionManagerApi,
+        NostrChainEventTransactionApi, PersistenceTransactionApi, TransactionManagerApi,
     };
     use bcr_ebill_persistence::{
         ContactStoreApi, FileReferenceStoreApi, NostrEventOffset, NostrEventOffsetStoreApi,
@@ -571,6 +571,7 @@ pub mod tests {
                 proof: &SignedIdentityProof,
                 data: &EmailIdentityProofData,
             ) -> Result<()>;
+            pub async fn save_company_key_pair(&mut self, company_id: &NodeId, keys: &BcrKeys) -> Result<()>;
             pub async fn append_bill_blocks<'a>(
                 &'a mut self,
                 bill_id: &BillId,
@@ -590,6 +591,12 @@ pub mod tests {
                 bill_id: &BillId,
                 identity_node_id: &NodeId,
                 bill: &BitcreditBillResult,
+            ) -> Result<()>;
+            async fn add_chain_event(&mut self, event: &NostrChainEvent) -> Result<()>;
+            async fn remove_chain_events(
+                &mut self,
+                chain_id: &str,
+                chain_type: BlockchainType,
             ) -> Result<()>;
         }
 
@@ -688,6 +695,13 @@ pub mod tests {
             )
             .await
         }
+        async fn save_company_key_pair(
+            &mut self,
+            company_id: &NodeId,
+            keys: &BcrKeys,
+        ) -> Result<()> {
+            MockPersistenceTransactionApiMock::save_company_key_pair(self, company_id, keys).await
+        }
     }
 
     #[async_trait]
@@ -738,6 +752,20 @@ pub mod tests {
                 bill,
             )
             .await
+        }
+    }
+
+    #[async_trait]
+    impl NostrChainEventTransactionApi for MockPersistenceTransactionApiMock {
+        async fn add_chain_event(&mut self, event: &NostrChainEvent) -> Result<()> {
+            MockPersistenceTransactionApiMock::add_chain_event(self, event).await
+        }
+        async fn remove_chain_events(
+            &mut self,
+            chain_id: &str,
+            chain_type: BlockchainType,
+        ) -> Result<()> {
+            MockPersistenceTransactionApiMock::remove_chain_events(self, chain_id, chain_type).await
         }
     }
 

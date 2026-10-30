@@ -24,6 +24,7 @@ use bcr_ebill_core::protocol::blockchain::bill::{
 use bcr_ebill_core::protocol::blockchain::{Block, Blockchain, BlockchainType};
 use bcr_ebill_core::protocol::crypto::{BcrKeys, btc};
 use bcr_ebill_core::protocol::{BitcoinAddress, BlockId, Sha256Hash};
+use bcr_ebill_persistence::traits::transaction::TransactionManagerApi;
 use bcr_ebill_persistence::{
     FileReferenceStoreApi, NostrChainEventStoreApi, traits::bill::BillChainStoreApi,
     traits::bill::BillStoreApi,
@@ -383,18 +384,36 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
                 let canonical_chain_changed = replace_from.is_some()
                     || prepared_chain.blocks().len() != existing_chain.blocks().len();
 
-                // persist - TODO (tx): make transactional
-
+                // persist atomically
                 if canonical_chain_changed {
+                    let mut tx = self
+                        .transaction_mgr
+                        .begin()
+                        .await
+                        .map_err(|e| Error::Persistence(e.to_string()))?;
+
                     if let Some(replace_from) = replace_from {
-                        self.bill_blockchain_store
-                            .remove_blocks_from_height(bill_id, replace_from)
-                            .await
-                            .map_err(|e| Error::Persistence(e.to_string()))?;
+                        tx.replace_bill_blocks_from_height(
+                            bill_id,
+                            &expected_local_tip,
+                            replace_from,
+                            &replacement_blocks,
+                        )
+                        .await
+                        .map_err(|e| Error::Persistence(e.to_string()))?;
+                    } else {
+                        tx.append_bill_blocks(
+                            bill_id,
+                            Some(&expected_local_tip),
+                            &replacement_blocks,
+                        )
+                        .await
+                        .map_err(|e| Error::Persistence(e.to_string()))?;
                     }
-                    for block in &replacement_blocks {
-                        self.save_block(bill_id, block).await?;
-                    }
+
+                    tx.commit()
+                        .await
+                        .map_err(|e| Error::Persistence(e.to_string()))?;
                 }
 
                 // nostr-event updates
@@ -493,6 +512,7 @@ pub struct BillChainEventProcessor {
     chain_event_store: Arc<dyn NostrChainEventStoreApi>,
     transport: Arc<dyn TransportClientApi>,
     mint_client: Arc<dyn MintClientApi>,
+    transaction_mgr: Arc<dyn TransactionManagerApi>,
     bitcoin_network: bitcoin::Network,
     config: Arc<Config>,
 }
@@ -513,6 +533,7 @@ impl BillChainEventProcessor {
         chain_event_store: Arc<dyn NostrChainEventStoreApi>,
         transport: Arc<dyn TransportClientApi>,
         mint_client: Arc<dyn MintClientApi>,
+        transaction_mgr: Arc<dyn TransactionManagerApi>,
         bitcoin_network: bitcoin::Network,
         config: Arc<Config>,
     ) -> Self {
@@ -524,6 +545,7 @@ impl BillChainEventProcessor {
             chain_event_store,
             transport,
             mint_client,
+            transaction_mgr,
             bitcoin_network,
             config,
         }
@@ -568,6 +590,8 @@ impl BillChainEventProcessor {
                 }
                 continue;
             }
+
+            let expected_latest = chain.get_latest_block().clone();
             match self
                 .validate_block_for_chain(
                     bill_id,
@@ -580,7 +604,25 @@ impl BillChainEventProcessor {
                 .await
             {
                 Ok(candidate_chain) => {
-                    self.save_block(bill_id, block).await?;
+                    let mut tx = self
+                        .transaction_mgr
+                        .begin()
+                        .await
+                        .map_err(|e| Error::Persistence(e.to_string()))?;
+                    tx.append_bill_blocks(
+                        bill_id,
+                        Some(&expected_latest),
+                        std::slice::from_ref(block),
+                    )
+                    .await
+                    .map_err(|e| {
+                        error!("Failed to add block to blockchain store: {e}");
+                        Error::Persistence(format!("Failed to add block to blockchain store: {e}"))
+                    })?;
+                    tx.commit()
+                        .await
+                        .map_err(|e| Error::Persistence(e.to_string()))?;
+
                     chain = candidate_chain;
                     block_added = true;
                 }
@@ -860,12 +902,27 @@ impl BillChainEventProcessor {
             prepared.chain.blocks().len(),
         );
 
-        // persist - TODO (tx): make transactional
+        // persist atomically
 
-        for block in prepared.chain.blocks() {
-            self.save_block(&bill_id, block).await?;
-        }
-        self.save_keys(&bill_id, keys).await?;
+        let mut tx = self
+            .transaction_mgr
+            .begin()
+            .await
+            .map_err(|e| Error::Persistence(e.to_string()))?;
+        tx.append_bill_blocks(&bill_id, None, prepared.chain.blocks())
+            .await
+            .map_err(|e| {
+                error!("Failed to add block to blockchain store: {e}");
+                Error::Persistence(format!("Failed to add block to blockchain store: {e}"))
+            })?;
+        tx.save_bill_keys(&bill_id, keys)
+            .await
+            .map_err(|e| Error::Persistence(e.to_string()))?;
+        tx.commit()
+            .await
+            .map_err(|e| Error::Persistence(e.to_string()))?;
+
+        // file refs outside tx
         for file in &prepared.bill_first_version.files {
             anchor_important_file(
                 &self.file_reference_store,
@@ -1060,26 +1117,6 @@ impl BillChainEventProcessor {
         }
         Ok(candidate_chain)
     }
-
-    async fn save_block(&self, bill_id: &BillId, block: &BillBlock) -> Result<()> {
-        if let Err(e) = self.bill_blockchain_store.add_block(bill_id, block).await {
-            error!("Failed to add block to blockchain store: {e}");
-            return Err(Error::Persistence(
-                "Failed to add block to blockchain store".to_string(),
-            ));
-        }
-        Ok(())
-    }
-
-    async fn save_keys(&self, bill_id: &BillId, keys: &BcrKeys) -> Result<()> {
-        if let Err(e) = self.bill_store.save_keys(bill_id, keys).await {
-            error!("Failed to save keys to bill store: {e}");
-            return Err(Error::Persistence(
-                "Failed to save keys to bill store".to_string(),
-            ));
-        }
-        Ok(())
-    }
 }
 
 #[cfg(test)]
@@ -1101,7 +1138,7 @@ mod tests {
     };
     use bitcoin::PrivateKey;
     use bitcoin::secp256k1::{SECP256K1, SecretKey};
-    use mockall::predicate::{always, eq};
+    use mockall::predicate::eq;
     use nostr::event::FinalizeEvent;
     use std::str::FromStr;
 
@@ -1110,9 +1147,10 @@ mod tests {
             MockNostrContactProcessorApi,
             test_utils::{
                 MockBillChainStore, MockBillStore, MockMintClient, MockNostrChainEventStore,
-                bill_id_test, empty_address, get_baseline_bill, get_baseline_identity,
-                get_bill_keys, get_genesis_chain, get_test_bitcredit_bill, node_id_test_other,
-                private_key_test,
+                MockPersistenceTransactionApiMock, MockTransactionManagerApiMock, bill_id_test,
+                empty_address, get_baseline_bill, get_baseline_identity, get_bill_keys,
+                get_genesis_chain, get_test_bitcredit_bill, node_id_test_other, private_key_test,
+                transaction_manager_with,
             },
         },
         test_utils::{
@@ -1135,6 +1173,7 @@ mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -1173,6 +1212,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -1213,6 +1253,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -1235,7 +1276,7 @@ mod tests {
         let chain = get_genesis_chain(Some(bill.clone()));
         let keys = get_bill_keys();
 
-        let (mut bill_chain_store, mut bill_store, mut contact, transport, _) = create_mocks();
+        let (mut bill_chain_store, bill_store, mut contact, transport, _) = create_mocks();
 
         bill_chain_store
             .expect_get_chain()
@@ -1247,17 +1288,29 @@ mod tests {
                     bill_id_test().to_string(),
                 ))
             });
-        bill_chain_store
-            .expect_add_block()
-            .with(eq(bill_id_test()), eq(chain.blocks()[0].clone()))
-            .times(1)
-            .returning(move |_, _| Ok(()));
 
-        bill_store
-            .expect_save_keys()
-            .with(eq(bill_id_test()), always())
-            .times(1)
-            .returning(move |_, _| Ok(()));
+        let expected_bill_id = bill_id_test();
+        let expected_issue_hash = chain.blocks()[0].hash.clone();
+        let expected_key_pub = keys.pub_key();
+        let mut tx = MockPersistenceTransactionApiMock::new();
+        tx.expect_append_bill_blocks()
+            .withf(move |bill_id, expected_latest, blocks| {
+                bill_id == &expected_bill_id
+                    && expected_latest.is_none()
+                    && blocks.len() == 1
+                    && blocks[0].hash == expected_issue_hash
+            })
+            .once()
+            .returning(|_, _, _| Ok(()));
+        let expected_bill_id = bill_id_test();
+        tx.expect_save_bill_keys()
+            .withf(move |bill_id, keys| {
+                bill_id == &expected_bill_id && keys.pub_key() == expected_key_pub
+            })
+            .once()
+            .returning(|_, _| Ok(()));
+        tx.expect_commit().once().return_once(|| Ok(()));
+        let transaction_mgr = transaction_manager_with(tx);
 
         // Store new contact
         contact.expect_ensure_nostr_contact().returning(|_| ());
@@ -1270,6 +1323,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
+            Arc::new(transaction_mgr),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -1327,11 +1381,25 @@ mod tests {
             .times(1)
             .returning(move |_| Ok(chain_clone.clone()));
 
-        bill_chain_store
-            .expect_add_block()
-            .with(eq(bill_id_test()), eq(block.clone()))
-            .times(1)
-            .returning(move |_, _| Ok(()));
+        let expected_bill_id = bill_id_test();
+        let expected_tip_hash = chain.get_latest_block().hash.clone();
+        let expected_block_hash = block.hash.clone();
+
+        let mut tx = MockPersistenceTransactionApiMock::new();
+        tx.expect_append_bill_blocks()
+            .withf(move |bill_id, expected_latest, blocks| {
+                bill_id == &expected_bill_id
+                    && expected_latest
+                        .as_ref()
+                        .is_some_and(|latest| latest.hash == expected_tip_hash)
+                    && blocks.len() == 1
+                    && blocks[0].hash == expected_block_hash
+            })
+            .once()
+            .returning(|_, _, _| Ok(()));
+        tx.expect_save_bill_keys().never();
+        tx.expect_commit().once().return_once(|| Ok(()));
+        let transaction_mgr = transaction_manager_with(tx);
 
         contact.expect_ensure_nostr_contact().returning(|_| ());
 
@@ -1343,6 +1411,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
+            Arc::new(transaction_mgr),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -1461,20 +1530,28 @@ mod tests {
             .with(eq(bill_id.to_string()), eq(BlockchainType::Bill))
             .returning(move |_, _| Ok(nostr_chain.clone()))
             .once();
+        let expected_bill_id = bill_id.clone();
+        let expected_tip_hash = chain.get_latest_block().hash.clone();
+        let block1_hash = block1.hash.clone();
+        let block2_hash = block2.hash.clone();
 
-        // recovery adds the missing block
-        bill_chain_store
-            .expect_add_block()
-            .with(eq(bill_id.clone()), eq(block1.clone()))
-            .times(1)
-            .returning(move |_, _| Ok(()));
+        let mut tx = MockPersistenceTransactionApiMock::new();
+        tx.expect_append_bill_blocks()
+            .withf(move |bill_id, expected_latest, blocks| {
+                bill_id == &expected_bill_id
+                    && expected_latest
+                        .as_ref()
+                        .is_some_and(|latest| latest.hash == expected_tip_hash)
+                    && blocks.len() == 2
+                    && blocks[0].hash == block1_hash
+                    && blocks[1].hash == block2_hash
+            })
+            .once()
+            .returning(|_, _, _| Ok(()));
+        tx.expect_save_bill_keys().never();
+        tx.expect_commit().once().return_once(|| Ok(()));
 
-        // and then the received block
-        bill_chain_store
-            .expect_add_block()
-            .with(eq(bill_id.clone()), eq(block2.clone()))
-            .times(1)
-            .returning(move |_, _| Ok(()));
+        let transaction_mgr = transaction_manager_with(tx);
 
         contact.expect_ensure_nostr_contact().returning(|_| ());
 
@@ -1496,6 +1573,7 @@ mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
+            Arc::new(transaction_mgr),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -1565,7 +1643,7 @@ mod tests {
         .unwrap();
         assert!(chain.try_add_block(invalid_block.clone()));
         let issue_block = chain.get_first_block().clone();
-        let (mut bill_chain_store, mut bill_store, mut contact, transport, _) = create_mocks();
+        let (mut bill_chain_store, bill_store, mut contact, transport, _) = create_mocks();
         bill_chain_store
             .expect_get_chain()
             .with(eq(bill_id_test()))
@@ -1577,19 +1655,37 @@ mod tests {
                 ))
             });
 
-        // only the valid Issue is persisted
-        bill_chain_store
-            .expect_add_block()
-            .with(eq(bill_id_test()), eq(issue_block))
+        let expected_bill_id = bill_id_test();
+        let issue_hash = issue_block.hash.clone();
+        let invalid_hash = invalid_block.hash.clone();
+        let expected_key_pub = keys.pub_key();
+
+        let mut tx = MockPersistenceTransactionApiMock::new();
+
+        tx.expect_append_bill_blocks()
+            .withf(move |bill_id, expected_latest, blocks| {
+                bill_id == &expected_bill_id
+                    && expected_latest.is_none()
+                    && blocks.len() == 1
+                    && blocks[0].hash == issue_hash
+                    && blocks[0].hash != invalid_hash
+            })
+            .once()
+            .returning(|_, _, _| Ok(()));
+
+        let expected_bill_id = bill_id_test();
+
+        tx.expect_save_bill_keys()
+            .withf(move |bill_id, keys| {
+                bill_id == &expected_bill_id && keys.pub_key() == expected_key_pub
+            })
             .once()
             .returning(|_, _| Ok(()));
 
-        // valid issue is accepted, so keys are persisted as well
-        bill_store
-            .expect_save_keys()
-            .with(eq(bill_id_test()), always())
-            .once()
-            .returning(|_, _| Ok(()));
+        tx.expect_commit().once().return_once(|| Ok(()));
+
+        let transaction_mgr = transaction_manager_with(tx);
+
         contact.expect_ensure_nostr_contact().returning(|_| ());
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
@@ -1599,6 +1695,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
+            Arc::new(transaction_mgr),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -1622,7 +1719,7 @@ mod tests {
         let chain = get_genesis_chain(Some(bill.clone()));
         let keys = get_bill_keys();
 
-        let (mut bill_chain_store, mut bill_store, contact, transport, _) = create_mocks();
+        let (mut bill_chain_store, bill_store, contact, transport, _) = create_mocks();
 
         bill_chain_store
             .expect_get_chain()
@@ -1634,15 +1731,6 @@ mod tests {
                     bill_id_test().to_string(),
                 ))
             });
-        bill_chain_store
-            .expect_add_block()
-            .with(eq(bill_id_test()), eq(chain.blocks()[0].clone()))
-            .never();
-
-        bill_store
-            .expect_save_keys()
-            .with(eq(bill_id_test()), always())
-            .never();
 
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
@@ -1652,6 +1740,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -1701,9 +1790,6 @@ mod tests {
             .times(1)
             .returning(move |_| Ok(chain_clone.clone()));
 
-        // block is not added
-        bill_chain_store.expect_add_block().never();
-
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
@@ -1712,6 +1798,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -1777,6 +1864,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -1841,6 +1929,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -1863,6 +1952,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -1943,6 +2033,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -2038,6 +2129,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -2202,15 +2294,6 @@ mod tests {
             .with(eq(bill_id.to_string()), eq(BlockchainType::Bill))
             .once()
             .returning(move |_, _| Ok(nostr_events.clone()));
-        bill_chain_store.expect_remove_blocks_from_height().times(0);
-
-        let b2_hash = b2.hash.clone();
-        let b3_hash = b3.hash.clone();
-        bill_chain_store
-            .expect_add_block()
-            .withf(move |_, block| block.hash == b2_hash || block.hash == b3_hash)
-            .times(2)
-            .returning(|_, _| Ok(()));
         contact.expect_ensure_nostr_contact().returning(|_| ());
         chain_event_store
             .expect_remove_chain_events()
@@ -2223,6 +2306,33 @@ mod tests {
             .withf(move |event| selected_hashes.contains(&event.block_hash))
             .times(3)
             .returning(|_| Ok(()));
+        let expected_bill_id = bill_id.clone();
+        let expected_tip_hash = genesis.hash.clone();
+
+        let b2_hash = b2.hash.clone();
+        let b3_hash = b3.hash.clone();
+        let a2_hash = a2.hash.clone();
+
+        let mut tx = MockPersistenceTransactionApiMock::new();
+
+        tx.expect_append_bill_blocks()
+            .withf(move |bill_id, expected_latest, blocks| {
+                bill_id == &expected_bill_id
+                    && expected_latest
+                        .as_ref()
+                        .is_some_and(|latest| latest.hash == expected_tip_hash)
+                    && blocks.len() == 2
+                    && blocks[0].hash == b2_hash
+                    && blocks[1].hash == b3_hash
+                    && blocks.iter().all(|block| block.hash != a2_hash)
+            })
+            .once()
+            .returning(|_, _, _| Ok(()));
+
+        tx.expect_commit().once().return_once(|| Ok(()));
+
+        let transaction_mgr = transaction_manager_with(tx);
+
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
@@ -2231,6 +2341,7 @@ mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
+            Arc::new(transaction_mgr),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -2345,14 +2456,6 @@ mod tests {
             .expect_resolve_public_chain()
             .once()
             .returning(move |_, _| Ok(nostr_events.clone()));
-        bill_chain_store.expect_remove_blocks_from_height().times(0);
-        let block2_hash = block2.hash.clone();
-        let block3_hash = block3.hash.clone();
-        bill_chain_store
-            .expect_add_block()
-            .withf(move |_, block| block.hash == block2_hash || block.hash == block3_hash)
-            .times(2)
-            .returning(|_, _| Ok(()));
         contact.expect_ensure_nostr_contact().returning(|_| ());
         chain_event_store
             .expect_remove_chain_events()
@@ -2365,6 +2468,32 @@ mod tests {
             .withf(move |event| event.event_id != replay_event_id)
             .times(3)
             .returning(|_| Ok(()));
+
+        let expected_bill_id = bill_id.clone();
+        let expected_tip_hash = genesis.hash.clone();
+
+        let block2_hash = block2.hash.clone();
+        let block3_hash = block3.hash.clone();
+
+        let mut tx = MockPersistenceTransactionApiMock::new();
+
+        tx.expect_append_bill_blocks()
+            .withf(move |bill_id, expected_latest, blocks| {
+                bill_id == &expected_bill_id
+                    && expected_latest
+                        .as_ref()
+                        .is_some_and(|latest| latest.hash == expected_tip_hash)
+                    && blocks.len() == 2
+                    && blocks[0].hash == block2_hash
+                    && blocks[1].hash == block3_hash
+            })
+            .once()
+            .returning(|_, _, _| Ok(()));
+
+        tx.expect_commit().once().return_once(|| Ok(()));
+
+        let transaction_mgr = transaction_manager_with(tx);
+
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
@@ -2373,6 +2502,7 @@ mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
+            Arc::new(transaction_mgr),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -2417,6 +2547,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockNotificationJsonTransport::new()),
             Arc::new(MockMintClient::new()),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -2538,18 +2669,6 @@ mod tests {
             .returning(move |_, _| Ok(nostr_events.clone()))
             .once();
 
-        bill_chain_store
-            .expect_remove_blocks_from_height()
-            .with(eq(bill_id.clone()), eq(fork_height))
-            .times(1)
-            .returning(|_, _| Ok(()));
-
-        bill_chain_store
-            .expect_add_block()
-            .with(eq(bill_id.clone()), eq(remote_block.clone()))
-            .times(1)
-            .returning(|_, _| Ok(()));
-
         contact.expect_ensure_nostr_contact().returning(|_| ());
 
         chain_event_store
@@ -2561,6 +2680,28 @@ mod tests {
             .returning(|_| Ok(()))
             .times(0..);
 
+        let expected_bill_id = bill_id.clone();
+        let expected_tip_hash = local_block.hash.clone();
+        let expected_fork_height = fork_height;
+        let expected_remote_hash = remote_block.hash.clone();
+
+        let mut tx = MockPersistenceTransactionApiMock::new();
+
+        tx.expect_replace_bill_blocks_from_height()
+            .withf(move |bill_id, expected_latest, from, replacement| {
+                bill_id == &expected_bill_id
+                    && expected_latest.hash == expected_tip_hash
+                    && *from == expected_fork_height
+                    && replacement.len() == 1
+                    && replacement[0].hash == expected_remote_hash
+            })
+            .once()
+            .returning(|_, _, _, _| Ok(()));
+
+        tx.expect_commit().once().return_once(|| Ok(()));
+
+        let transaction_mgr = transaction_manager_with(tx);
+
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
@@ -2569,6 +2710,7 @@ mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
+            Arc::new(transaction_mgr),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -2670,10 +2812,6 @@ mod tests {
             .returning(move |_, _| Ok(nostr_events.clone()))
             .once();
 
-        bill_chain_store.expect_remove_blocks_from_height().times(0);
-
-        bill_chain_store.expect_add_block().times(0);
-
         chain_event_store
             .expect_remove_chain_events()
             .returning(|_, _| Ok(()));
@@ -2686,6 +2824,7 @@ mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -2771,14 +2910,25 @@ mod tests {
             .returning(move |_, _| Ok(nostr_events.clone()))
             .once();
 
-        // local-only block is removed
-        bill_chain_store
-            .expect_remove_blocks_from_height()
-            .with(eq(bill_id.clone()), eq(local_only_block.id))
-            .times(1)
-            .returning(|_, _| Ok(()));
+        let expected_bill_id = bill_id.clone();
+        let expected_tip_hash = local_only_block.hash.clone();
+        let expected_from = local_only_block.id;
 
-        bill_chain_store.expect_add_block().times(0);
+        let mut tx = MockPersistenceTransactionApiMock::new();
+
+        tx.expect_replace_bill_blocks_from_height()
+            .withf(move |bill_id, expected_latest, from, replacement| {
+                bill_id == &expected_bill_id
+                    && expected_latest.hash == expected_tip_hash
+                    && *from == expected_from
+                    && replacement.is_empty()
+            })
+            .once()
+            .returning(|_, _, _, _| Ok(()));
+
+        tx.expect_commit().once().return_once(|| Ok(()));
+
+        let transaction_mgr = transaction_manager_with(tx);
 
         chain_event_store
             .expect_remove_chain_events()
@@ -2799,6 +2949,7 @@ mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
+            Arc::new(transaction_mgr),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -2878,6 +3029,7 @@ mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -2965,15 +3117,27 @@ mod tests {
             .returning(move |_, _| Ok(nostr_events.clone()))
             .once();
 
-        // nothing removed, because first blocks are identical
-        bill_chain_store.expect_remove_blocks_from_height().times(0);
+        let expected_bill_id = bill_id.clone();
+        let expected_tip_hash = local_chain.get_latest_block().hash.clone();
+        let expected_remote_hash = remote_block.hash.clone();
 
-        // new blocks are added
-        bill_chain_store
-            .expect_add_block()
-            .with(eq(bill_id.clone()), eq(remote_block.clone()))
-            .times(1)
-            .returning(|_, _| Ok(()));
+        let mut tx = MockPersistenceTransactionApiMock::new();
+
+        tx.expect_append_bill_blocks()
+            .withf(move |bill_id, expected_latest, blocks| {
+                bill_id == &expected_bill_id
+                    && expected_latest
+                        .as_ref()
+                        .is_some_and(|latest| latest.hash == expected_tip_hash)
+                    && blocks.len() == 1
+                    && blocks[0].hash == expected_remote_hash
+            })
+            .once()
+            .returning(|_, _, _| Ok(()));
+
+        tx.expect_commit().once().return_once(|| Ok(()));
+
+        let transaction_mgr = transaction_manager_with(tx);
 
         contact.expect_ensure_nostr_contact().returning(|_| ());
 
@@ -2997,6 +3161,7 @@ mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
+            Arc::new(transaction_mgr),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -3107,19 +3272,6 @@ mod tests {
             .returning(move |_, _| Ok(nostr_events.clone()))
             .once();
 
-        // replace local blocks from fork height
-        bill_chain_store
-            .expect_remove_blocks_from_height()
-            .with(eq(bill_id.clone()), eq(local_block.id))
-            .times(1)
-            .returning(|_, _| Ok(()));
-
-        bill_chain_store
-            .expect_add_block()
-            .with(eq(bill_id.clone()), eq(remote_block.clone()))
-            .times(1)
-            .returning(|_, _| Ok(()));
-
         contact.expect_ensure_nostr_contact().returning(|_| ());
 
         chain_event_store
@@ -3133,6 +3285,28 @@ mod tests {
             .times(2)
             .returning(|_| Ok(()));
 
+        let expected_bill_id = bill_id.clone();
+        let expected_tip_hash = local_block.hash.clone();
+        let expected_from = local_block.id;
+        let expected_remote_hash = remote_block.hash.clone();
+
+        let mut tx = MockPersistenceTransactionApiMock::new();
+
+        tx.expect_replace_bill_blocks_from_height()
+            .withf(move |bill_id, expected_latest, from, replacement| {
+                bill_id == &expected_bill_id
+                    && expected_latest.hash == expected_tip_hash
+                    && *from == expected_from
+                    && replacement.len() == 1
+                    && replacement[0].hash == expected_remote_hash
+            })
+            .once()
+            .returning(|_, _, _, _| Ok(()));
+
+        tx.expect_commit().once().return_once(|| Ok(()));
+
+        let transaction_mgr = transaction_manager_with(tx);
+
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
@@ -3141,6 +3315,7 @@ mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
+            Arc::new(transaction_mgr),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -3167,20 +3342,40 @@ mod tests {
         let issue_block = chain.get_first_block().clone();
         let keys = get_bill_keys();
 
-        let mut bill_chain_store = MockBillChainStore::new();
-        let mut bill_store = MockBillStore::new();
+        let bill_chain_store = MockBillChainStore::new();
+        let bill_store = MockBillStore::new();
         let mut file_reference_store = MockFileReferenceStore::new();
         let mut contact = MockNostrContactProcessorApi::new();
 
-        bill_chain_store
-            .expect_add_block()
-            .with(eq(bill_id_test()), always())
-            .returning(|_, _| Ok(()))
-            .once();
-        bill_store
-            .expect_save_keys()
-            .returning(|_, _| Ok(()))
-            .once();
+        let expected_bill_id = bill_id_test();
+        let expected_issue_hash = issue_block.hash.clone();
+        let expected_key_pub = keys.pub_key();
+
+        let mut tx = MockPersistenceTransactionApiMock::new();
+
+        tx.expect_append_bill_blocks()
+            .withf(move |bill_id, expected_latest, blocks| {
+                bill_id == &expected_bill_id
+                    && expected_latest.is_none()
+                    && blocks.len() == 1
+                    && blocks[0].hash == expected_issue_hash
+            })
+            .once()
+            .returning(|_, _, _| Ok(()));
+
+        let expected_bill_id = bill_id_test();
+
+        tx.expect_save_bill_keys()
+            .withf(move |bill_id, keys| {
+                bill_id == &expected_bill_id && keys.pub_key() == expected_key_pub
+            })
+            .once()
+            .returning(|_, _| Ok(()));
+
+        tx.expect_commit().once().return_once(|| Ok(()));
+
+        let transaction_mgr = transaction_manager_with(tx);
+
         contact
             .expect_ensure_nostr_contact()
             .returning(|_| ())
@@ -3229,6 +3424,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockNotificationJsonTransport::new()),
             Arc::new(MockMintClient::new()),
+            Arc::new(transaction_mgr),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -3281,6 +3477,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockNotificationJsonTransport::new()),
             Arc::new(MockMintClient::new()),
+            Arc::new(MockTransactionManagerApiMock::new()),
             network,
             Arc::new(test_cfg()),
         );
@@ -3334,6 +3531,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockNotificationJsonTransport::new()),
             Arc::new(mock_mint_client),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -3376,6 +3574,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockNotificationJsonTransport::new()),
             Arc::new(MockMintClient::new()),
+            Arc::new(MockTransactionManagerApiMock::new()),
             network,
             Arc::new(test_cfg()),
         );
@@ -3423,6 +3622,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockNotificationJsonTransport::new()),
             Arc::new(MockMintClient::new()),
+            Arc::new(MockTransactionManagerApiMock::new()),
             network,
             Arc::new(test_cfg()),
         );
@@ -3592,6 +3792,7 @@ mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -3679,6 +3880,7 @@ mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -3792,6 +3994,7 @@ mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -3952,6 +4155,7 @@ mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -4118,6 +4322,7 @@ mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
@@ -4161,6 +4366,7 @@ mod tests {
             Arc::new(MockNostrChainEventStore::new()),
             Arc::new(MockNotificationJsonTransport::new()),
             Arc::new(MockMintClient::new()),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );

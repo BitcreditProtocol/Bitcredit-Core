@@ -41,6 +41,7 @@
 * Implement clean shutdown, so after recovery, calling `resetEbillInstance` and `initEbillInstance` followed by `setActiveInstance` cleanly recover and set up the identity
 * Add check for block-operations (identity, company, bill), before persistence/effects, if we're connected to at least one write-relay, if not, the operation fails
     * This decreases the likelihood for inconsistent states
+* Add full transactional persistence handling for identity, company and bill blocks
 
 # 0.5.16
 
@@ -58,6 +59,7 @@
 * Add dev-mode endpoint `dev_mode_override_company_chain_from_nostr` that syncs a local company, overriding it with the state on Nostr
 * Add a re-sync fallback mode, if we're trying to publish a block and missing the previous block as a chain event
     * For bills, companies and identity, if we detect this, we re-sync with `OnlyMissingMetadata` mode, which attempts to fetch and persist missing chain events from nostr and re-trys the block publish
+    
 
 # 0.5.15-hotfix1
 
