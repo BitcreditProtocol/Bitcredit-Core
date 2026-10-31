@@ -419,18 +419,21 @@ fn init_panic_hook() {
 }
 
 fn validate_instance_network(id: InstanceId, conf: &EbillConfig) -> Result<(), EbillFfiError> {
-    let valid = match id {
-        InstanceId::Mainnet => {
-            conf.bitcoin_network == "mainnet" || conf.bitcoin_network == "bitcoin"
-        }
-        InstanceId::Testnet => conf.bitcoin_network == "testnet",
-    };
-    if !valid {
+    if !instance_accepts_network(id, &conf.bitcoin_network) {
         return Err(err_init(
             "Instance ID does not match configured Bitcoin network",
         ));
     }
     Ok(())
+}
+
+// The test instance holds every network without real value, so a local regtest
+// stack runs in the same slot as testnet.
+fn instance_accepts_network(id: InstanceId, network: &str) -> bool {
+    match id {
+        InstanceId::Mainnet => matches!(network, "mainnet" | "bitcoin"),
+        InstanceId::Testnet => matches!(network, "testnet" | "testnet4" | "regtest"),
+    }
 }
 
 async fn shutdown_runtime(runtime: Arc<EbillRuntime>) {
@@ -509,4 +512,25 @@ async fn get_active_instance_snapshot() -> Result<InstanceSnapshot, EbillFfiErro
         ctx: runtime.ctx.clone(),
         state: runtime.state.clone(),
     })
+}
+
+#[cfg(test)]
+mod instance_network_tests {
+    use super::*;
+
+    #[test]
+    fn test_instance_accepts_every_network_without_real_value() {
+        for network in ["testnet", "testnet4", "regtest"] {
+            assert!(instance_accepts_network(InstanceId::Testnet, network));
+            assert!(!instance_accepts_network(InstanceId::Mainnet, network));
+        }
+    }
+
+    #[test]
+    fn mainnet_stays_in_its_own_instance() {
+        for network in ["mainnet", "bitcoin"] {
+            assert!(instance_accepts_network(InstanceId::Mainnet, network));
+            assert!(!instance_accepts_network(InstanceId::Testnet, network));
+        }
+    }
 }
