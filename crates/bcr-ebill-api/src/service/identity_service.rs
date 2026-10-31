@@ -1432,7 +1432,7 @@ mod tests {
         use base64::{Engine as _, engine::general_purpose::STANDARD};
         use bcr_ebill_core::protocol::mint_record::MintRecordSnapshotPayload;
         let fixture: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../bcr-ebill-wasm/tests/vectors/mint-record-v1.json"
+            "../../../bcr-ebill-core/tests/vectors/mint-record-v1.json"
         ))
         .unwrap();
         let case = &fixture["positive"]["identity"];

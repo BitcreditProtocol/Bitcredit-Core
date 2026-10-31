@@ -1523,7 +1523,7 @@ pub mod tests {
         );
 
         let fixture: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../bcr-ebill-wasm/tests/vectors/mint-record-v1.json"
+            "../../../bcr-ebill-core/tests/vectors/mint-record-v1.json"
         ))
         .unwrap();
         let mut secret = [0u8; 32];

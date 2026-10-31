@@ -8,6 +8,8 @@ pub mod event;
 pub mod file_reference;
 pub mod mint;
 pub mod mint_record;
+#[cfg(test)]
+mod mint_record_vectors;
 pub mod serialization;
 /// Test helpers
 #[cfg(test)]

@@ -33,3 +33,6 @@ time.workspace = true
 
 [dev-dependencies]
 rstest.workspace = true
+aes-gcm = "0.11"
+# Public vectors were rendered with insertion-ordered JSON objects; keep their bytes identical.
+serde_json = { workspace = true, features = ["preserve_order"] }
