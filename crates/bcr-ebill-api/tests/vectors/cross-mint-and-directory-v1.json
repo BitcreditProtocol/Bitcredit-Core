@@ -1,0 +1,150 @@
+{
+  "profile": "cross-mint-and-directory-v1",
+  "publicKey": "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+  "compressedPublicKey": "02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+  "grant": {
+    "signed": {
+      "grant": {
+        "schema": "cross-mint-grant-v1",
+        "grantId": "33333333-3333-4333-8333-333333333333",
+        "network": "regtest",
+        "subjectNodeId": "bitcrr02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+        "requestingMintPubkey": "e493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13",
+        "answeringMintPubkey": "2f8bde4d1a07209355b4a7250a5c5128e88b84bddc619ab7cba8d569b240efe4",
+        "operation": "bill_status",
+        "billId": "bitcrrET8h5S6ghF5qBNLZ5joJQSn1JaM5QdzoSBtXo19Vd9vq",
+        "caseBinding": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "issuedAt": 1790000000,
+        "expiresAt": 1790000300,
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "signature": "4fa61439d7ee17e67d6fa9560550dc14198db7342e164333803f240842c36cac2f5a6e806efb40de4b5df78876525de78a3900781d5f98a95e750dde00a40276"
+    },
+    "canonicalText": "cross-mint-grant-v1\n33333333-3333-4333-8333-333333333333\nregtest\nbitcrr02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9\ne493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13\n2f8bde4d1a07209355b4a7250a5c5128e88b84bddc619ab7cba8d569b240efe4\nbill_status\nbitcrrET8h5S6ghF5qBNLZ5joJQSn1JaM5QdzoSBtXo19Vd9vq\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n1790000000\n1790000300\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+    "messageSha256": "71c187bf5178cdc1cb6b1665c4d5d220e016c2ee8e671c8e157238cd085ab226"
+  },
+  "revoke": {
+    "signed": {
+      "revoke": {
+        "schema": "cross-mint-revoke-v1",
+        "grantId": "33333333-3333-4333-8333-333333333333",
+        "network": "regtest",
+        "subjectNodeId": "bitcrr02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+        "requestingMintPubkey": "e493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13",
+        "answeringMintPubkey": "2f8bde4d1a07209355b4a7250a5c5128e88b84bddc619ab7cba8d569b240efe4",
+        "nonce": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "issuedAt": 1790000000
+      },
+      "signature": "d93318c8b265e8cc56bb9d30da02d5c8a1522a20f2c63b1eba1241d227a487a6d7e1007f5ab137ecb7710a70c4b79f6a77bdde2b004515f77f8df390a5e5251c"
+    },
+    "canonicalText": "cross-mint-revoke-v1\n33333333-3333-4333-8333-333333333333\nregtest\nbitcrr02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9\ne493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13\n2f8bde4d1a07209355b4a7250a5c5128e88b84bddc619ab7cba8d569b240efe4\ncccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\n1790000000\n",
+    "messageSha256": "77e29e588411614edc9e9906df4b6c4a95178cdb9b3a695f9d764d5ad10f43c7"
+  },
+  "listing": {
+    "event": {
+      "id": "37d219a6990f88bb3984b22311bd639d3494b23e44f46d72711a320122347f8e",
+      "pubkey": "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+      "created_at": 1790000000,
+      "kind": 38900,
+      "tags": [
+        [
+          "d",
+          "yellow-book:v1:regtest"
+        ],
+        [
+          "t",
+          "bitcredit-yellow-book-v1"
+        ]
+      ],
+      "content": "{\"type\":\"sole_trader\",\"name\":\"Synthetic coffee trader\",\"tradingNames\":[\"Café Example\"],\"country\":\"GT\",\"region\":\"Alta Verapaz\",\"products\":[{\"label\":\"Coffee\"}],\"description\":\"Synthetic public business statement\",\"actingPersons\":[],\"contactRelays\":[\"wss://relay.example.test\"],\"validUntil\":1790086400,\"noticeVersion\":\"yellow-book-notice-v1\",\"schema\":\"yellow-book-v1\",\"network\":\"regtest\",\"subjectNodeId\":\"bitcrr02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9\",\"status\":\"listed\"}",
+      "sig": "7eaef88e2a77b63e1829ac1eb1746ab11b579b4e4494f73a61bdd00593776d13bb837254e3d35cb3b5c37c61d9ab53a3c270555da3f15452335a3392def5cd99"
+    },
+    "canonicalText": "[0,\"f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9\",1790000000,38900,[[\"d\",\"yellow-book:v1:regtest\"],[\"t\",\"bitcredit-yellow-book-v1\"]],\"{\\\"type\\\":\\\"sole_trader\\\",\\\"name\\\":\\\"Synthetic coffee trader\\\",\\\"tradingNames\\\":[\\\"Café Example\\\"],\\\"country\\\":\\\"GT\\\",\\\"region\\\":\\\"Alta Verapaz\\\",\\\"products\\\":[{\\\"label\\\":\\\"Coffee\\\"}],\\\"description\\\":\\\"Synthetic public business statement\\\",\\\"actingPersons\\\":[],\\\"contactRelays\\\":[\\\"wss://relay.example.test\\\"],\\\"validUntil\\\":1790086400,\\\"noticeVersion\\\":\\\"yellow-book-notice-v1\\\",\\\"schema\\\":\\\"yellow-book-v1\\\",\\\"network\\\":\\\"regtest\\\",\\\"subjectNodeId\\\":\\\"bitcrr02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9\\\",\\\"status\\\":\\\"listed\\\"}\"]",
+    "messageSha256": "37d219a6990f88bb3984b22311bd639d3494b23e44f46d72711a320122347f8e"
+  },
+  "withdrawal": {
+    "withdrawal": {
+      "id": "e63ccb352010d265dd16374d6399c3cc2b72ba0dd5eeb729e352fb47f17ecafe",
+      "pubkey": "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+      "created_at": 1790000000,
+      "kind": 38900,
+      "tags": [
+        [
+          "d",
+          "yellow-book:v1:regtest"
+        ],
+        [
+          "t",
+          "bitcredit-yellow-book-v1"
+        ]
+      ],
+      "content": "{\"schema\":\"yellow-book-v1\",\"network\":\"regtest\",\"subjectNodeId\":\"bitcrr02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9\",\"status\":\"withdrawn\"}",
+      "sig": "94a429b96810d55aeb3a47cd68fb040efee3170cacd18f9e8ff00e3bd2c924b2a8b37cc1cb4ec5149bae824cc99fcf77a3d7aec069679109d9f7cd33b9548312"
+    },
+    "deletion": {
+      "id": "aef2651527ee8e175ac4d67207a0eeccfc3df15741df9f0f27f01e26073e6494",
+      "pubkey": "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+      "created_at": 1790000000,
+      "kind": 5,
+      "tags": [
+        [
+          "k",
+          "38900"
+        ],
+        [
+          "a",
+          "38900:f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9:yellow-book:v1:regtest"
+        ],
+        [
+          "e",
+          "37d219a6990f88bb3984b22311bd639d3494b23e44f46d72711a320122347f8e"
+        ]
+      ],
+      "content": "",
+      "sig": "110101ee5559d0ad4510968312939c7a949399eb92576217c301c585a7e9bdb9d24793e29ca61e9f0824cc017d9650082941d641d644317cac745e63ca21459d"
+    }
+  },
+  "negative": [
+    {
+      "name": "wrong key",
+      "target": "grant",
+      "publicKey": "e493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13",
+      "expected": "invalid_signature"
+    },
+    {
+      "name": "mainnet",
+      "target": "grant",
+      "signed": {
+        "grant": {
+          "schema": "cross-mint-grant-v1",
+          "grantId": "33333333-3333-4333-8333-333333333333",
+          "network": "bitcoin",
+          "subjectNodeId": "bitcrm02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+          "requestingMintPubkey": "e493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13",
+          "answeringMintPubkey": "2f8bde4d1a07209355b4a7250a5c5128e88b84bddc619ab7cba8d569b240efe4",
+          "operation": "bill_status",
+          "billId": "bitcrmET8h5S6ghF5qBNLZ5joJQSn1JaM5QdzoSBtXo19Vd9vq",
+          "caseBinding": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "issuedAt": 1790000000,
+          "expiresAt": 1790000300,
+          "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "signature": "418d40ee6e1485317a81405a02a2020044aec16407d0443f275afa65c5ba78a032ac4072c9a9b8cb85a63e185c9b77a1f81cf12ad7d04d9ba13286055f7771e2"
+      },
+      "canonicalText": "cross-mint-grant-v1\n33333333-3333-4333-8333-333333333333\nbitcoin\nbitcrm02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9\ne493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13\n2f8bde4d1a07209355b4a7250a5c5128e88b84bddc619ab7cba8d569b240efe4\nbill_status\nbitcrmET8h5S6ghF5qBNLZ5joJQSn1JaM5QdzoSBtXo19Vd9vq\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n1790000000\n1790000300\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+      "expected": "unsupported_network"
+    },
+    {
+      "name": "expired grant",
+      "target": "grant",
+      "verifyAt": 1790000300,
+      "expected": "expired"
+    },
+    {
+      "name": "expired listing",
+      "target": "listing",
+      "verifyAt": 1790086400,
+      "expected": "expired"
+    }
+  ]
+}

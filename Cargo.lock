@@ -460,6 +460,7 @@ dependencies = [
  "borsh",
  "borsh-derive",
  "futures",
+ "getrandom 0.4.3",
  "hex",
  "infer",
  "log",

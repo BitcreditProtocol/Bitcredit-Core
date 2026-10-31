@@ -26,6 +26,7 @@ compile_error!("Either feature `sqlite` or `postgres` must be enabled.");
 
 pub mod constants;
 pub mod external;
+pub mod network_consent;
 pub mod service;
 #[cfg(test)]
 mod tests;

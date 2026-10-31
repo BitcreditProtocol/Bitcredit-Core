@@ -45,6 +45,7 @@
 * Scope quote requests, offers, recovery data, proofs and quote notifications by Mint: `MintStoreApi` and `BillServiceApi::{cancel_request_to_mint, accept_mint_offer, reject_mint_offer}` take `(mint_node_id, mint_request_id)`, and migration `0002_scope_mint_quotes_by_mint` (SQLite and Postgres) moves existing offers onto their request's Mint without changing ids, terms, proofs or recovery data. Reject shared Mint origins and authenticate the configured eBill identity before using a Mint.
 * Authenticate Mint wallet endpoints with fresh purpose-bound BIP340 eBill node-key proofs and a bounded per-Mint/URL verification cache; fail closed on unavailable or invalid proofs.
 * Add portable Mint record and dispute blocks to identity/company chains, with exact-byte issuer validation, append/list/dispute/snapshot methods on `IdentityServiceApi` and `CompanyServiceApi`, complete authenticated snapshot hash inputs, and public verification vectors. Entry payloads are capped at 32 KiB for the existing Nostr transport.
+* Add `bcr_ebill_api::network_consent` (moved from the removed WASM API): test-network directory listing and withdrawal (NIP-01/NIP-09), five-minute case-bound cross-mint grant and revoke, and purpose-bound service-voice admission signing at the configured service Mint. Company keys sign only for identity-proven authorized signatories. Public cross-language vectors; keys stay in Core; no FFI binding yet.
 
 # 0.5.16
 

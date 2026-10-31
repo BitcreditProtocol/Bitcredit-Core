@@ -1,0 +1,89 @@
+{
+  "profile": "service-voice-admission-v1",
+  "publicKey": "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+  "serviceMintNodeId": "bitcrr02e493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13",
+  "positive": {
+    "signed": {
+      "admission": {
+        "schema": "service-voice-admission-v1",
+        "network": "regtest",
+        "subjectNodeId": "bitcrr02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+        "serviceMintNodeId": "bitcrr02e493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13",
+        "issuedAt": 1790000000,
+        "expiresAt": 1790000300,
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "signature": "461936c8645dde75469a886737c2ec74d904c15977bfa0717b52e67158a977024185f02e0a9411287d299562611cdb1b23e5d30a9ed3c595e6dbf240e33f2f23"
+    },
+    "canonicalText": "service-voice-admission-v1\nregtest\nbitcrr02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9\nbitcrr02e493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13\n1790000000\n1790000300\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+    "messageSha256": "8d35f523502e8fb0736da7f2ac6a6411314046b6d486c7687b4dc14582898520"
+  },
+  "negative": [
+    {
+      "name": "wrong service Mint",
+      "signed": {
+        "admission": {
+          "schema": "service-voice-admission-v1",
+          "network": "regtest",
+          "subjectNodeId": "bitcrr02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+          "serviceMintNodeId": "bitcrr022f8bde4d1a07209355b4a7250a5c5128e88b84bddc619ab7cba8d569b240efe4",
+          "issuedAt": 1790000000,
+          "expiresAt": 1790000300,
+          "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "signature": "1e8e76d5ea5fecac627f71497c620da707186e97575fbbcd3e693e57f2e6302fb94a88a0bcb9d566d33f9ff298bb50fcc5b3c746fb5658a9eacb599aa7997b51"
+      },
+      "expected": "service_mint_mismatch"
+    },
+    {
+      "name": "mainnet",
+      "signed": {
+        "admission": {
+          "schema": "service-voice-admission-v1",
+          "network": "bitcoin",
+          "subjectNodeId": "bitcrm02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+          "serviceMintNodeId": "bitcrm02e493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13",
+          "issuedAt": 1790000000,
+          "expiresAt": 1790000300,
+          "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "signature": "109b3109cc743aad6a57d1b519c8edb08c4775a17651de36f66435c8323a8e61abe18d105c8bcf5c875e3b961ec7652b972472d7185101e20bce999c30efebaf"
+      },
+      "expected": "unsupported_network"
+    },
+    {
+      "name": "expired",
+      "signed": {
+        "admission": {
+          "schema": "service-voice-admission-v1",
+          "network": "regtest",
+          "subjectNodeId": "bitcrr02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+          "serviceMintNodeId": "bitcrr02e493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13",
+          "issuedAt": 1790000000,
+          "expiresAt": 1790000300,
+          "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "signature": "461936c8645dde75469a886737c2ec74d904c15977bfa0717b52e67158a977024185f02e0a9411287d299562611cdb1b23e5d30a9ed3c595e6dbf240e33f2f23"
+      },
+      "verifyAt": 1790000300,
+      "expected": "expired"
+    },
+    {
+      "name": "wrong key",
+      "signed": {
+        "admission": {
+          "schema": "service-voice-admission-v1",
+          "network": "regtest",
+          "subjectNodeId": "bitcrr02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+          "serviceMintNodeId": "bitcrr02e493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13",
+          "issuedAt": 1790000000,
+          "expiresAt": 1790000300,
+          "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "signature": "461936c8645dde75469a886737c2ec74d904c15977bfa0717b52e67158a977024185f02e0a9411287d299562611cdb1b23e5d30a9ed3c595e6dbf240e33f2f23"
+      },
+      "publicKey": "e493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13",
+      "expected": "invalid_signature"
+    }
+  ]
+}
