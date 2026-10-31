@@ -5,10 +5,12 @@
 
 import 'dart:async';
 import 'dart:convert';
+
 import 'ffi.dart';
 import 'ffi/api/bill.dart';
 import 'ffi/api/company.dart';
 import 'ffi/api/contact.dart';
+import 'ffi/api/facility.dart';
 import 'ffi/api/general.dart';
 import 'ffi/api/identity.dart';
 import 'ffi/api/notification.dart';
@@ -23,6 +25,7 @@ import 'ffi/error.dart';
 import 'frb_generated.dart';
 import 'frb_generated.io.dart'
     if (dart.library.js_interop) 'frb_generated.web.dart';
+
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 /// Main entrypoint of the Rust API
@@ -80,7 +83,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => 1941252715;
+  int get rustContentHash => 1377924213;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -471,6 +474,11 @@ abstract class RustLibApi extends BaseApi {
 
   Future<void> crateFfiApiIdentityShareContactDetails({
     required ShareContactTo shareContactTo,
+  });
+
+  Future<SignedFacilityApplicationAdmissionFfi>
+  crateFfiApiFacilitySignFacilityApplicationAdmission({
+    required FacilityApplicationAdmissionPayloadFfi payload,
   });
 
   Future<void> crateFfiApiNotificationSubscribe({
@@ -4049,6 +4057,46 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<SignedFacilityApplicationAdmissionFfi>
+  crateFfiApiFacilitySignFacilityApplicationAdmission({
+    required FacilityApplicationAdmissionPayloadFfi payload,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_box_autoadd_facility_application_admission_payload_ffi(
+            payload,
+            serializer,
+          );
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 111,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData:
+              sse_decode_signed_facility_application_admission_ffi,
+          decodeErrorData: sse_decode_ebill_ffi_error,
+        ),
+        constMeta:
+            kCrateFfiApiFacilitySignFacilityApplicationAdmissionConstMeta,
+        argValues: [payload],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta
+  get kCrateFfiApiFacilitySignFacilityApplicationAdmissionConstMeta =>
+      const TaskConstMeta(
+        debugName: "sign_facility_application_admission",
+        argNames: ["payload"],
+      );
+
+  @override
   Future<void> crateFfiApiNotificationSubscribe({
     required InstanceId instanceId,
     required FutureOr<void> Function(NotificationSubscriptionResponse) callback,
@@ -4065,7 +4113,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 111,
+            funcId: 112,
             port: port_,
           );
         },
@@ -4101,7 +4149,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 112,
+            funcId: 113,
             port: port_,
           );
         },
@@ -4129,7 +4177,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 113,
+            funcId: 114,
             port: port_,
           );
         },
@@ -4159,7 +4207,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 114,
+            funcId: 115,
             port: port_,
           );
         },
@@ -4189,7 +4237,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 115,
+            funcId: 116,
             port: port_,
           );
         },
@@ -4219,7 +4267,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 116,
+            funcId: 117,
             port: port_,
           );
         },
@@ -4249,7 +4297,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 117,
+            funcId: 118,
             port: port_,
           );
         },
@@ -4279,7 +4327,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 118,
+            funcId: 119,
             port: port_,
           );
         },
@@ -4309,7 +4357,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 119,
+            funcId: 120,
             port: port_,
           );
         },
@@ -4339,7 +4387,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 120,
+            funcId: 121,
             port: port_,
           );
         },
@@ -4369,7 +4417,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 121,
+            funcId: 122,
             port: port_,
           );
         },
@@ -4402,7 +4450,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 122,
+            funcId: 123,
             port: port_,
           );
         },
@@ -4432,7 +4480,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 123,
+            funcId: 124,
             port: port_,
           );
         },
@@ -5493,6 +5541,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  FacilityApplicationAdmissionPayloadFfi
+  dco_decode_box_autoadd_facility_application_admission_payload_ffi(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_facility_application_admission_payload_ffi(raw);
+  }
+
+  @protected
   FileFfi dco_decode_box_autoadd_file_ffi(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_file_ffi(raw);
@@ -6326,6 +6383,48 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   double dco_decode_f_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as double;
+  }
+
+  @protected
+  FacilityApplicationAdmissionActionFfi
+  dco_decode_facility_application_admission_action_ffi(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return FacilityApplicationAdmissionActionFfi.values[raw as int];
+  }
+
+  @protected
+  FacilityApplicationAdmissionFfi dco_decode_facility_application_admission_ffi(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 8)
+      throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
+    return FacilityApplicationAdmissionFfi(
+      schemaVersion: dco_decode_String(arr[0]),
+      action: dco_decode_String(arr[1]),
+      applicationId: dco_decode_String(arr[2]),
+      mintNodeId: dco_decode_String(arr[3]),
+      applicantRef: dco_decode_String(arr[4]),
+      applicationTokenDigest: dco_decode_String(arr[5]),
+      issuedAt: dco_decode_u_64(arr[6]),
+      expiresAt: dco_decode_u_64(arr[7]),
+    );
+  }
+
+  @protected
+  FacilityApplicationAdmissionPayloadFfi
+  dco_decode_facility_application_admission_payload_ffi(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return FacilityApplicationAdmissionPayloadFfi(
+      action: dco_decode_facility_application_admission_action_ffi(arr[0]),
+      applicationId: dco_decode_String(arr[1]),
+      mintNodeId: dco_decode_String(arr[2]),
+      applicationTokenDigest: dco_decode_String(arr[3]),
+    );
   }
 
   @protected
@@ -7669,6 +7768,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  SignedFacilityApplicationAdmissionFfi
+  dco_decode_signed_facility_application_admission_ffi(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return SignedFacilityApplicationAdmissionFfi(
+      admission: dco_decode_facility_application_admission_ffi(arr[0]),
+      signature: dco_decode_String(arr[1]),
+    );
+  }
+
+  @protected
   StatusResponse dco_decode_status_response(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -8984,6 +9096,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  FacilityApplicationAdmissionPayloadFfi
+  sse_decode_box_autoadd_facility_application_admission_payload_ffi(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_facility_application_admission_payload_ffi(
+      deserializer,
+    ));
+  }
+
+  @protected
   FileFfi sse_decode_box_autoadd_file_ffi(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_file_ffi(deserializer));
@@ -9981,6 +10104,61 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   double sse_decode_f_64(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getFloat64();
+  }
+
+  @protected
+  FacilityApplicationAdmissionActionFfi
+  sse_decode_facility_application_admission_action_ffi(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var inner = sse_decode_i_32(deserializer);
+    return FacilityApplicationAdmissionActionFfi.values[inner];
+  }
+
+  @protected
+  FacilityApplicationAdmissionFfi sse_decode_facility_application_admission_ffi(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_schemaVersion = sse_decode_String(deserializer);
+    var var_action = sse_decode_String(deserializer);
+    var var_applicationId = sse_decode_String(deserializer);
+    var var_mintNodeId = sse_decode_String(deserializer);
+    var var_applicantRef = sse_decode_String(deserializer);
+    var var_applicationTokenDigest = sse_decode_String(deserializer);
+    var var_issuedAt = sse_decode_u_64(deserializer);
+    var var_expiresAt = sse_decode_u_64(deserializer);
+    return FacilityApplicationAdmissionFfi(
+      schemaVersion: var_schemaVersion,
+      action: var_action,
+      applicationId: var_applicationId,
+      mintNodeId: var_mintNodeId,
+      applicantRef: var_applicantRef,
+      applicationTokenDigest: var_applicationTokenDigest,
+      issuedAt: var_issuedAt,
+      expiresAt: var_expiresAt,
+    );
+  }
+
+  @protected
+  FacilityApplicationAdmissionPayloadFfi
+  sse_decode_facility_application_admission_payload_ffi(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_action = sse_decode_facility_application_admission_action_ffi(
+      deserializer,
+    );
+    var var_applicationId = sse_decode_String(deserializer);
+    var var_mintNodeId = sse_decode_String(deserializer);
+    var var_applicationTokenDigest = sse_decode_String(deserializer);
+    return FacilityApplicationAdmissionPayloadFfi(
+      action: var_action,
+      applicationId: var_applicationId,
+      mintNodeId: var_mintNodeId,
+      applicationTokenDigest: var_applicationTokenDigest,
+    );
   }
 
   @protected
@@ -11708,6 +11886,22 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  SignedFacilityApplicationAdmissionFfi
+  sse_decode_signed_facility_application_admission_ffi(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_admission = sse_decode_facility_application_admission_ffi(
+      deserializer,
+    );
+    var var_signature = sse_decode_String(deserializer);
+    return SignedFacilityApplicationAdmissionFfi(
+      admission: var_admission,
+      signature: var_signature,
+    );
+  }
+
+  @protected
   StatusResponse sse_decode_status_response(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_bitcoinNetwork = sse_decode_String(deserializer);
@@ -12848,6 +13042,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_box_autoadd_facility_application_admission_payload_ffi(
+    FacilityApplicationAdmissionPayloadFfi self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_facility_application_admission_payload_ffi(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_file_ffi(FileFfi self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_file_ffi(self, serializer);
@@ -13752,6 +13955,46 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void sse_encode_f_64(double self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putFloat64(self);
+  }
+
+  @protected
+  void sse_encode_facility_application_admission_action_ffi(
+    FacilityApplicationAdmissionActionFfi self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.index, serializer);
+  }
+
+  @protected
+  void sse_encode_facility_application_admission_ffi(
+    FacilityApplicationAdmissionFfi self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.schemaVersion, serializer);
+    sse_encode_String(self.action, serializer);
+    sse_encode_String(self.applicationId, serializer);
+    sse_encode_String(self.mintNodeId, serializer);
+    sse_encode_String(self.applicantRef, serializer);
+    sse_encode_String(self.applicationTokenDigest, serializer);
+    sse_encode_u_64(self.issuedAt, serializer);
+    sse_encode_u_64(self.expiresAt, serializer);
+  }
+
+  @protected
+  void sse_encode_facility_application_admission_payload_ffi(
+    FacilityApplicationAdmissionPayloadFfi self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_facility_application_admission_action_ffi(
+      self.action,
+      serializer,
+    );
+    sse_encode_String(self.applicationId, serializer);
+    sse_encode_String(self.mintNodeId, serializer);
+    sse_encode_String(self.applicationTokenDigest, serializer);
   }
 
   @protected
@@ -15200,6 +15443,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_box_autoadd_file_ffi(self.avatarFile, serializer);
     sse_encode_bool(self.isLogical, serializer);
     sse_encode_company_signatory_ffi(self.signatory, serializer);
+  }
+
+  @protected
+  void sse_encode_signed_facility_application_admission_ffi(
+    SignedFacilityApplicationAdmissionFfi self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_facility_application_admission_ffi(self.admission, serializer);
+    sse_encode_String(self.signature, serializer);
   }
 
   @protected

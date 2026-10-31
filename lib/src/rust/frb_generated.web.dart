@@ -8,10 +8,12 @@
 
 import 'dart:async';
 import 'dart:convert';
+
 import 'ffi.dart';
 import 'ffi/api/bill.dart';
 import 'ffi/api/company.dart';
 import 'ffi/api/contact.dart';
+import 'ffi/api/facility.dart';
 import 'ffi/api/general.dart';
 import 'ffi/api/identity.dart';
 import 'ffi/api/notification.dart';
@@ -24,6 +26,7 @@ import 'ffi/data/mint.dart';
 import 'ffi/data/notification.dart';
 import 'ffi/error.dart';
 import 'frb_generated.dart';
+
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated_web.dart';
 
 abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
@@ -372,6 +375,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   dco_decode_box_autoadd_endorse_bitcredit_bill_payload(dynamic raw);
 
   @protected
+  FacilityApplicationAdmissionPayloadFfi
+  dco_decode_box_autoadd_facility_application_admission_payload_ffi(
+    dynamic raw,
+  );
+
+  @protected
   FileFfi dco_decode_box_autoadd_file_ffi(dynamic raw);
 
   @protected
@@ -678,6 +687,19 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   double dco_decode_f_64(dynamic raw);
+
+  @protected
+  FacilityApplicationAdmissionActionFfi
+  dco_decode_facility_application_admission_action_ffi(dynamic raw);
+
+  @protected
+  FacilityApplicationAdmissionFfi dco_decode_facility_application_admission_ffi(
+    dynamic raw,
+  );
+
+  @protected
+  FacilityApplicationAdmissionPayloadFfi
+  dco_decode_facility_application_admission_payload_ffi(dynamic raw);
 
   @protected
   FileFfi dco_decode_file_ffi(dynamic raw);
@@ -1099,6 +1121,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   SignatoryResponse dco_decode_signatory_response(dynamic raw);
+
+  @protected
+  SignedFacilityApplicationAdmissionFfi
+  dco_decode_signed_facility_application_admission_ffi(dynamic raw);
 
   @protected
   StatusResponse dco_decode_status_response(dynamic raw);
@@ -1557,6 +1583,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  FacilityApplicationAdmissionPayloadFfi
+  sse_decode_box_autoadd_facility_application_admission_payload_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   FileFfi sse_decode_box_autoadd_file_ffi(SseDeserializer deserializer);
 
   @protected
@@ -1941,6 +1973,23 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   double sse_decode_f_64(SseDeserializer deserializer);
+
+  @protected
+  FacilityApplicationAdmissionActionFfi
+  sse_decode_facility_application_admission_action_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  FacilityApplicationAdmissionFfi sse_decode_facility_application_admission_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  FacilityApplicationAdmissionPayloadFfi
+  sse_decode_facility_application_admission_payload_ffi(
+    SseDeserializer deserializer,
+  );
 
   @protected
   FileFfi sse_decode_file_ffi(SseDeserializer deserializer);
@@ -2480,6 +2529,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   SignatoryResponse sse_decode_signatory_response(SseDeserializer deserializer);
+
+  @protected
+  SignedFacilityApplicationAdmissionFfi
+  sse_decode_signed_facility_application_admission_ffi(
+    SseDeserializer deserializer,
+  );
 
   @protected
   StatusResponse sse_decode_status_response(SseDeserializer deserializer);
@@ -3032,6 +3087,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_box_autoadd_facility_application_admission_payload_ffi(
+    FacilityApplicationAdmissionPayloadFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_file_ffi(FileFfi self, SseSerializer serializer);
 
   @protected
@@ -3492,6 +3553,24 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_f_64(double self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_facility_application_admission_action_ffi(
+    FacilityApplicationAdmissionActionFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_facility_application_admission_ffi(
+    FacilityApplicationAdmissionFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_facility_application_admission_payload_ffi(
+    FacilityApplicationAdmissionPayloadFfi self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_file_ffi(FileFfi self, SseSerializer serializer);
@@ -4162,6 +4241,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_signatory_response(
     SignatoryResponse self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_signed_facility_application_admission_ffi(
+    SignedFacilityApplicationAdmissionFfi self,
     SseSerializer serializer,
   );
 

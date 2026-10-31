@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1941252715;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1377924213;
 
 // Section: executor
 
@@ -4159,6 +4159,49 @@ fn wire__crate__ffi__api__identity__share_contact_details_impl(
         },
     )
 }
+fn wire__crate__ffi__api__facility__sign_facility_application_admission_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "sign_facility_application_admission",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_payload =
+                <crate::ffi::api::facility::FacilityApplicationAdmissionPayloadFfi>::sse_decode(
+                    &mut deserializer,
+                );
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, crate::ffi::error::EbillFfiError>(
+                    (move || async move {
+                        let output_ok =
+                            crate::ffi::api::facility::sign_facility_application_admission(
+                                api_payload,
+                            )
+                            .await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
 fn wire__crate__ffi__api__notification__subscribe_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -6393,6 +6436,61 @@ impl SseDecode for f64 {
     }
 }
 
+impl SseDecode for crate::ffi::api::facility::FacilityApplicationAdmissionActionFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <i32>::sse_decode(deserializer);
+        return match inner {
+            0 => crate::ffi::api::facility::FacilityApplicationAdmissionActionFfi::OpenFacilityApplication,
+1 => crate::ffi::api::facility::FacilityApplicationAdmissionActionFfi::UpgradeFacilityIdentity,
+            _ => unreachable!("Invalid variant for FacilityApplicationAdmissionActionFfi: {}", inner),
+        };
+    }
+}
+
+impl SseDecode for crate::ffi::api::facility::FacilityApplicationAdmissionFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_schemaVersion = <String>::sse_decode(deserializer);
+        let mut var_action = <String>::sse_decode(deserializer);
+        let mut var_applicationId = <String>::sse_decode(deserializer);
+        let mut var_mintNodeId = <String>::sse_decode(deserializer);
+        let mut var_applicantRef = <String>::sse_decode(deserializer);
+        let mut var_applicationTokenDigest = <String>::sse_decode(deserializer);
+        let mut var_issuedAt = <u64>::sse_decode(deserializer);
+        let mut var_expiresAt = <u64>::sse_decode(deserializer);
+        return crate::ffi::api::facility::FacilityApplicationAdmissionFfi {
+            schema_version: var_schemaVersion,
+            action: var_action,
+            application_id: var_applicationId,
+            mint_node_id: var_mintNodeId,
+            applicant_ref: var_applicantRef,
+            application_token_digest: var_applicationTokenDigest,
+            issued_at: var_issuedAt,
+            expires_at: var_expiresAt,
+        };
+    }
+}
+
+impl SseDecode for crate::ffi::api::facility::FacilityApplicationAdmissionPayloadFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_action =
+            <crate::ffi::api::facility::FacilityApplicationAdmissionActionFfi>::sse_decode(
+                deserializer,
+            );
+        let mut var_applicationId = <String>::sse_decode(deserializer);
+        let mut var_mintNodeId = <String>::sse_decode(deserializer);
+        let mut var_applicationTokenDigest = <String>::sse_decode(deserializer);
+        return crate::ffi::api::facility::FacilityApplicationAdmissionPayloadFfi {
+            action: var_action,
+            application_id: var_applicationId,
+            mint_node_id: var_mintNodeId,
+            application_token_digest: var_applicationTokenDigest,
+        };
+    }
+}
+
 impl SseDecode for crate::ffi::data::FileFfi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -8172,6 +8270,19 @@ impl SseDecode for crate::ffi::data::company::SignatoryResponse {
     }
 }
 
+impl SseDecode for crate::ffi::api::facility::SignedFacilityApplicationAdmissionFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_admission =
+            <crate::ffi::api::facility::FacilityApplicationAdmissionFfi>::sse_decode(deserializer);
+        let mut var_signature = <String>::sse_decode(deserializer);
+        return crate::ffi::api::facility::SignedFacilityApplicationAdmissionFfi {
+            admission: var_admission,
+            signature: var_signature,
+        };
+    }
+}
+
 impl SseDecode for crate::ffi::data::StatusResponse {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -8585,31 +8696,37 @@ fn pde_ffi_dispatcher_primary_impl(
             rust_vec_len,
             data_len,
         ),
-        111 => {
+        111 => wire__crate__ffi__api__facility__sign_facility_application_admission_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        112 => {
             wire__crate__ffi__api__notification__subscribe_impl(port, ptr, rust_vec_len, data_len)
         }
-        112 => wire__crate__ffi__api__bill__sweep_btc_funds_impl(port, ptr, rust_vec_len, data_len),
-        113 => wire__crate__ffi__api__identity__switch_impl(port, ptr, rust_vec_len, data_len),
-        114 => wire__crate__ffi__api__bill__sync_bill_chain_impl(port, ptr, rust_vec_len, data_len),
-        115 => wire__crate__ffi__api__company__sync_company_chain_impl(
+        113 => wire__crate__ffi__api__bill__sweep_btc_funds_impl(port, ptr, rust_vec_len, data_len),
+        114 => wire__crate__ffi__api__identity__switch_impl(port, ptr, rust_vec_len, data_len),
+        115 => wire__crate__ffi__api__bill__sync_bill_chain_impl(port, ptr, rust_vec_len, data_len),
+        116 => wire__crate__ffi__api__company__sync_company_chain_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        116 => wire__crate__ffi__api__identity__sync_identity_chain_impl(
+        117 => wire__crate__ffi__api__identity__sync_identity_chain_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        117 => wire__crate__ffi__api__general__temp_file_impl(port, ptr, rust_vec_len, data_len),
-        118 => wire__crate__ffi__api__bill__upload_impl(port, ptr, rust_vec_len, data_len),
-        119 => wire__crate__ffi__api__company__upload_impl(port, ptr, rust_vec_len, data_len),
-        120 => wire__crate__ffi__api__contact__upload_impl(port, ptr, rust_vec_len, data_len),
-        121 => wire__crate__ffi__api__identity__upload_impl(port, ptr, rust_vec_len, data_len),
-        122 => wire__crate__ffi__api__company__verify_email_impl(port, ptr, rust_vec_len, data_len),
-        123 => {
+        118 => wire__crate__ffi__api__general__temp_file_impl(port, ptr, rust_vec_len, data_len),
+        119 => wire__crate__ffi__api__bill__upload_impl(port, ptr, rust_vec_len, data_len),
+        120 => wire__crate__ffi__api__company__upload_impl(port, ptr, rust_vec_len, data_len),
+        121 => wire__crate__ffi__api__contact__upload_impl(port, ptr, rust_vec_len, data_len),
+        122 => wire__crate__ffi__api__identity__upload_impl(port, ptr, rust_vec_len, data_len),
+        123 => wire__crate__ffi__api__company__verify_email_impl(port, ptr, rust_vec_len, data_len),
+        124 => {
             wire__crate__ffi__api__identity__verify_email_impl(port, ptr, rust_vec_len, data_len)
         }
         _ => unreachable!(),
@@ -10746,6 +10863,85 @@ impl flutter_rust_bridge::IntoIntoDart<crate::ffi::data::bill::EndorsementsRespo
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart
+    for crate::ffi::api::facility::FacilityApplicationAdmissionActionFfi
+{
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        match self {
+            Self::OpenFacilityApplication => 0.into_dart(),
+            Self::UpgradeFacilityIdentity => 1.into_dart(),
+            _ => unreachable!(),
+        }
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::ffi::api::facility::FacilityApplicationAdmissionActionFfi
+{
+}
+impl
+    flutter_rust_bridge::IntoIntoDart<
+        crate::ffi::api::facility::FacilityApplicationAdmissionActionFfi,
+    > for crate::ffi::api::facility::FacilityApplicationAdmissionActionFfi
+{
+    fn into_into_dart(self) -> crate::ffi::api::facility::FacilityApplicationAdmissionActionFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::ffi::api::facility::FacilityApplicationAdmissionFfi {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.schema_version.into_into_dart().into_dart(),
+            self.action.into_into_dart().into_dart(),
+            self.application_id.into_into_dart().into_dart(),
+            self.mint_node_id.into_into_dart().into_dart(),
+            self.applicant_ref.into_into_dart().into_dart(),
+            self.application_token_digest.into_into_dart().into_dart(),
+            self.issued_at.into_into_dart().into_dart(),
+            self.expires_at.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::ffi::api::facility::FacilityApplicationAdmissionFfi
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::ffi::api::facility::FacilityApplicationAdmissionFfi>
+    for crate::ffi::api::facility::FacilityApplicationAdmissionFfi
+{
+    fn into_into_dart(self) -> crate::ffi::api::facility::FacilityApplicationAdmissionFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart
+    for crate::ffi::api::facility::FacilityApplicationAdmissionPayloadFfi
+{
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.action.into_into_dart().into_dart(),
+            self.application_id.into_into_dart().into_dart(),
+            self.mint_node_id.into_into_dart().into_dart(),
+            self.application_token_digest.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::ffi::api::facility::FacilityApplicationAdmissionPayloadFfi
+{
+}
+impl
+    flutter_rust_bridge::IntoIntoDart<
+        crate::ffi::api::facility::FacilityApplicationAdmissionPayloadFfi,
+    > for crate::ffi::api::facility::FacilityApplicationAdmissionPayloadFfi
+{
+    fn into_into_dart(self) -> crate::ffi::api::facility::FacilityApplicationAdmissionPayloadFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::ffi::data::FileFfi {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -12373,6 +12569,31 @@ impl flutter_rust_bridge::IntoIntoDart<crate::ffi::data::company::SignatoryRespo
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart
+    for crate::ffi::api::facility::SignedFacilityApplicationAdmissionFfi
+{
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.admission.into_into_dart().into_dart(),
+            self.signature.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::ffi::api::facility::SignedFacilityApplicationAdmissionFfi
+{
+}
+impl
+    flutter_rust_bridge::IntoIntoDart<
+        crate::ffi::api::facility::SignedFacilityApplicationAdmissionFfi,
+    > for crate::ffi::api::facility::SignedFacilityApplicationAdmissionFfi
+{
+    fn into_into_dart(self) -> crate::ffi::api::facility::SignedFacilityApplicationAdmissionFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::ffi::data::StatusResponse {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -13787,6 +14008,42 @@ impl SseEncode for f64 {
     }
 }
 
+impl SseEncode for crate::ffi::api::facility::FacilityApplicationAdmissionActionFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(match self {crate::ffi::api::facility::FacilityApplicationAdmissionActionFfi::OpenFacilityApplication => { 0 }
+crate::ffi::api::facility::FacilityApplicationAdmissionActionFfi::UpgradeFacilityIdentity => { 1 }
+ _ => { unimplemented!(""); }}, serializer);
+    }
+}
+
+impl SseEncode for crate::ffi::api::facility::FacilityApplicationAdmissionFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.schema_version, serializer);
+        <String>::sse_encode(self.action, serializer);
+        <String>::sse_encode(self.application_id, serializer);
+        <String>::sse_encode(self.mint_node_id, serializer);
+        <String>::sse_encode(self.applicant_ref, serializer);
+        <String>::sse_encode(self.application_token_digest, serializer);
+        <u64>::sse_encode(self.issued_at, serializer);
+        <u64>::sse_encode(self.expires_at, serializer);
+    }
+}
+
+impl SseEncode for crate::ffi::api::facility::FacilityApplicationAdmissionPayloadFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <crate::ffi::api::facility::FacilityApplicationAdmissionActionFfi>::sse_encode(
+            self.action,
+            serializer,
+        );
+        <String>::sse_encode(self.application_id, serializer);
+        <String>::sse_encode(self.mint_node_id, serializer);
+        <String>::sse_encode(self.application_token_digest, serializer);
+    }
+}
+
 impl SseEncode for crate::ffi::data::FileFfi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -15106,6 +15363,17 @@ impl SseEncode for crate::ffi::data::company::SignatoryResponse {
         <Option<crate::ffi::data::FileFfi>>::sse_encode(self.avatar_file, serializer);
         <bool>::sse_encode(self.is_logical, serializer);
         <crate::ffi::data::company::CompanySignatoryFfi>::sse_encode(self.signatory, serializer);
+    }
+}
+
+impl SseEncode for crate::ffi::api::facility::SignedFacilityApplicationAdmissionFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <crate::ffi::api::facility::FacilityApplicationAdmissionFfi>::sse_encode(
+            self.admission,
+            serializer,
+        );
+        <String>::sse_encode(self.signature, serializer);
     }
 }
 
