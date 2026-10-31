@@ -1519,6 +1519,7 @@ pub mod tests {
             Arc::new(transport),
             Arc::new(contact_store),
             bitcoin::Network::Regtest,
+            Arc::new(test_cfg()),
         );
 
         let fixture: serde_json::Value = serde_json::from_str(include_str!(
@@ -1557,12 +1558,12 @@ pub mod tests {
             let mut chain = CompanyBlockchain::new_from_blocks(vec![blocks[0].clone()]).unwrap();
             let mut refused = false;
             for block in blocks.into_iter().skip(1) {
-                if handler
-                    .validate_company_block_for_chain(&mut chain, &block, &key)
-                    .is_err()
-                {
-                    refused = true;
-                    break;
+                match handler.validate_company_block_for_chain(&chain, &block, &key) {
+                    Ok(next) => chain = next,
+                    Err(_) => {
+                        refused = true;
+                        break;
+                    }
                 }
             }
             assert_eq!(refused, case["expected"] == "reject", "{}", case["name"]);
@@ -1652,7 +1653,7 @@ pub mod tests {
                     let block =
                         received_block(borsh::to_vec(&data).unwrap(), CompanyOpCode::MintRecord);
                     let error = handler
-                        .validate_company_block_for_chain(&mut chain, &block, &key)
+                        .validate_company_block_for_chain(&chain, &block, &key)
                         .unwrap_err();
                     assert!(
                         matches!(error, bcr_ebill_api::service::transport_service::Error::Blockchain(ref reason)
@@ -1684,7 +1685,7 @@ pub mod tests {
                         CompanyOpCode::MintRecordDispute,
                     );
                     let error = handler
-                        .validate_company_block_for_chain(&mut chain, &block, &key)
+                        .validate_company_block_for_chain(&chain, &block, &key)
                         .unwrap_err();
                     assert!(
                         matches!(error, bcr_ebill_api::service::transport_service::Error::Blockchain(ref reason)
@@ -1870,7 +1871,6 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_process_create_company_data() {
-        crate::test_utils::init_test_cfg();
         let (
             mut chain_store,
             mut store,

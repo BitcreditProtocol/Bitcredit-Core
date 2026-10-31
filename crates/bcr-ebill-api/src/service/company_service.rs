@@ -452,6 +452,24 @@ fn get_bcr_data(
     })
 }
 
+impl CompanyService {
+    /// Validates and atomically appends a block that changes no company fields.
+    async fn append_company_block(
+        &self,
+        id: &NodeId,
+        chain: &mut CompanyBlockchain,
+        block: &CompanyBlock,
+    ) -> Result<()> {
+        let expected_latest = chain.get_latest_block().clone();
+        validate_and_append_block(chain, block.clone())?;
+        let mut tx = self.transaction_mgr.begin().await?;
+        tx.append_company_blocks(id, Some(&expected_latest), std::slice::from_ref(block))
+            .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+}
+
 impl ServiceTraitBounds for CompanyService {}
 
 #[async_trait]
@@ -461,7 +479,7 @@ impl CompanyServiceApi for CompanyService {
         id: &NodeId,
         data: MintRecordBlockData,
     ) -> Result<AddMintRecordResult> {
-        validate_node_id_network(id)?;
+        validate_node_id_network(id, self.config.bitcoin_network())?;
         let company = self.store.get(id).await?;
         let keys = self.store.get_key_pair(id).await?;
         let identity_keys = self.identity_store.get_key_pair().await?;
@@ -479,6 +497,7 @@ impl CompanyServiceApi for CompanyService {
         {
             return Ok(existing.append_result(true));
         }
+        self.transport_service.ensure_publish_ready().await?;
         let block = chain
             .create_mint_record(&data, &identity_keys, &keys, Timestamp::now())
             .map_err(|e| Error::Protocol(e.into()))?;
@@ -489,12 +508,12 @@ impl CompanyServiceApi for CompanyService {
             signing_key: header.issuer.signing_key,
             already_present: false,
         };
-        self.validate_and_add_block(id, &mut chain, block).await?;
+        self.append_company_block(id, &mut chain, &block).await?;
         self.populate_block(&company, &chain, &keys, None).await?;
         Ok(result)
     }
     async fn mint_records(&self, id: &NodeId) -> Result<Vec<MintRecordView>> {
-        validate_node_id_network(id)?;
+        validate_node_id_network(id, self.config.bitcoin_network())?;
         let keys = self.store.get_key_pair(id).await?;
         let identity_keys = self.identity_store.get_key_pair().await?;
         let chain = self.company_blockchain_store.get_chain(id).await?;
@@ -511,7 +530,7 @@ impl CompanyServiceApi for CompanyService {
         entry_block_id: bcr_ebill_core::protocol::BlockId,
         statement: String,
     ) -> Result<()> {
-        validate_node_id_network(id)?;
+        validate_node_id_network(id, self.config.bitcoin_network())?;
         let company = self.store.get(id).await?;
         let keys = self.store.get_key_pair(id).await?;
         let identity_keys = self.identity_store.get_key_pair().await?;
@@ -533,10 +552,11 @@ impl CompanyServiceApi for CompanyService {
             statement,
             created_at: timestamp,
         };
+        self.transport_service.ensure_publish_ready().await?;
         let block = chain
             .create_mint_record_dispute(&data, &identity_keys, &keys, timestamp)
             .map_err(|e| Error::Protocol(e.into()))?;
-        self.validate_and_add_block(id, &mut chain, block).await?;
+        self.append_company_block(id, &mut chain, &block).await?;
         self.populate_block(&company, &chain, &keys, None).await?;
         Ok(())
     }
@@ -545,7 +565,7 @@ impl CompanyServiceApi for CompanyService {
         id: &NodeId,
         request: MintRecordSnapshotRequest,
     ) -> Result<MintRecordSnapshot> {
-        validate_node_id_network(id)?;
+        validate_node_id_network(id, self.config.bitcoin_network())?;
         let keys = self.store.get_key_pair(id).await?;
         let identity_keys = self.identity_store.get_key_pair().await?;
         let chain = self.company_blockchain_store.get_chain(id).await?;

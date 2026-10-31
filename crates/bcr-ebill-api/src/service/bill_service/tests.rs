@@ -1,7 +1,7 @@
 use super::service::authoritative_applicant_action_for_status;
 use super::*;
 use crate::external::mint::ResolveMintOffer;
-use crate::get_config;
+use crate::tests::tests::test_cfg;
 use crate::{
     external::{file_storage::UploadedBlob, mint::QuoteStatusReply},
     service::{
@@ -6966,7 +6966,6 @@ fn signed_quote_reissue_permit_json() -> String {
 
 #[tokio::test]
 async fn req_to_mint_reissue_retries_same_quote_after_local_persist_failure() {
-    init_test_cfg();
     let mut ctx = get_ctx();
     let identity = get_baseline_identity();
     let mut bill = get_baseline_bill(&bill_id_test());
@@ -7052,7 +7051,6 @@ async fn req_to_mint_reissue_retries_same_quote_after_local_persist_failure() {
 
 #[tokio::test]
 async fn req_to_mint_reissue_accepts_mint_authenticated_replay_without_duplicate_store() {
-    init_test_cfg();
     let mut ctx = get_ctx();
     let identity = get_baseline_identity();
     let mut bill = get_baseline_bill(&bill_id_test());
@@ -7115,7 +7113,6 @@ async fn req_to_mint_reissue_accepts_mint_authenticated_replay_without_duplicate
 
 #[tokio::test]
 async fn req_to_mint_reissue_replay_repairs_recalculation_after_local_request_was_saved() {
-    init_test_cfg();
     let mut ctx = get_ctx();
     let identity = get_baseline_identity();
     let mut bill = get_baseline_bill(&bill_id_test());
@@ -7224,7 +7221,6 @@ async fn req_to_mint_reissue_replay_repairs_recalculation_after_local_request_wa
 
 #[tokio::test]
 async fn req_to_mint_reissue_rejects_mismatched_mint_quote_before_local_side_effects() {
-    init_test_cfg();
     let mut ctx = get_ctx();
     let identity = get_baseline_identity();
     let mut bill = get_baseline_bill(&bill_id_test());
@@ -7396,7 +7392,7 @@ async fn cancel_mint_state_baseline() {
     let service = get_service(ctx);
     let res = service
         .cancel_request_to_mint(
-            &get_config().mint_config.default_mint_node_id,
+            &test_cfg().mint_config.default_mint_node_id,
             &get_uuid_v4(),
             &identity.identity.node_id,
         )
@@ -7479,7 +7475,7 @@ async fn accept_mint_offer_baseline() {
     let service = get_service(ctx);
     let res = service
         .accept_mint_offer(
-            &get_config().mint_config.default_mint_node_id,
+            &test_cfg().mint_config.default_mint_node_id,
             &get_uuid_v4(),
             &BillParticipant::Ident(BillIdentParticipant::new(identity.identity.clone()).unwrap()),
             &identity.key_pair,
@@ -7517,7 +7513,7 @@ async fn reject_mint_offer_baseline() {
     let service = get_service(ctx);
     let res = service
         .reject_mint_offer(
-            &get_config().mint_config.default_mint_node_id,
+            &test_cfg().mint_config.default_mint_node_id,
             &get_uuid_v4(),
             &identity.identity.node_id,
         )
@@ -7599,7 +7595,6 @@ async fn check_mint_state_baseline() {
 
 #[tokio::test]
 async fn notification_failure_does_not_block_authoritative_mint_state_update() {
-    init_test_cfg();
     let mut ctx = get_ctx();
     let identity = get_baseline_identity();
 
@@ -7654,7 +7649,6 @@ async fn notification_failure_does_not_block_authoritative_mint_state_update() {
 
 #[tokio::test]
 async fn terminal_mint_state_retries_applicant_action_cleanup_on_bill_poll() {
-    init_test_cfg();
     for status in [
         MintRequestStatus::Denied {
             timestamp: test_ts(),
@@ -7924,7 +7918,6 @@ async fn check_mint_state_minting_enabled_proofs() {
 
 #[tokio::test]
 async fn minting_requires_durable_recovery_data_before_issuing_proofs() {
-    init_test_cfg();
     let mut ctx = get_ctx();
     let identity = get_baseline_identity();
     let request = MintRequest {
@@ -7975,7 +7968,6 @@ async fn minting_requires_durable_recovery_data_before_issuing_proofs() {
 
 #[tokio::test]
 async fn minting_retry_reuses_durable_blinds_after_mint_or_proof_storage_failure() {
-    init_test_cfg();
     for fail_proof_storage in [false, true] {
         let mut ctx = get_ctx();
         let request = MintRequest {
@@ -8386,7 +8378,7 @@ async fn wrong_network_failures() {
     assert!(matches!(
         service
             .cancel_request_to_mint(
-                &get_config().mint_config.default_mint_node_id,
+                &test_cfg().mint_config.default_mint_node_id,
                 &get_uuid_v4(),
                 &mainnet_node_id
             )
@@ -8414,7 +8406,7 @@ async fn wrong_network_failures() {
     assert!(matches!(
         service
             .accept_mint_offer(
-                &get_config().mint_config.default_mint_node_id,
+                &test_cfg().mint_config.default_mint_node_id,
                 &get_uuid_v4(),
                 &mainnet_participant,
                 &BcrKeys::new(),
@@ -8428,7 +8420,7 @@ async fn wrong_network_failures() {
     assert!(matches!(
         service
             .reject_mint_offer(
-                &get_config().mint_config.default_mint_node_id,
+                &test_cfg().mint_config.default_mint_node_id,
                 &get_uuid_v4(),
                 &mainnet_node_id
             )
@@ -8635,7 +8627,6 @@ async fn get_local_bill_chain_baseline() {
 
 #[tokio::test]
 async fn req_to_second_mint_routes_its_http_and_shared_bill() {
-    init_test_cfg();
     let mut ctx = get_ctx();
     let identity = get_baseline_identity();
     let mut bill = get_baseline_bill(&bill_id_test());
@@ -8689,7 +8680,6 @@ async fn req_to_second_mint_routes_its_http_and_shared_bill() {
 
 #[tokio::test]
 async fn cancel_second_mint_uses_quote_mint_url() {
-    init_test_cfg();
     let mut ctx = get_ctx();
     let identity = get_baseline_identity();
 
@@ -8728,7 +8718,6 @@ async fn cancel_second_mint_uses_quote_mint_url() {
 
 #[tokio::test]
 async fn accept_second_mint_uses_quote_mint_url() {
-    init_test_cfg();
     let mut ctx = get_ctx();
     let mut identity = IdentityWithAll {
         identity: empty_identity(),
@@ -8754,6 +8743,7 @@ async fn accept_second_mint_uses_quote_mint_url() {
             Ok(chain)
         });
 
+    expect_successful_bill_action_transaction(&mut ctx, false);
     // Populate identity block
     expect_populates_identity_block(&mut ctx);
 
@@ -8818,7 +8808,6 @@ async fn accept_second_mint_uses_quote_mint_url() {
 
 #[tokio::test]
 async fn reject_second_mint_uses_quote_mint_url() {
-    init_test_cfg();
     let mut ctx = get_ctx();
     let identity = get_baseline_identity();
 
@@ -8857,7 +8846,6 @@ async fn reject_second_mint_uses_quote_mint_url() {
 
 #[tokio::test]
 async fn unconfigured_mint_is_rejected_before_any_external_request() {
-    init_test_cfg();
     let service = get_service(get_ctx());
     let identity = get_baseline_identity();
     let result = service
@@ -8877,7 +8865,6 @@ async fn unconfigured_mint_is_rejected_before_any_external_request() {
 
 #[tokio::test]
 async fn poll_same_bill_at_two_mints_uses_distinct_quote_endpoints() {
-    init_test_cfg();
     let mut ctx = get_ctx();
     let quote_a = uuid::Uuid::new_v4();
     let quote_b = uuid::Uuid::new_v4();
@@ -8916,7 +8903,6 @@ async fn poll_same_bill_at_two_mints_uses_distinct_quote_endpoints() {
 
 #[tokio::test]
 async fn second_mint_attachments_use_its_advertised_blossom_server() {
-    init_test_cfg();
     let mut ctx = get_ctx();
     let bill_keys = BcrKeys::from_private_key(&private_key_test());
     let plaintext = b"second-mint-attachment".to_vec();
@@ -8978,7 +8964,6 @@ async fn second_mint_attachments_use_its_advertised_blossom_server() {
 #[tokio::test]
 async fn mismatched_endpoint_identity_blocks_request_poll_and_acceptance_before_side_effects() {
     use crate::external::mint::{Error as MintError, MockMintClientApi};
-    init_test_cfg();
     for operation in ["request", "poll", "accept", "reject", "cancel"] {
         let mut ctx = get_ctx();
         let mut client = MockMintClientApi::new();
@@ -9088,7 +9073,6 @@ async fn mismatched_endpoint_identity_blocks_request_poll_and_acceptance_before_
 
 #[tokio::test]
 async fn accepting_colliding_quote_rejects_other_mint_and_preserves_selected_mint() {
-    init_test_cfg();
     let mut ctx = get_ctx();
     ctx.mint_store
         .expect_get_requests_for_bill()
@@ -9137,7 +9121,6 @@ async fn accepting_colliding_quote_rejects_other_mint_and_preserves_selected_min
 
 #[tokio::test]
 async fn colliding_poll_status_and_offer_updates_include_the_mint() {
-    init_test_cfg();
     let mut ctx = get_ctx();
     ctx.mint_client
         .expect_lookup_quote_for_mint()

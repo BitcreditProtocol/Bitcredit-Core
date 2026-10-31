@@ -54,7 +54,6 @@ impl IdentityCache {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 async fn fetch_identity(url: url::Url) -> Result<Vec<u8>> {
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
@@ -79,87 +78,7 @@ async fn fetch_identity(url: url::Url) -> Result<Vec<u8>> {
     Ok(body)
 }
 
-#[cfg(target_arch = "wasm32")]
-async fn fetch_identity(url: url::Url) -> Result<Vec<u8>> {
-    use js_sys::{Reflect, Uint8Array};
-    use tokio_with_wasm::alias as tokio;
-    use wasm_bindgen::{JsCast, JsValue};
-    use wasm_bindgen_futures::JsFuture;
-    use web_sys::{
-        AbortController, ReadableStreamDefaultReader, Request, RequestInit, RequestRedirect,
-        Response,
-    };
-
-    let controller = AbortController::new().map_err(|_| Error::QuoteClient)?;
-    let init = RequestInit::new();
-    init.set_method("GET");
-    init.set_redirect(RequestRedirect::Error);
-    init.set_signal(Some(&controller.signal()));
-    let request =
-        Request::new_with_str_and_init(url.as_str(), &init).map_err(|_| Error::QuoteClient)?;
-
-    let fetch = async {
-        let window = web_sys::window().ok_or(Error::QuoteClient)?;
-        let response = JsFuture::from(window.fetch_with_request(&request))
-            .await
-            .map_err(|_| Error::QuoteClient)?;
-        let response: Response = response.dyn_into().map_err(|_| Error::QuoteClient)?;
-        if !response.ok() {
-            log::error!("Mint refused identity at {url}: {}", response.status());
-            return Err(Error::QuoteClient.into());
-        }
-
-        let Some(stream) = response.body() else {
-            return Ok(Vec::new());
-        };
-        let reader: ReadableStreamDefaultReader = stream
-            .get_reader()
-            .dyn_into()
-            .map_err(|_| Error::QuoteClient)?;
-        let mut body = Vec::new();
-        loop {
-            let result = JsFuture::from(reader.read())
-                .await
-                .map_err(|_| Error::QuoteClient)?;
-            let done = Reflect::get(&result, &JsValue::from_str("done"))
-                .map_err(|_| Error::QuoteClient)?
-                .as_bool()
-                .ok_or(Error::QuoteClient)?;
-            if done {
-                reader.release_lock();
-                return Ok(body);
-            }
-            let value = Reflect::get(&result, &JsValue::from_str("value"))
-                .map_err(|_| Error::QuoteClient)?;
-            let chunk = Uint8Array::new(&value);
-            let chunk_len = chunk.length() as usize;
-            if chunk_len > MAX_IDENTITY_BYTES.saturating_sub(body.len()) {
-                let _ = reader.cancel();
-                log::error!("Mint identity response exceeded its size bound at {url}");
-                return Err(Error::QuoteClient.into());
-            }
-            let start = body.len();
-            body.resize(start + chunk_len, 0);
-            chunk.copy_to(&mut body[start..]);
-        }
-    };
-
-    match tokio::time::timeout(
-        std::time::Duration::from_secs(IDENTITY_TIMEOUT_SECONDS),
-        fetch,
-    )
-    .await
-    {
-        Ok(result) => result,
-        Err(_) => {
-            controller.abort();
-            log::error!("Mint identity request timed out at {url}");
-            Err(Error::QuoteClient.into())
-        }
-    }
-}
-
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::external::mint::{MintClient, MintClientApi};
@@ -251,7 +170,7 @@ mod tests {
                 .expect(2)
                 .create_async()
                 .await;
-            let client = MintClient::new();
+            let client = MintClient::new(std::sync::Arc::new(crate::tests::tests::test_cfg()));
             let url = server.url().parse().unwrap();
             for _ in 0..2 {
                 assert!(
@@ -282,7 +201,7 @@ mod tests {
             .expect(4)
             .create_async()
             .await;
-        let client = MintClient::new();
+        let client = MintClient::new(std::sync::Arc::new(crate::tests::tests::test_cfg()));
         let url: url::Url = server.url().parse().unwrap();
         client.verify_mint_identity(&url, &expected).await.unwrap();
         client
@@ -336,7 +255,7 @@ mod tests {
             .await;
         let node = NodeId::new(BcrKeys::new().pub_key(), Network::Regtest);
         assert!(
-            MintClient::new()
+            MintClient::new(std::sync::Arc::new(crate::tests::tests::test_cfg()))
                 .verify_mint_identity(&server.url().parse().unwrap(), &node)
                 .await
                 .is_err()

@@ -235,8 +235,8 @@ impl NotificationTransportServiceApi for NotificationTransportService {
         mint_request_id: uuid::Uuid,
         applicant_action: Option<ApplicantActionProjection>,
     ) -> Result<()> {
-        validate_node_id_network(node_id)?;
-        validate_bill_id_network(bill_id)?;
+        validate_node_id_network(node_id, self.config.bitcoin_network())?;
+        validate_bill_id_network(bill_id, self.config.bitcoin_network())?;
         let notifications = self
             .notification_store
             .list(NotificationFilter {
@@ -260,14 +260,15 @@ impl NotificationTransportServiceApi for NotificationTransportService {
             .collect::<Vec<_>>();
 
         if let Some(action) = applicant_action {
-            let revision_already_seen =
-                action_notifications.iter().any(|(_, payload)| {
-                    payload.mint_request_id == mint_request_id
-                        && payload.mint_node_id.as_ref().unwrap_or(
-                            &bcr_ebill_api::get_config().mint_config.default_mint_node_id,
-                        ) == mint_node_id
-                        && payload.applicant_action == action
-                });
+            let revision_already_seen = action_notifications.iter().any(|(_, payload)| {
+                payload.mint_request_id == mint_request_id
+                    && payload
+                        .mint_node_id
+                        .as_ref()
+                        .unwrap_or(&self.config.mint_config.default_mint_node_id)
+                        == mint_node_id
+                    && payload.applicant_action == action
+            });
 
             for (notification, payload) in action_notifications {
                 if notification.active
@@ -275,7 +276,7 @@ impl NotificationTransportServiceApi for NotificationTransportService {
                     && payload
                         .mint_node_id
                         .as_ref()
-                        .unwrap_or(&bcr_ebill_api::get_config().mint_config.default_mint_node_id)
+                        .unwrap_or(&self.config.mint_config.default_mint_node_id)
                         == mint_node_id
                     && payload.applicant_action != action
                 {
@@ -324,7 +325,7 @@ impl NotificationTransportServiceApi for NotificationTransportService {
                     && payload
                         .mint_node_id
                         .as_ref()
-                        .unwrap_or(&bcr_ebill_api::get_config().mint_config.default_mint_node_id)
+                        .unwrap_or(&self.config.mint_config.default_mint_node_id)
                         == mint_node_id
                 {
                     self.mark_done_and_push(notification).await?;
@@ -705,7 +706,7 @@ mod tests {
             Some(
                 serde_json::to_value(QuoteApplicantActionNotificationPayload::new(
                     &bill_id_test(),
-                    &bcr_ebill_api::get_config().mint_config.default_mint_node_id,
+                    &test_cfg().mint_config.default_mint_node_id,
                     mint_request_id,
                     action,
                 ))
@@ -717,7 +718,6 @@ mod tests {
 
     #[tokio::test]
     async fn dismissed_quote_applicant_action_is_not_recreated_for_same_revision() {
-        init_test_cfg();
         let quote_id = Uuid::new_v4();
         let action = clarification_action('a');
         let mut current = quote_action_notification(quote_id, action.clone());
@@ -733,7 +733,7 @@ mod tests {
             .reconcile_quote_applicant_action_notification(
                 &node_id_test(),
                 &bill_id_test(),
-                &bcr_ebill_api::get_config().mint_config.default_mint_node_id,
+                &test_cfg().mint_config.default_mint_node_id,
                 quote_id,
                 Some(action),
             )
@@ -743,7 +743,6 @@ mod tests {
 
     #[tokio::test]
     async fn dismissed_applicant_action_current_revision_clears_active_stale_revision() {
-        init_test_cfg();
         let quote_id = Uuid::new_v4();
         let stale = quote_action_notification(quote_id, clarification_action('a'));
         let stale_id = stale.id.clone();
@@ -767,7 +766,7 @@ mod tests {
             .reconcile_quote_applicant_action_notification(
                 &node_id_test(),
                 &bill_id_test(),
-                &bcr_ebill_api::get_config().mint_config.default_mint_node_id,
+                &test_cfg().mint_config.default_mint_node_id,
                 quote_id,
                 Some(current_action),
             )
@@ -777,7 +776,6 @@ mod tests {
 
     #[tokio::test]
     async fn quote_applicant_action_supersedes_revision_and_clears_when_absent() {
-        init_test_cfg();
         let quote_id = Uuid::new_v4();
         let previous = quote_action_notification(quote_id, clarification_action('a'));
         let previous_id = previous.id.clone();
@@ -811,7 +809,7 @@ mod tests {
             .reconcile_quote_applicant_action_notification(
                 &node_id_test(),
                 &bill_id_test(),
-                &bcr_ebill_api::get_config().mint_config.default_mint_node_id,
+                &test_cfg().mint_config.default_mint_node_id,
                 quote_id,
                 Some(next_action),
             )
@@ -833,7 +831,7 @@ mod tests {
             .reconcile_quote_applicant_action_notification(
                 &node_id_test(),
                 &bill_id_test(),
-                &bcr_ebill_api::get_config().mint_config.default_mint_node_id,
+                &test_cfg().mint_config.default_mint_node_id,
                 quote_id,
                 None,
             )
@@ -843,7 +841,6 @@ mod tests {
 
     #[tokio::test]
     async fn colliding_quote_notifications_are_scoped_and_legacy_notifications_are_service_only() {
-        init_test_cfg();
         let quote = Uuid::new_v4();
         for legacy in [false, true] {
             let mut a = quote_action_notification(quote, clarification_action('a'));

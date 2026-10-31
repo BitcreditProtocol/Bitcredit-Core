@@ -850,7 +850,8 @@ pub mod tests {
         ];
 
         for (network, api_path, link_path) in cases {
-            let client = BitcoinClient::with_urls(vec![base_url.clone()], network);
+            let client =
+                BitcoinClient::with_urls(Arc::new(test_cfg()), vec![base_url.clone()], network);
             assert_eq!(
                 client.build_api_url(&base_url, "/blocks/tip/height"),
                 format!("https://mempool.example/{api_path}")

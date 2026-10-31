@@ -352,6 +352,21 @@ impl IdentityService {
         }
     }
 
+    /// Validates and atomically appends a block that changes no identity fields.
+    async fn append_identity_block(
+        &self,
+        chain: &mut IdentityBlockchain,
+        block: &IdentityBlock,
+    ) -> Result<()> {
+        let expected_latest = chain.get_latest_block().clone();
+        validate_and_append_block(chain, block.clone())?;
+        let mut tx = self.transaction_mgr.begin().await?;
+        tx.append_identity_blocks(Some(&expected_latest), std::slice::from_ref(block))
+            .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
     // helper for transactional persistence
     async fn persist_identity_change(
         &self,
@@ -419,6 +434,7 @@ impl IdentityServiceApi for IdentityService {
         {
             return Ok(existing.append_result(true));
         }
+        self.block_transport.ensure_publish_ready().await?;
         let block = chain
             .create_mint_record(&data, &keys, Timestamp::now())
             .map_err(|e| Error::Protocol(e.into()))?;
@@ -429,8 +445,7 @@ impl IdentityServiceApi for IdentityService {
             signing_key: header.issuer.signing_key,
             already_present: false,
         };
-        self.validate_and_add_block(&mut chain, block.clone())
-            .await?;
+        self.append_identity_block(&mut chain, &block).await?;
         self.populate_block(&full.identity, &block, &keys).await?;
         Ok(result)
     }
@@ -463,11 +478,11 @@ impl IdentityServiceApi for IdentityService {
             statement,
             created_at: timestamp,
         };
+        self.block_transport.ensure_publish_ready().await?;
         let block = chain
             .create_mint_record_dispute(&data, &keys, timestamp)
             .map_err(|e| Error::Protocol(e.into()))?;
-        self.validate_and_add_block(&mut chain, block.clone())
-            .await?;
+        self.append_identity_block(&mut chain, &block).await?;
         self.populate_block(&full.identity, &block, &keys).await?;
         Ok(())
     }

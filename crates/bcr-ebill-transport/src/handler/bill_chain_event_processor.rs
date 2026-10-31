@@ -3339,9 +3339,7 @@ mod tests {
         let mut mock_mint_client = MockMintClient::new();
         mock_mint_client
             .expect_validate_payment_address_from_mint()
-            .withf(|url, _, _, _, _| {
-                url == &bcr_ebill_api::get_config().mint_config.default_mint_url
-            })
+            .withf(|url, _, _, _, _| url == &test_cfg().mint_config.default_mint_url)
             .returning(|_, _, _, _, _| Ok(()))
             .times(1);
         let handler = BillChainEventProcessor::new(
@@ -3375,10 +3373,7 @@ mod tests {
                 &address,
                 &Some(BillParticipant::Anon(
                     bcr_ebill_core::protocol::blockchain::bill::participant::BillAnonParticipant {
-                        node_id: bcr_ebill_api::get_config()
-                            .mint_config
-                            .default_mint_node_id
-                            .clone(),
+                        node_id: test_cfg().mint_config.default_mint_node_id.clone(),
                         nostr_relays: vec![],
                     },
                 )),
