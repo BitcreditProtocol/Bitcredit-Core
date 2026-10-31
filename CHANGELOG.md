@@ -46,6 +46,7 @@
 * Authenticate Mint wallet endpoints with fresh purpose-bound BIP340 eBill node-key proofs and a bounded per-Mint/URL verification cache; fail closed on unavailable or invalid proofs.
 * Add portable Mint record and dispute blocks to identity/company chains, with exact-byte issuer validation, append/list/dispute/snapshot methods on `IdentityServiceApi` and `CompanyServiceApi`, complete authenticated snapshot hash inputs, and public verification vectors. Entry payloads are capped at 32 KiB for the existing Nostr transport.
 * Add `bcr_ebill_api::network_consent` (moved from the removed WASM API): test-network directory listing and withdrawal (NIP-01/NIP-09), five-minute case-bound cross-mint grant and revoke, and purpose-bound service-voice admission signing at the configured service Mint. Company keys sign only for identity-proven authorized signatories. Public cross-language vectors; keys stay in Core; no FFI binding yet.
+* Add `bcr_ebill_api::application_admission` (moved from the removed WASM API): five-minute `mint-application-admission-v1` for the holder of a Pending Mint request and `facility-application-admission-v1` for the selected identity, with cross-language fixtures. No key export, consent or financial state change; no FFI binding yet.
 
 # 0.5.16
 
