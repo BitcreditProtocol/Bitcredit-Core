@@ -1536,9 +1536,9 @@ checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
 name = "ecies"
-version = "0.2.13"
+version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "05585cd8ca04e63c7bb5d7308fd7583cc8df9fcf3e6ff9132562c57209a7f231"
+checksum = "7789c0aca3f3a992a12684c7a1089235faf38e399c7340a523f71bb4790f6e8b"
 dependencies = [
  "aes-gcm",
  "getrandom 0.2.17",
