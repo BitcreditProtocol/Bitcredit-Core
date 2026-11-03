@@ -658,6 +658,7 @@ impl IdentityChainEventProcessor {
                     ],
                     _ => vec![],
                 };
+                let previous_t = identity.t.clone();
                 info!("Updating identity {node_id} from block data");
                 identity.apply_block_data(&update);
                 self.identity_store
@@ -667,6 +668,26 @@ impl IdentityChainEventProcessor {
 
                 for (file, context) in files_to_anchor.into_iter().flatten() {
                     anchor_important_file(&self.file_reference_store, &file, context).await?;
+                }
+
+                // if it's a deanonymization, attempt to de-anonymize the self-contact as well
+                if let IdentityBlockPayload::Update(payload) = update
+                    && let Some(ref t) = payload.t
+                    && previous_t == IdentityType::Anon
+                    && let Ok(Some(mut contact)) = self.contact_store.get(node_id).await
+                    && matches!(contact.t, ContactType::Anon)
+                {
+                    contact.t = ContactType::Person;
+                    contact.name = identity.name.clone();
+                    contact.email = identity.email.clone();
+                    contact.postal_address = identity.postal_address.to_full_postal_address();
+                    contact.date_of_birth_or_registration = identity.date_of_birth.clone();
+                    contact.country_of_birth_or_registration = identity.country_of_birth.clone();
+                    contact.city_of_birth_or_registration = identity.city_of_birth.clone();
+                    contact.identification_number = identity.identification_number.clone();
+                    if let Err(e) = self.contact_store.update(node_id, contact).await {
+                        error!("Could not deanonimize contact for own identity {node_id}: {e}");
+                    }
                 }
             }
             IdentityBlockPayload::InviteSignatory(payload) => {

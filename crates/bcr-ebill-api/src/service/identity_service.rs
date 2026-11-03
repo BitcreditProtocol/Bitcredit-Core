@@ -820,6 +820,7 @@ impl IdentityServiceApi for IdentityService {
         debug!("deanonymizing identity");
         let existing_identity = self.store.get().await?;
         let keys = self.store.get_key_pair().await?;
+        let node_id = existing_identity.node_id.clone();
         // can't de-anonymize to an anonymous identity
         if t == IdentityType::Anon {
             return Err(super::Error::Validation(
@@ -920,6 +921,23 @@ impl IdentityServiceApi for IdentityService {
         if let Some((proof, data)) = email_confirmation {
             self.create_identity_proof_block(proof, data, &identity, &keys, &mut identity_chain)
                 .await?;
+        }
+
+        // if there is a contact for ourselves and it's anon, deanonimize it as well
+        if let Ok(Some(mut contact)) = self.contact_store.get(&node_id).await
+            && matches!(contact.t, ContactType::Anon)
+        {
+            contact.t = ContactType::Person;
+            contact.name = identity.name.clone();
+            contact.email = identity.email.clone();
+            contact.postal_address = identity.postal_address.to_full_postal_address();
+            contact.date_of_birth_or_registration = identity.date_of_birth.clone();
+            contact.country_of_birth_or_registration = identity.country_of_birth.clone();
+            contact.city_of_birth_or_registration = identity.city_of_birth.clone();
+            contact.identification_number = identity.identification_number.clone();
+            if let Err(e) = self.contact_store.update(&node_id, contact).await {
+                error!("Could not deanonimize contact for own identity {node_id}: {e}");
+            }
         }
 
         debug!("deanonymized identity");

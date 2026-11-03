@@ -1,3 +1,8 @@
+# 0.5.16-hotfix-1
+
+* When deanonymyzing an identity, also deanonymize the self-contact, if there was one
+    * This fixes fetching signatories for a company created after deanonymizing
+
 # 0.5.16
 
 * Upgrade Dependencies
