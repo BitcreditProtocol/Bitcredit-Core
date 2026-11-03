@@ -1542,7 +1542,6 @@ mod tests {
         storage
             .expect_get_key_pair()
             .returning(|| Ok(BcrKeys::from_private_key(&private_key_test())));
-        storage.expect_save().returning(move |_| Ok(()));
         storage
             .expect_get_key_pair()
             .returning(|| Ok(BcrKeys::from_private_key(&private_key_test())));
@@ -1552,8 +1551,7 @@ mod tests {
             identity.t = IdentityType::Anon;
             Ok(identity)
         });
-        let mut chain_storage = MockIdentityChainStoreApiMock::new();
-        chain_storage.expect_add_block().returning(|_| Ok(()));
+        let chain_storage = MockIdentityChainStoreApiMock::new();
         let mut transport = MockTransportServiceApi::new();
         transport.expect_on_block_transport(|t| {
             t.expect_send_identity_chain_events().never();
@@ -1591,7 +1589,6 @@ mod tests {
         storage
             .expect_get_key_pair()
             .returning(|| Ok(BcrKeys::from_private_key(&private_key_test())));
-        storage.expect_save().returning(move |_| Ok(()));
         storage
             .expect_get_key_pair()
             .returning(|| Ok(BcrKeys::from_private_key(&private_key_test())));
@@ -1600,8 +1597,7 @@ mod tests {
             identity.node_id = node_id_test();
             Ok(identity)
         });
-        let mut chain_storage = MockIdentityChainStoreApiMock::new();
-        chain_storage.expect_add_block().returning(|_| Ok(()));
+        let chain_storage = MockIdentityChainStoreApiMock::new();
         let mut transport = MockTransportServiceApi::new();
         transport.expect_on_block_transport(|t| {
             t.expect_send_identity_chain_events().never();
@@ -1684,7 +1680,6 @@ mod tests {
     #[tokio::test]
     async fn update_identity_returns_if_no_changes_were_made() {
         let mut storage = MockIdentityStoreApiMock::new();
-        storage.expect_save().returning(|_| Ok(()));
         storage
             .expect_get_key_pair()
             .returning(|| Ok(BcrKeys::from_private_key(&private_key_test())));

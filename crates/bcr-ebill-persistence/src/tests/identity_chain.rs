@@ -8,8 +8,11 @@ use bcr_ebill_core::protocol::{
 };
 
 use crate::{
-    tests::tests::{empty_identity, test_ts},
-    traits::identity::IdentityChainStoreApi,
+    tests::{
+        tests::{empty_identity, test_ts},
+        transaction_test_utils::{remove_identity_blocks_from_height, seed_identity_blocks},
+    },
+    traits::{identity::IdentityChainStoreApi, transaction::TransactionManagerApi},
 };
 
 pub fn get_first_identity_block() -> IdentityBlock {
@@ -46,17 +49,21 @@ pub fn get_second_identity_block(previous: &IdentityBlock) -> IdentityBlock {
     .unwrap()
 }
 
-pub async fn test_identity_chain<S>(store: &S)
+async fn get_latest_block<S>(store: &S) -> crate::Result<IdentityBlock>
 where
     S: IdentityChainStoreApi + ?Sized,
 {
-    assert!(store.get_latest_block().await.is_err());
+    Ok(store.get_chain().await?.get_latest_block().to_owned())
+}
+
+pub async fn test_identity_chain<S>(transaction_manager: &dyn TransactionManagerApi, store: &S)
+where
+    S: IdentityChainStoreApi + ?Sized,
+{
+    assert!(get_latest_block(store).await.is_err());
     let block = get_first_identity_block();
-    store
-        .add_block(&block)
-        .await
-        .expect("add first identity block");
-    let latest = store.get_latest_block().await.unwrap();
+    seed_identity_blocks(transaction_manager, None, std::slice::from_ref(&block)).await;
+    let latest = get_latest_block(store).await.unwrap();
     assert_eq!(latest, block);
     let chain = store.get_chain().await.unwrap();
     assert_eq!(chain.blocks().len(), 1);
@@ -64,65 +71,30 @@ where
 
     // Second block
     let block2 = get_second_identity_block(&block);
-    store
-        .add_block(&block2)
-        .await
-        .expect("add second identity block");
-    assert_eq!(store.get_latest_block().await.unwrap(), block2);
+    seed_identity_blocks(
+        transaction_manager,
+        Some(&block),
+        std::slice::from_ref(&block2),
+    )
+    .await;
+    assert_eq!(get_latest_block(store).await.unwrap(), block2);
     let chain = store.get_chain().await.unwrap();
     assert_eq!(chain.blocks().len(), 2);
     assert_eq!(chain.blocks()[0], block);
     assert_eq!(chain.blocks()[1], block2);
 
     // Truncate block 2.
-    store.remove_blocks_from_height(block2.id).await.unwrap();
-    assert_eq!(store.get_latest_block().await.unwrap(), block);
+    remove_identity_blocks_from_height(transaction_manager, &block2, block2.id).await;
+    assert_eq!(get_latest_block(store).await.unwrap(), block);
 
     // Re-add after truncation.
-    store
-        .add_block(&block2)
-        .await
-        .expect("re-add block after truncation");
+    seed_identity_blocks(
+        transaction_manager,
+        Some(&block),
+        std::slice::from_ref(&block2),
+    )
+    .await;
     let chain = store.get_chain().await.unwrap();
     assert_eq!(chain.blocks().len(), 2);
-    assert_eq!(chain.blocks()[1], block2);
-}
-
-pub async fn test_concurrent_identity_first_block<S>(store: &S)
-where
-    S: IdentityChainStoreApi + ?Sized,
-{
-    let block = get_first_identity_block();
-    let (result_a, result_b) = tokio::join!(store.add_block(&block), store.add_block(&block),);
-    assert_ne!(
-        result_a.is_ok(),
-        result_b.is_ok(),
-        "exactly one concurrent first block \
-         must succeed: \
-         a={result_a:?}, b={result_b:?}"
-    );
-    let chain = store.get_chain().await.unwrap();
-    assert_eq!(chain.blocks().len(), 1);
-    assert_eq!(chain.blocks()[0], block);
-}
-
-pub async fn test_concurrent_identity_add<S>(store: &S)
-where
-    S: IdentityChainStoreApi + ?Sized,
-{
-    let block = get_first_identity_block();
-    store.add_block(&block).await.unwrap();
-    let block2 = get_second_identity_block(&block);
-    let (result_a, result_b) = tokio::join!(store.add_block(&block2), store.add_block(&block2),);
-    assert_ne!(
-        result_a.is_ok(),
-        result_b.is_ok(),
-        "exactly one concurrent append \
-         must succeed: \
-         a={result_a:?}, b={result_b:?}"
-    );
-    let chain = store.get_chain().await.unwrap();
-    assert_eq!(chain.blocks().len(), 2);
-    assert_eq!(chain.blocks()[0], block);
     assert_eq!(chain.blocks()[1], block2);
 }

@@ -9,7 +9,7 @@ use bcr_ebill_core::{
     protocol::BlockId,
     protocol::Timestamp,
     protocol::{
-        blockchain::bill::{BillBlock, BillBlockchain, BillOpCode},
+        blockchain::bill::{BillBlockchain, BillOpCode},
         crypto::BcrKeys,
     },
 };
@@ -43,8 +43,6 @@ pub trait BillStoreApi: ServiceTraitBounds {
     async fn exists(&self, id: &BillId) -> Result<bool>;
     /// Gets all bill ids
     async fn get_ids(&self) -> Result<Vec<BillId>>;
-    /// Saves the keys
-    async fn save_keys(&self, id: &BillId, keys: &BcrKeys) -> Result<()>;
     /// Get bill keys
     async fn get_keys(&self, id: &BillId) -> Result<BcrKeys>;
     /// Check if the given bill was paid
@@ -96,12 +94,6 @@ pub trait BillStoreApi: ServiceTraitBounds {
 
 #[async_trait]
 pub trait BillChainStoreApi: ServiceTraitBounds {
-    /// Gets the latest block of the chain
-    async fn get_latest_block(&self, id: &BillId) -> Result<BillBlock>;
-    /// Adds the block to the chain
-    async fn add_block(&self, id: &BillId, block: &BillBlock) -> Result<()>;
     /// Get the whole blockchain
     async fn get_chain(&self, id: &BillId) -> Result<BillBlockchain>;
-    /// Removes all blocks with a block id >= from_block_id for the given bill
-    async fn remove_blocks_from_height(&self, id: &BillId, from_block_id: BlockId) -> Result<()>;
 }

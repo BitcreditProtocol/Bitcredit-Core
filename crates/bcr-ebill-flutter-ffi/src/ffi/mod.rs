@@ -289,7 +289,6 @@ pub struct EbillConfig {
     pub esplora_base_urls: Vec<String>,
     pub nostr_relays: Vec<String>,
     pub blossom_servers: Option<Vec<String>>,
-    pub nostr_only_known_contacts: Option<bool>,
     pub nostr_max_relays: Option<usize>,
     pub nostr_relay_ack_threshold: Option<usize>,
     pub job_runner_initial_delay_seconds: u64,
@@ -337,7 +336,6 @@ fn build_api_config(conf: &EbillConfig) -> Result<ApiConfig, EbillFfiError> {
         nostr_config: NostrConfig {
             relays: nostr_relays,
             blossom_servers,
-            only_known_contacts: conf.nostr_only_known_contacts.unwrap_or(false),
             max_relays: conf.nostr_max_relays.or(Some(50)),
             relay_ack_threshold: conf.nostr_relay_ack_threshold.unwrap_or(1),
         },

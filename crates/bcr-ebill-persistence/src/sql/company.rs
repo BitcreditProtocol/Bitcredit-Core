@@ -115,11 +115,6 @@ pub(crate) const UPDATE_COMPANY: &str = r#"
     WHERE id = $1
 "#;
 
-pub(crate) const DELETE_COMPANY: &str = r#"
-    DELETE FROM company
-    WHERE id = $1
-"#;
-
 pub(crate) const SELECT_SIGNATORIES: &str = r#"
     SELECT
         company_id,
@@ -184,11 +179,6 @@ pub(crate) const INSERT_KEY: &str = r#"
 pub(crate) const SELECT_KEY: &str = r#"
     SELECT private_key
     FROM company_keys
-    WHERE id = $1
-"#;
-
-pub(crate) const DELETE_KEY: &str = r#"
-    DELETE FROM company_keys
     WHERE id = $1
 "#;
 

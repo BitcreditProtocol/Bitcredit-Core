@@ -127,7 +127,6 @@ pub fn test_cfg() -> Config {
             temp_files_path: PathBuf::from_str("/tmp").unwrap(),
         },
         nostr_config: bcr_ebill_api::NostrConfig {
-            only_known_contacts: false,
             relays: vec![url::Url::parse("ws://localhost:8080").unwrap()],
             blossom_servers: vec![],
             max_relays: Some(50),
@@ -889,7 +888,6 @@ mockall::mock! {
             avatar_file_upload_id: Option<Uuid>,
             proof_document_file_upload_id: Option<Uuid>,
         ) -> bcr_ebill_api::service::Result<Contact>;
-        async fn is_known_npub(&self, npub: &bcr_ebill_core::application::nostr_contact::NostrPublicKey) -> bcr_ebill_api::service::Result<bool>;
         async fn get_nostr_npubs(&self) -> bcr_ebill_api::service::Result<Vec<bcr_ebill_core::application::nostr_contact::NostrPublicKey>>;
         async fn get_nostr_contact_by_node_id(&self, node_id: &NodeId) -> bcr_ebill_api::service::Result<Option<bcr_ebill_core::application::nostr_contact::NostrContact>>;
         async fn open_and_decrypt_file(

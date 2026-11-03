@@ -42,6 +42,7 @@
 * Add check for block-operations (identity, company, bill), before persistence/effects, if we're connected to at least one write-relay, if not, the operation fails
     * This decreases the likelihood for inconsistent states
 * Add full transactional persistence handling for identity, company and bill blocks
+* Remove `only_known_contacts` setting, since it's unused everywhere
 
 # 0.5.16-hotfix-1
 

@@ -1733,9 +1733,6 @@ pub mod tests {
             .times(1)
             .returning(move || Ok(local_chain_clone.clone()));
 
-        chain_store.expect_add_block().times(0);
-        chain_store.expect_remove_blocks_from_height().times(0);
-
         let full_clone = full.clone();
         store
             .expect_get_full()
@@ -1843,10 +1840,6 @@ pub mod tests {
             .expect_get_chain()
             .times(1)
             .returning(move || Ok(local_chain_clone.clone()));
-
-        // Metadata-only recovery must never mutate the blockchain
-        chain_store.expect_add_block().times(0);
-        chain_store.expect_remove_blocks_from_height().times(0);
 
         let full_clone = full.clone();
         store
@@ -1998,8 +1991,6 @@ pub mod tests {
             .expect_get_chain()
             .once()
             .returning(move || Ok(local_chain_clone.clone()));
-        // extension, not a fork
-        chain_store.expect_remove_blocks_from_height().times(0);
         let full_clone = full.clone();
         store
             .expect_get_full()
@@ -2319,8 +2310,6 @@ pub mod tests {
             .expect_get_chain()
             .once()
             .returning(move || Ok(local_chain_clone.clone()));
-        // This is only an extension. Nothing should be truncated
-        chain_store.expect_remove_blocks_from_height().times(0);
 
         let mut tx = MockPersistenceTransactionApiMock::new();
         tx.expect_append_identity_blocks()

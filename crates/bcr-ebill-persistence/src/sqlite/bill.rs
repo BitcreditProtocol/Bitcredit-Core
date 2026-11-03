@@ -1,9 +1,9 @@
 use crate::sql::bill::{
     BILL_EXISTS, BILLS_WITH_LATEST_OP_CODE, BillCacheRow, BitcreditBillResultDb, CLEAR_CACHE,
-    GET_BILL_IDS, INSERT_KEYS, INVALIDATE_CACHE, IS_PAID, PaymentStateRow, SELECT_CACHE_ONE,
-    SELECT_KEYS, SELECT_OFFER_TO_SELL_PAYMENT, SELECT_PAYMENT, SELECT_RECOURSE_PAYMENT,
-    UPSERT_CACHE, UPSERT_OFFER_TO_SELL_PAYMENT, UPSERT_PAYMENT, UPSERT_RECOURSE_PAYMENT,
-    WAITING_FOR_PAYMENT, payment_state_to_db,
+    GET_BILL_IDS, INVALIDATE_CACHE, IS_PAID, PaymentStateRow, SELECT_CACHE_ONE, SELECT_KEYS,
+    SELECT_OFFER_TO_SELL_PAYMENT, SELECT_PAYMENT, SELECT_RECOURSE_PAYMENT, UPSERT_CACHE,
+    UPSERT_OFFER_TO_SELL_PAYMENT, UPSERT_PAYMENT, UPSERT_RECOURSE_PAYMENT, WAITING_FOR_PAYMENT,
+    payment_state_to_db,
 };
 use crate::sql::{block_id_to_db, timestamp_to_db};
 use crate::{EncryptionContext, Error, Result};
@@ -114,18 +114,6 @@ impl BillStoreApi for SqliteBillStore {
 
     async fn clear_bill_cache(&self) -> Result<()> {
         sqlx::query(CLEAR_CACHE).execute(&self.pool).await?;
-        Ok(())
-    }
-
-    async fn save_keys(&self, id: &BillId, key_pair: &BcrKeys) -> Result<()> {
-        let plaintext_key = key_pair.get_private_key_string();
-        let encrypted_key = self.encryption_ctx.encrypt(plaintext_key.as_bytes())?;
-        let encoded_key = base58::encode(&encrypted_key);
-        sqlx::query(INSERT_KEYS)
-            .bind(Text(id.clone()))
-            .bind(encoded_key)
-            .execute(&self.pool)
-            .await?;
         Ok(())
     }
 
@@ -312,22 +300,19 @@ impl BillStoreApi for SqliteBillStore {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use crate::EncryptionContext;
     use crate::sqlite::bill::SqliteBillStore;
-    use crate::sqlite::bill_chain::SqliteBillChainStore;
+    use crate::sqlite::transaction::SqliteTransactionManager;
     use crate::tests::bill::test_bill_store;
     use bcr_ebill_core::protocol::crypto::BcrKeys;
     use sqlx::SqlitePool;
+    use std::sync::Arc;
 
     #[sqlx::test(migrations = "migrations/sqlite")]
     async fn bill_store(pool: SqlitePool) {
-        let store = SqliteBillStore::new(
-            pool.clone(),
-            Arc::new(EncryptionContext::new(BcrKeys::new())),
-        );
-        let chain_store = SqliteBillChainStore::new(pool);
-        test_bill_store(&store, &chain_store).await;
+        let encryption_ctx = Arc::new(EncryptionContext::new(BcrKeys::new()));
+        let store = SqliteBillStore::new(pool.clone(), encryption_ctx.clone());
+        let transaction_mgr = SqliteTransactionManager::new(pool, encryption_ctx);
+        test_bill_store(&transaction_mgr, &store).await;
     }
 }

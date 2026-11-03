@@ -6157,8 +6157,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   EbillConfig dco_decode_ebill_config(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 20)
-      throw Exception('unexpected arr length: expect 20 but see ${arr.length}');
+    if (arr.length != 19)
+      throw Exception('unexpected arr length: expect 19 but see ${arr.length}');
     return EbillConfig(
       sqliteDbPath: dco_decode_String(arr[0]),
       tempFilesPath: dco_decode_String(arr[1]),
@@ -6167,21 +6167,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       esploraBaseUrls: dco_decode_list_String(arr[4]),
       nostrRelays: dco_decode_list_String(arr[5]),
       blossomServers: dco_decode_opt_list_String(arr[6]),
-      nostrOnlyKnownContacts: dco_decode_opt_box_autoadd_bool(arr[7]),
-      nostrMaxRelays: dco_decode_opt_box_autoadd_usize(arr[8]),
-      nostrRelayAckThreshold: dco_decode_opt_box_autoadd_usize(arr[9]),
-      jobRunnerInitialDelaySeconds: dco_decode_u_64(arr[10]),
-      jobRunnerCheckIntervalSeconds: dco_decode_u_64(arr[11]),
+      nostrMaxRelays: dco_decode_opt_box_autoadd_usize(arr[7]),
+      nostrRelayAckThreshold: dco_decode_opt_box_autoadd_usize(arr[8]),
+      jobRunnerInitialDelaySeconds: dco_decode_u_64(arr[9]),
+      jobRunnerCheckIntervalSeconds: dco_decode_u_64(arr[10]),
       transportInitialSubscriptionDelaySeconds: dco_decode_opt_box_autoadd_u_32(
-        arr[12],
+        arr[11],
       ),
-      defaultMintUrl: dco_decode_String(arr[13]),
-      defaultMintNodeId: dco_decode_String(arr[14]),
-      numConfirmationsForPayment: dco_decode_usize(arr[15]),
-      devMode: dco_decode_bool(arr[16]),
-      mandatoryEmailConfirmations: dco_decode_bool(arr[17]),
-      defaultCourtUrl: dco_decode_String(arr[18]),
-      mnemonic: dco_decode_String(arr[19]),
+      defaultMintUrl: dco_decode_String(arr[12]),
+      defaultMintNodeId: dco_decode_String(arr[13]),
+      numConfirmationsForPayment: dco_decode_usize(arr[14]),
+      devMode: dco_decode_bool(arr[15]),
+      mandatoryEmailConfirmations: dco_decode_bool(arr[16]),
+      defaultCourtUrl: dco_decode_String(arr[17]),
+      mnemonic: dco_decode_String(arr[18]),
     );
   }
 
@@ -9750,9 +9749,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_esploraBaseUrls = sse_decode_list_String(deserializer);
     var var_nostrRelays = sse_decode_list_String(deserializer);
     var var_blossomServers = sse_decode_opt_list_String(deserializer);
-    var var_nostrOnlyKnownContacts = sse_decode_opt_box_autoadd_bool(
-      deserializer,
-    );
     var var_nostrMaxRelays = sse_decode_opt_box_autoadd_usize(deserializer);
     var var_nostrRelayAckThreshold = sse_decode_opt_box_autoadd_usize(
       deserializer,
@@ -9776,7 +9772,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       esploraBaseUrls: var_esploraBaseUrls,
       nostrRelays: var_nostrRelays,
       blossomServers: var_blossomServers,
-      nostrOnlyKnownContacts: var_nostrOnlyKnownContacts,
       nostrMaxRelays: var_nostrMaxRelays,
       nostrRelayAckThreshold: var_nostrRelayAckThreshold,
       jobRunnerInitialDelaySeconds: var_jobRunnerInitialDelaySeconds,
@@ -13578,7 +13573,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_list_String(self.esploraBaseUrls, serializer);
     sse_encode_list_String(self.nostrRelays, serializer);
     sse_encode_opt_list_String(self.blossomServers, serializer);
-    sse_encode_opt_box_autoadd_bool(self.nostrOnlyKnownContacts, serializer);
     sse_encode_opt_box_autoadd_usize(self.nostrMaxRelays, serializer);
     sse_encode_opt_box_autoadd_usize(self.nostrRelayAckThreshold, serializer);
     sse_encode_u_64(self.jobRunnerInitialDelaySeconds, serializer);

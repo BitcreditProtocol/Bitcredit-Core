@@ -7,7 +7,6 @@ use crate::{
     nostr::{add_offset, determine_recipient, process_event, should_process},
 };
 use async_trait::async_trait;
-use bcr_ebill_api::service::contact_service::ContactServiceApi;
 use bcr_ebill_core::application::ServiceTraitBounds;
 use bcr_ebill_persistence::NostrEventOffsetStoreApi;
 
@@ -16,7 +15,6 @@ use crate::handler::DirectMessageEventProcessorApi;
 #[derive(Clone)]
 pub struct DirectMessageEventProcessor {
     client: Arc<NostrClient>,
-    contact_service: Arc<dyn ContactServiceApi>,
     offset_store: Arc<dyn NostrEventOffsetStoreApi>,
     chain_key_service: Arc<dyn ChainKeyServiceApi>,
     handlers: Vec<Arc<dyn NotificationHandlerApi>>,
@@ -26,7 +24,6 @@ pub struct DirectMessageEventProcessor {
 impl DirectMessageEventProcessor {
     pub async fn new(
         client: Arc<NostrClient>,
-        contact_service: Arc<dyn ContactServiceApi>,
         offset_store: Arc<dyn NostrEventOffsetStoreApi>,
         chain_key_service: Arc<dyn ChainKeyServiceApi>,
         handlers: Vec<Arc<dyn NotificationHandlerApi>>,
@@ -34,7 +31,6 @@ impl DirectMessageEventProcessor {
     ) -> Self {
         Self {
             client,
-            contact_service,
             offset_store,
             chain_key_service,
             handlers,
@@ -46,19 +42,8 @@ impl DirectMessageEventProcessor {
 #[async_trait]
 impl DirectMessageEventProcessorApi for DirectMessageEventProcessor {
     async fn process_direct_message(&self, event: Box<nostr::event::Event>) -> Result<()> {
-        // Get all local node IDs for multi-identity handling
-        let local_node_ids = self.client.get_all_node_ids();
-
         // Check if the event should be processed
-        if should_process(
-            event.clone(),
-            &local_node_ids,
-            &self.contact_service,
-            &self.offset_store,
-            None,
-        )
-        .await
-        {
+        if should_process(event.clone(), &self.offset_store, None).await {
             // Determine which identity should receive this event
             match determine_recipient(&event, &self.client).await {
                 Ok((recipient_node_id, signer)) => {

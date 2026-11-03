@@ -17,12 +17,15 @@ use bcr_ebill_core::protocol::{
 };
 
 use crate::{
-    tests::tests::{
-        bill_id_test, bill_identified_participant_only_node_id, empty_address,
-        empty_bitcredit_bill, get_bill_keys, node_id_test, private_key_test,
-        signed_identity_proof_test, test_ts, valid_payment_address_testnet,
+    tests::{
+        tests::{
+            bill_id_test, bill_identified_participant_only_node_id, empty_address,
+            empty_bitcredit_bill, get_bill_keys, node_id_test, private_key_test,
+            signed_identity_proof_test, test_ts, valid_payment_address_testnet,
+        },
+        transaction_test_utils::{remove_bill_blocks_from_height, seed_bill_blocks},
     },
-    traits::bill::BillChainStoreApi,
+    traits::{bill::BillChainStoreApi, transaction::TransactionManagerApi},
 };
 
 pub fn get_first_block(id: &BillId) -> BillBlock {
@@ -77,69 +80,36 @@ fn get_second_block(block: &BillBlock) -> BillBlock {
     .unwrap()
 }
 
-pub async fn test_concurrent_first_block<S>(store: &S)
+async fn get_latest_block<S>(store: &S, bill_id: &BillId) -> crate::Result<BillBlock>
 where
     S: BillChainStoreApi + ?Sized,
 {
-    let bill_id = bill_id_test();
-    let block = get_first_block(&bill_id);
-    let (result_a, result_b) = tokio::join!(
-        store.add_block(&bill_id, &block,),
-        store.add_block(&bill_id, &block,),
-    );
-
-    assert_ne!(
-        result_a.is_ok(),
-        result_b.is_ok(),
-        "exactly one concurrent first block must succeed: \
-     a={result_a:?}, b={result_b:?}"
-    );
-
-    let chain = store.get_chain(&bill_id).await.unwrap();
-    assert_eq!(chain.blocks().len(), 1);
+    Ok(store
+        .get_chain(bill_id)
+        .await?
+        .get_latest_block()
+        .to_owned())
 }
 
-pub async fn test_concurrent_add<S>(store: &S)
-where
-    S: BillChainStoreApi + ?Sized,
-{
-    let bill_id = bill_id_test();
-    let block = get_first_block(&bill_id);
-    store
-        .add_block(&bill_id, &block)
-        .await
-        .expect("add block works");
-    let block2 = get_second_block(&block);
-    let (result_a, result_b) = tokio::join!(
-        store.add_block(&bill_id, &block2),
-        store.add_block(&bill_id, &block2),
-    );
-    assert_ne!(
-        result_a.is_ok(),
-        result_b.is_ok(),
-        "exactly one concurrent append must succeed: \
-     a={result_a:?}, b={result_b:?}"
-    );
-    assert_eq!(store.get_chain(&bill_id).await.unwrap().blocks().len(), 2);
-}
-
-pub async fn test_chain<S>(store: &S)
+pub async fn test_chain<S>(transaction_manager: &dyn TransactionManagerApi, store: &S)
 where
     S: BillChainStoreApi + ?Sized,
 {
     let bill_id = bill_id_test();
 
     // empty chain
-    assert!(store.get_latest_block(&bill_id).await.is_err());
+    assert!(get_latest_block(store, &bill_id).await.is_err());
 
     // first block
     let block = get_first_block(&bill_id);
-    store
-        .add_block(&bill_id, &block)
-        .await
-        .expect("add first block works");
-    let latest = store
-        .get_latest_block(&bill_id)
+    seed_bill_blocks(
+        transaction_manager,
+        &bill_id,
+        None,
+        std::slice::from_ref(&block),
+    )
+    .await;
+    let latest = get_latest_block(store, &bill_id)
         .await
         .expect("latest block exists");
     assert_eq!(latest, block);
@@ -149,12 +119,14 @@ where
 
     // second block
     let block2 = get_second_block(&block);
-    store
-        .add_block(&bill_id, &block2)
-        .await
-        .expect("add second block works");
-    let latest = store
-        .get_latest_block(&bill_id)
+    seed_bill_blocks(
+        transaction_manager,
+        &bill_id,
+        Some(&block),
+        std::slice::from_ref(&block2),
+    )
+    .await;
+    let latest = get_latest_block(store, &bill_id)
         .await
         .expect("latest block exists");
     assert_eq!(latest, block2);
@@ -164,12 +136,8 @@ where
     assert_eq!(chain.blocks()[1], block2);
 
     // remove second block
-    store
-        .remove_blocks_from_height(&bill_id, block2.id)
-        .await
-        .expect("remove block works");
-    let latest = store
-        .get_latest_block(&bill_id)
+    remove_bill_blocks_from_height(transaction_manager, &bill_id, &block2, block2.id).await;
+    let latest = get_latest_block(store, &bill_id)
         .await
         .expect("first block remains");
     assert_eq!(latest, block);
@@ -178,10 +146,13 @@ where
     assert_eq!(chain.blocks()[0], block);
 
     // re-append after truncation
-    store
-        .add_block(&bill_id, &block2)
-        .await
-        .expect("can append block again after truncation");
+    seed_bill_blocks(
+        transaction_manager,
+        &bill_id,
+        Some(&block),
+        std::slice::from_ref(&block2),
+    )
+    .await;
 
     let chain = store.get_chain(&bill_id).await.expect("chain exists");
 

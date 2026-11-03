@@ -340,7 +340,6 @@ pub async fn seed_recover(seed_phrase_payload: SeedPhrase) -> Result<(), EbillFf
         ctx.cfg.clone(),
         &keys,
         ctx.chain_key_service.clone(),
-        ctx.contact_service.clone(),
         ctx.push_service.clone(),
         ctx.mint_client.clone(),
     )

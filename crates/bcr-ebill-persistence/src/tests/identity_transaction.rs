@@ -1,6 +1,9 @@
-use crate::traits::{
-    identity::{IdentityChainStoreApi, IdentityStoreApi},
-    transaction::TransactionManagerApi,
+use crate::{
+    tests::transaction_test_utils::seed_identity_blocks,
+    traits::{
+        identity::{IdentityChainStoreApi, IdentityStoreApi},
+        transaction::TransactionManagerApi,
+    },
 };
 use bcr_common::core::NodeId;
 use bcr_ebill_core::{
@@ -179,11 +182,16 @@ pub async fn test_identity_transaction_rejects_stale_tip(
     let keys = BcrKeys::new();
     let identity = test_identity(&keys, "Alice");
     let create = create_block(&identity, &keys, ts(1_700_000_001));
-    chain_store.add_block(&create).await.unwrap();
+    seed_identity_blocks(transaction_manager, None, std::slice::from_ref(&create)).await;
     let expected_tip = create.clone();
     // Another writer writes first against the same tip
     let concurrent = update_block(&create, &keys, "Concurrent", ts(1_700_000_002));
-    chain_store.add_block(&concurrent).await.unwrap();
+    seed_identity_blocks(
+        transaction_manager,
+        Some(&create),
+        std::slice::from_ref(&concurrent),
+    )
+    .await;
     // This block was also prepared against the now-stale Create tip
     let stale = update_block(&create, &keys, "Stale", ts(1_700_000_003));
     {
@@ -208,9 +216,12 @@ pub async fn test_identity_transaction_replace(
     let b2 = update_block(&b1, &keys, "2", ts(1_700_000_002));
     let a3 = update_block(&b2, &keys, "A3", ts(1_700_000_003));
     let a4 = update_block(&a3, &keys, "A4", ts(1_700_000_004));
-    for block in [&b1, &b2, &a3, &a4] {
-        chain_store.add_block(block).await.unwrap();
-    }
+    seed_identity_blocks(
+        transaction_manager,
+        None,
+        &[b1.to_owned(), b2.to_owned(), a3.to_owned(), a4.to_owned()],
+    )
+    .await;
     let b3 = update_block(&b2, &keys, "B3", ts(1_700_000_103));
     let b4 = update_block(&b3, &keys, "B4", ts(1_700_000_104));
 
@@ -237,9 +248,12 @@ pub async fn test_identity_transaction_replace_rollback(
     let b2 = update_block(&b1, &keys, "2", ts(1_700_000_002));
     let a3 = update_block(&b2, &keys, "A3", ts(1_700_000_003));
     let a4 = update_block(&a3, &keys, "A4", ts(1_700_000_004));
-    for block in [&b1, &b2, &a3, &a4] {
-        chain_store.add_block(block).await.unwrap();
-    }
+    seed_identity_blocks(
+        transaction_manager,
+        None,
+        &[b1.to_owned(), b2.to_owned(), a3.to_owned(), a4.to_owned()],
+    )
+    .await;
     let b3 = update_block(&b2, &keys, "B3", ts(1_700_000_103));
     let mut invalid_b4 = update_block(&b3, &keys, "B4", ts(1_700_000_104));
     // make the second replacement invalid after the DELETE and first INSERT have happened
@@ -267,7 +281,7 @@ pub async fn test_identity_transaction_rejects_second_genesis(
     let keys = BcrKeys::new();
     let first_identity = test_identity(&keys, "First");
     let first = create_block(&first_identity, &keys, ts(1_700_000_001));
-    chain_store.add_block(&first).await.unwrap();
+    seed_identity_blocks(transaction_manager, None, std::slice::from_ref(&first)).await;
     let second_identity = test_identity(&keys, "Second");
     let second = create_block(&second_identity, &keys, ts(1_700_000_002));
     {

@@ -1853,9 +1853,6 @@ mod tests {
             .times(1)
             .returning(move |_| Ok(chain_clone.clone()));
 
-        // block is not added
-        bill_chain_store.expect_add_block().never();
-
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
@@ -1918,8 +1915,6 @@ mod tests {
                     bill_id_test().to_string(),
                 ))
             });
-
-        bill_chain_store.expect_add_block().never();
 
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
@@ -2022,9 +2017,6 @@ mod tests {
             .times(0)
             .returning(|_, _| Ok(vec![]));
 
-        // Block should NOT be added (it's rejected due to split detection, but no resync)
-        bill_chain_store.expect_add_block().times(0);
-
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
             Arc::new(bill_store),
@@ -2117,9 +2109,6 @@ mod tests {
             .expect_resolve_public_chain()
             .times(0)
             .returning(|_, _| Ok(vec![]));
-
-        // Block should NOT be added
-        bill_chain_store.expect_add_block().times(0);
 
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
@@ -3005,10 +2994,6 @@ mod tests {
             .returning(move |_, _| Ok(nostr_events.clone()))
             .once();
 
-        bill_chain_store.expect_remove_blocks_from_height().times(0);
-
-        bill_chain_store.expect_add_block().times(0);
-
         // Chain events ARE refreshed, even if the chain doesn't change
         chain_event_store
             .expect_remove_chain_events()
@@ -3739,11 +3724,6 @@ mod tests {
             .times(1)
             .returning(move |_| Ok(local_chain_clone.clone()));
 
-        // Metadata-only sync must never alter the bill blockchain
-        bill_chain_store.expect_remove_blocks_from_height().times(0);
-
-        bill_chain_store.expect_add_block().times(0);
-
         let keys_for_store = bcr_keys.clone();
         bill_store
             .expect_get_keys()
@@ -3845,9 +3825,6 @@ mod tests {
             .expect_get_chain()
             .times(1)
             .returning(move |_| Ok(local_chain_clone.clone()));
-
-        bill_chain_store.expect_add_block().times(0);
-        bill_chain_store.expect_remove_blocks_from_height().times(0);
 
         let keys_for_store = bcr_keys.clone();
         bill_store
@@ -3952,9 +3929,6 @@ mod tests {
             .expect_get_chain()
             .times(1)
             .returning(move |_| Ok(local_chain_clone.clone()));
-
-        bill_chain_store.expect_add_block().times(0);
-        bill_chain_store.expect_remove_blocks_from_height().times(0);
 
         let keys_for_store = bcr_keys.clone();
         bill_store
@@ -4107,9 +4081,6 @@ mod tests {
             .expect_get_chain()
             .times(1)
             .returning(move |_| Ok(local_chain_clone.clone()));
-
-        bill_chain_store.expect_add_block().times(0);
-        bill_chain_store.expect_remove_blocks_from_height().times(0);
 
         let keys_for_store = bcr_keys.clone();
         bill_store
@@ -4268,11 +4239,6 @@ mod tests {
             .with(eq(bill_id.clone()))
             .times(1)
             .returning(move |_| Ok(local_chain_clone.clone()));
-
-        // Metadata-only recovery must not mutate the bill chain.
-        bill_chain_store.expect_remove_blocks_from_height().times(0);
-
-        bill_chain_store.expect_add_block().times(0);
 
         let keys = bcr_keys.clone();
         bill_store

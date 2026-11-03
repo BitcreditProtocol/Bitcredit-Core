@@ -4014,7 +4014,6 @@ pub mod tests {
                 company: None,
             })
         });
-        storage.expect_remove().returning(|_| Ok(()));
         identity_chain_store
             .expect_get_chain()
             .returning(|| Ok(get_valid_identity_chain()));

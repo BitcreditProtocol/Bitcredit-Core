@@ -192,7 +192,6 @@ class DevEnvironment {
         esploraBaseUrls: spec.esploraBaseUrls,
         nostrRelays: spec.nostrRelays,
         blossomServers: spec.blossomServers,
-        nostrOnlyKnownContacts: false,
         jobRunnerInitialDelaySeconds: BigInt.from(5),
         jobRunnerCheckIntervalSeconds: BigInt.from(60),
         transportInitialSubscriptionDelaySeconds: 1,

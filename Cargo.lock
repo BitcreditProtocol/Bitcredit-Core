@@ -420,7 +420,7 @@ checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 [[package]]
 name = "bcr-common"
 version = "0.11.0"
-source = "git+https://github.com/BitcreditProtocol/bcr-common?rev=990a134150949d9c6a25374df9cdec57ad7516e2#990a134150949d9c6a25374df9cdec57ad7516e2"
+source = "git+https://github.com/BitcreditProtocol/bcr-common?rev=b95531bafcec0c708b91421016342dcc5b80072c#b95531bafcec0c708b91421016342dcc5b80072c"
 dependencies = [
  "bip39 3.0.0",
  "bitcoin",
@@ -4913,9 +4913,9 @@ dependencies = [
 
 [[package]]
 name = "toml_edit"
-version = "0.25.17+spec-1.1.0"
+version = "0.25.18+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3641d5bbb5349a79e1020a242d251efbc546ad8048d133958323ce9c40a9c9c"
+checksum = "1ec6e78bd70db9420d8d212fa9dc97f116448a1ceff5d00eabb991d407e21396"
 dependencies = [
  "indexmap 2.14.2",
  "toml_datetime",

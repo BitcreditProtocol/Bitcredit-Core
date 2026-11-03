@@ -377,7 +377,6 @@ mod tests {
 
     fn test_config() -> NostrConfig {
         NostrConfig {
-            only_known_contacts: false,
             relays: vec![url::Url::parse("wss://relay.example.com").unwrap()],
             blossom_servers: vec![],
             max_relays: Some(50),

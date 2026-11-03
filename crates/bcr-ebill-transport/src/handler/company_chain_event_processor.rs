@@ -2864,8 +2864,6 @@ pub mod tests {
             Name::new("Updated Company").unwrap(),
         )));
         // post-commit effects must not persist canonical state
-        chain_store.expect_add_block().times(0);
-        store.expect_update().times(0);
         store.expect_set_email_confirmation().times(0);
         let handler = CompanyChainEventProcessor::new(
             Arc::new(chain_store),
@@ -3097,9 +3095,6 @@ pub mod tests {
             .times(1)
             .returning(move |_| Ok(local_chain_clone.clone()));
 
-        chain_store.expect_add_block().times(0);
-        chain_store.expect_remove_blocks_from_height().times(0);
-
         let keys_clone = keys.clone();
         store
             .expect_get_key_pair()
@@ -3219,10 +3214,6 @@ pub mod tests {
             .with(eq(company_id.clone()))
             .times(1)
             .returning(move |_| Ok(local_chain_clone.clone()));
-
-        // Metadata recovery must not touch canonical company blocks
-        chain_store.expect_add_block().times(0);
-        chain_store.expect_remove_blocks_from_height().times(0);
 
         let keys_clone = keys.clone();
         store
