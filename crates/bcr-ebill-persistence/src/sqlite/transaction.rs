@@ -14,10 +14,14 @@ use crate::{
             identity_to_row,
         },
         identity_chain::{IdentityBlockRow, validate_expected_identity_tip},
+        nostr_chain_event::NostrChainEventRow,
     },
-    traits::transaction::{
-        BillTransactionApi, CompanyTransactionApi, IdentityTransactionApi,
-        PersistenceTransactionApi, TransactionManagerApi,
+    traits::{
+        nostr::NostrChainEvent,
+        transaction::{
+            BillTransactionApi, CompanyTransactionApi, IdentityTransactionApi,
+            NostrChainEventTransactionApi, PersistenceTransactionApi, TransactionManagerApi,
+        },
     },
 };
 use async_trait::async_trait;
@@ -28,7 +32,9 @@ use bcr_ebill_core::{
     },
     protocol::{
         BlockId, EmailIdentityProofData, SignedIdentityProof,
-        blockchain::{bill::BillBlock, company::CompanyBlock, identity::IdentityBlock},
+        blockchain::{
+            BlockchainType, bill::BillBlock, company::CompanyBlock, identity::IdentityBlock,
+        },
         crypto::BcrKeys,
     },
 };
@@ -392,6 +398,18 @@ impl CompanyTransactionApi for SqlitePersistenceTransaction {
             .await?;
         Ok(())
     }
+
+    async fn save_company_key_pair(&mut self, company_id: &NodeId, keys: &BcrKeys) -> Result<()> {
+        let plaintext_key = keys.get_private_key_string();
+        let encrypted_key = self.encryption_ctx.encrypt(plaintext_key.as_bytes())?;
+        let encoded_key = base58::encode(&encrypted_key);
+        sqlx::query(crate::sql::company::INSERT_KEY)
+            .bind(Text(company_id.clone()))
+            .bind(encoded_key)
+            .execute(&mut *self.tx)
+            .await?;
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -485,6 +503,40 @@ impl BillTransactionApi for SqlitePersistenceTransaction {
     }
 }
 
+#[async_trait]
+impl NostrChainEventTransactionApi for SqlitePersistenceTransaction {
+    async fn add_chain_event(&mut self, event: &NostrChainEvent) -> Result<()> {
+        let row = NostrChainEventRow::try_from(event.to_owned())?;
+        sqlx::query(crate::sql::nostr_chain_event::UPSERT_CHAIN_EVENT)
+            .bind(row.event_id)
+            .bind(row.root_id)
+            .bind(row.reply_id)
+            .bind(row.author)
+            .bind(row.chain_id)
+            .bind(row.chain_type)
+            .bind(row.block_height)
+            .bind(row.block_hash)
+            .bind(row.received)
+            .bind(row.time)
+            .bind(row.payload)
+            .execute(&mut *self.tx)
+            .await?;
+        Ok(())
+    }
+    async fn remove_chain_events(
+        &mut self,
+        chain_id: &str,
+        chain_type: BlockchainType,
+    ) -> Result<()> {
+        sqlx::query(crate::sql::nostr_chain_event::DELETE_CHAIN_EVENTS)
+            .bind(chain_id)
+            .bind(chain_type.to_string())
+            .execute(&mut *self.tx)
+            .await?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::SqliteTransactionManager;
@@ -494,6 +546,7 @@ mod tests {
             bill::SqliteBillStore, bill_chain::SqliteBillChainStore, company::SqliteCompanyStore,
             company_chain::SqliteCompanyChainStore, identity::SqliteIdentityStore,
             identity_chain::SqliteIdentityChainStore,
+            nostr_chain_event::SqliteNostrChainEventStore,
         },
         tests::{
             bill_transaction::{
@@ -514,6 +567,7 @@ mod tests {
                 test_identity_transaction_rejects_stale_tip, test_identity_transaction_replace,
                 test_identity_transaction_replace_rollback, test_identity_transaction_rollback,
             },
+            nostr_transaction::{test_nostr_transaction_commit, test_nostr_transaction_rollback},
         },
     };
     use bcr_ebill_core::protocol::crypto::BcrKeys;
@@ -684,5 +738,21 @@ mod tests {
     async fn identity_lock_after_bill_lock_is_rejected(pool: SqlitePool) {
         let (manager, _, _) = setup_bill(pool);
         test_identity_lock_after_bill_lock_is_rejected(&manager).await;
+    }
+
+    #[sqlx::test(migrations = "migrations/sqlite")]
+    async fn nostr_transaction_commit(pool: SqlitePool) {
+        let encryption_ctx = Arc::new(EncryptionContext::new(BcrKeys::new()));
+        let manager = SqliteTransactionManager::new(pool.clone(), encryption_ctx);
+        let store = SqliteNostrChainEventStore::new(pool);
+        test_nostr_transaction_commit(&manager, &store).await;
+    }
+
+    #[sqlx::test(migrations = "migrations/sqlite")]
+    async fn nostr_transaction_rollback(pool: SqlitePool) {
+        let encryption_ctx = Arc::new(EncryptionContext::new(BcrKeys::new()));
+        let manager = SqliteTransactionManager::new(pool.clone(), encryption_ctx);
+        let store = SqliteNostrChainEventStore::new(pool);
+        test_nostr_transaction_rollback(&manager, &store).await;
     }
 }
