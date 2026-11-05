@@ -14,9 +14,10 @@ pub mod mint;
 pub mod nostr_chain_event;
 pub mod nostr_contact_store;
 pub mod nostr_event_offset;
-pub mod nostr_send_queue;
+pub mod nostr_propagation;
 pub mod nostr_transaction;
 pub mod notification;
+pub mod propagation_transaction;
 pub mod transaction_test_utils;
 #[cfg(test)]
 #[allow(clippy::module_inception)]

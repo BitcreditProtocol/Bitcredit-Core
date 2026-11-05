@@ -1,5 +1,6 @@
 use crate::Result;
 use crate::traits::nostr::NostrChainEvent;
+use crate::traits::propagation::PreparedPropagation;
 use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::protocol::blockchain::BlockchainType;
@@ -41,6 +42,7 @@ pub trait PersistenceTransactionApi:
     + CompanyTransactionApi
     + BillTransactionApi
     + NostrChainEventTransactionApi
+    + NostrPropagationTransactionApi
     + Send
 {
     async fn commit(self: Box<Self>) -> Result<()>;
@@ -137,4 +139,10 @@ pub trait NostrChainEventTransactionApi: Send {
         chain_id: &str,
         chain_type: BlockchainType,
     ) -> Result<()>;
+}
+
+#[async_trait]
+pub trait NostrPropagationTransactionApi: Send {
+    /// Persist a propagation group (e.g. a bill action) atomically within the current transaction
+    async fn enqueue_propagation(&mut self, propagation: &PreparedPropagation) -> Result<()>;
 }

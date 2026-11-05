@@ -8,6 +8,7 @@ use crate::{
         identity_chain::PostgresIdentityChainStore, mint::PostgresMintStore,
         nostr_chain_event::PostgresNostrChainEventStore, nostr_contact_store::PostgresNostrStore,
         nostr_event_offset::PostgresNostrEventOffsetStore,
+        nostr_propagation::PostgresNostrPropagationStore,
         nostr_send_queue::PostgresNostrEventQueueStore, notification::PostgresNotificationStore,
         transaction::PostgresTransactionManager,
     },
@@ -28,6 +29,7 @@ pub mod mint;
 pub mod nostr_chain_event;
 pub mod nostr_contact_store;
 pub mod nostr_event_offset;
+pub mod nostr_propagation;
 pub mod nostr_send_queue;
 pub mod notification;
 pub mod transaction;
@@ -148,6 +150,13 @@ impl PostgresPersistence {
         encryption_ctx: Arc<EncryptionContext>,
     ) -> PostgresTransactionManager {
         PostgresTransactionManager::new(self.pool.clone(), encryption_ctx)
+    }
+
+    pub fn nostr_propagation_store(
+        &self,
+        encryption_ctx: Arc<EncryptionContext>,
+    ) -> PostgresNostrPropagationStore {
+        PostgresNostrPropagationStore::new(self.pool.clone(), encryption_ctx)
     }
 }
 

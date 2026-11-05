@@ -45,9 +45,11 @@ pub mod tests {
     };
     use bcr_ebill_persistence::DbConfig;
     use bcr_ebill_persistence::traits::notification::EmailNotificationStoreApi;
+    use bcr_ebill_persistence::traits::propagation::PreparedPropagation;
     use bcr_ebill_persistence::traits::transaction::{
         BillTransactionApi, CompanyTransactionApi, IdentityTransactionApi,
-        NostrChainEventTransactionApi, PersistenceTransactionApi, TransactionManagerApi,
+        NostrChainEventTransactionApi, NostrPropagationTransactionApi, PersistenceTransactionApi,
+        TransactionManagerApi,
     };
     use bcr_ebill_persistence::{
         ContactStoreApi, FileReferenceStoreApi, NostrEventOffset, NostrEventOffsetStoreApi,
@@ -584,6 +586,7 @@ pub mod tests {
                 chain_id: &str,
                 chain_type: BlockchainType,
             ) -> Result<()>;
+            async fn enqueue_propagation(&mut self, propagation: &PreparedPropagation) -> Result<()>;
         }
 
         impl ServiceTraitBounds for PersistenceTransactionApiMock {}
@@ -752,6 +755,13 @@ pub mod tests {
             chain_type: BlockchainType,
         ) -> Result<()> {
             MockPersistenceTransactionApiMock::remove_chain_events(self, chain_id, chain_type).await
+        }
+    }
+
+    #[async_trait]
+    impl NostrPropagationTransactionApi for MockPersistenceTransactionApiMock {
+        async fn enqueue_propagation(&mut self, propagation: &PreparedPropagation) -> Result<()> {
+            MockPersistenceTransactionApiMock::enqueue_propagation(self, propagation).await
         }
     }
 
