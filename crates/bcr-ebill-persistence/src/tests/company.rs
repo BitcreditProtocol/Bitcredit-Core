@@ -1,9 +1,12 @@
 use crate::{
-    tests::tests::{
-        empty_address, node_id_test, node_id_test_other, private_key_test,
-        signed_identity_proof_test, test_ts,
+    tests::{
+        tests::{
+            empty_address, node_id_test, node_id_test_other, private_key_test,
+            signed_identity_proof_test, test_ts,
+        },
+        transaction_test_utils::{seed_company, update_company},
     },
-    traits::company::CompanyStoreApi,
+    traits::{company::CompanyStoreApi, transaction::TransactionManagerApi},
 };
 use bcr_ebill_core::{
     application::company::{
@@ -43,7 +46,7 @@ pub fn get_baseline_company() -> Company {
     }
 }
 
-pub async fn test_company_store<S>(store: &S)
+pub async fn test_company_store<S>(transaction_manager: &dyn TransactionManagerApi, store: &S)
 where
     S: CompanyStoreApi + ?Sized,
 {
@@ -55,19 +58,13 @@ where
     assert!(!store.exists(&id).await);
     let mut company = get_baseline_company();
     company.name = Name::new("first company").unwrap();
-    store
-        .insert(&company)
-        .await
-        .expect("company can be inserted");
+    seed_company(transaction_manager, &company).await;
 
     // Company alone is not enough
     assert!(!store.exists(&id).await);
     let fetched = store.get(&id).await.expect("company can be fetched");
     assert_eq!(fetched.name, company.name);
     assert_company_signatories_eq(&fetched.signatories, &company.signatories);
-
-    // INSERT is create semantics
-    assert!(store.insert(&company).await.is_err());
 
     // KEYS
     let keys = BcrKeys::from_private_key(&private_key_test());
@@ -84,10 +81,7 @@ where
 
     // UPDATE
     company.name = Name::new("updated company").unwrap();
-    store
-        .update(&id, &company)
-        .await
-        .expect("company can be updated");
+    update_company(transaction_manager, &id, &company).await;
     let updated = store.get(&id).await.unwrap();
     assert_eq!(updated.name, company.name);
     assert_company_signatories_eq(&updated.signatories, &company.signatories);
@@ -99,7 +93,7 @@ where
     other.id = other_id.clone();
     other.name = Name::new("second company").unwrap();
     other.status = CompanyStatus::None;
-    store.insert(&other).await.unwrap();
+    seed_company(transaction_manager, &other).await;
 
     // None-status companies aren't usable
     assert!(!store.exists(&other_id).await);
@@ -120,7 +114,7 @@ where
 
     // INVITES
     other.status = CompanyStatus::Invited;
-    store.update(&other_id, &other).await.unwrap();
+    update_company(transaction_manager, &other_id, &other).await;
     let invites = store.get_active_company_invites().await.unwrap();
     assert_eq!(invites.len(), 1);
     assert!(invites.contains_key(&other_id));
@@ -167,6 +161,7 @@ where
 
     // SIGNATORY STATUS ROUND TRIPS
     assert_signatory_status_round_trip(
+        transaction_manager,
         store,
         &mut company,
         CompanySignatoryStatus::Invited {
@@ -176,12 +171,14 @@ where
     )
     .await;
     assert_signatory_status_round_trip(
+        transaction_manager,
         store,
         &mut company,
         CompanySignatoryStatus::InviteAccepted { ts: test_ts() },
     )
     .await;
     assert_signatory_status_round_trip(
+        transaction_manager,
         store,
         &mut company,
         CompanySignatoryStatus::InviteRejected { ts: test_ts() },
@@ -190,6 +187,7 @@ where
     let (proof, mut identity_proof_data) = signed_identity_proof_test();
     identity_proof_data.company_node_id = Some(company.id.clone());
     assert_signatory_status_round_trip(
+        transaction_manager,
         store,
         &mut company,
         CompanySignatoryStatus::InviteAcceptedIdentityProven {
@@ -200,6 +198,7 @@ where
     )
     .await;
     assert_signatory_status_round_trip(
+        transaction_manager,
         store,
         &mut company,
         CompanySignatoryStatus::Removed {
@@ -223,18 +222,13 @@ where
         },
     };
     company.signatories = vec![first_signatory, second_signatory];
-    store.update(&company.id, &company).await.unwrap();
+    update_company(transaction_manager, &company.id, &company).await;
     let fetched = store.get(&company.id).await.unwrap();
     assert_company_signatories_eq(&fetched.signatories, &company.signatories);
-
-    // REMOVE
-    store.remove(&id).await.expect("company can be removed");
-    assert!(!store.exists(&id).await);
-    assert!(store.get(&id).await.is_err());
-    assert!(store.get_key_pair(&id).await.is_err());
 }
 
 async fn assert_signatory_status_round_trip<S>(
+    transaction_manager: &dyn TransactionManagerApi,
     store: &S,
     company: &mut Company,
     status: CompanySignatoryStatus,
@@ -246,10 +240,7 @@ async fn assert_signatory_status_round_trip<S>(
         node_id: node_id_test(),
         status,
     }];
-    store
-        .update(&company.id, company)
-        .await
-        .expect("company signatory status can be persisted");
+    update_company(transaction_manager, &company.id, company).await;
     let fetched = store
         .get(&company.id)
         .await

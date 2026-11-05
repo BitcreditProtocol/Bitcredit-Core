@@ -17,6 +17,7 @@ pub mod nostr_event_offset;
 pub mod nostr_send_queue;
 pub mod nostr_transaction;
 pub mod notification;
+pub mod transaction_test_utils;
 #[cfg(test)]
 #[allow(clippy::module_inception)]
 pub mod tests {

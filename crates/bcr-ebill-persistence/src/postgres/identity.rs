@@ -17,9 +17,8 @@ use crate::{
     sql::identity::{
         ActiveIdentityRow, EmailConfirmationRow, INSERT_NETWORK, IdentityKeysRow, IdentityRow,
         SELECT_ACTIVE_IDENTITY, SELECT_EMAIL_CONFIRMATIONS, SELECT_IDENTITY, SELECT_KEYS,
-        SELECT_NETWORK, UPSERT_ACTIVE_IDENTITY, UPSERT_EMAIL_CONFIRMATION, UPSERT_IDENTITY,
-        UPSERT_KEYS, bind_identity, email_confirmation_from_row, email_confirmation_to_row,
-        identity_key_pair_from_row, identity_to_row,
+        SELECT_NETWORK, UPSERT_ACTIVE_IDENTITY, UPSERT_EMAIL_CONFIRMATION, UPSERT_KEYS,
+        email_confirmation_from_row, email_confirmation_to_row, identity_key_pair_from_row,
     },
     traits::identity::IdentityStoreApi,
 };
@@ -59,14 +58,6 @@ impl ServiceTraitBounds for PostgresIdentityStore {}
 impl IdentityStoreApi for PostgresIdentityStore {
     async fn exists(&self) -> bool {
         self.get().await.is_ok()
-    }
-
-    async fn save(&self, identity: &Identity) -> Result<()> {
-        let row = identity_to_row(identity)?;
-        bind_identity!(sqlx::query(UPSERT_IDENTITY), row)
-            .execute(&self.pool)
-            .await?;
-        Ok(())
     }
 
     async fn get(&self) -> Result<Identity> {
@@ -239,6 +230,7 @@ mod tests {
     use super::PostgresIdentityStore;
     use crate::{
         EncryptionContext,
+        postgres::transaction::PostgresTransactionManager,
         tests::identity::{test_get_or_create_key_pair, test_identity_store},
     };
     use bcr_ebill_core::protocol::crypto::BcrKeys;
@@ -247,9 +239,10 @@ mod tests {
 
     #[sqlx::test(migrations = "migrations/postgres")]
     async fn identity_store(pool: PgPool) {
-        let store =
-            PostgresIdentityStore::new(pool, Arc::new(EncryptionContext::new(BcrKeys::new())));
-        test_identity_store(&store).await;
+        let encryption_ctx = Arc::new(EncryptionContext::new(BcrKeys::new()));
+        let store = PostgresIdentityStore::new(pool.clone(), encryption_ctx.clone());
+        let transaction_mgr = PostgresTransactionManager::new(pool, encryption_ctx);
+        test_identity_store(&transaction_mgr, &store).await;
     }
 
     #[sqlx::test(migrations = "migrations/postgres")]

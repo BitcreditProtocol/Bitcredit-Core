@@ -680,13 +680,8 @@ mod tests {
 
     #[sqlx::test(migrations = "migrations/sqlite")]
     async fn identity_lock_after_company_lock_is_rejected(pool: SqlitePool) {
-        let (manager, _, identity_chain, company_chain, _) = setup(pool);
-        test_identity_lock_after_company_lock_is_rejected(
-            &manager,
-            &company_chain,
-            &identity_chain,
-        )
-        .await;
+        let (manager, _, _, company_chain, _) = setup(pool);
+        test_identity_lock_after_company_lock_is_rejected(&manager, &company_chain).await;
     }
 
     fn setup_bill(

@@ -1,5 +1,6 @@
 use crate::{
     Error,
+    tests::transaction_test_utils::seed_bill_blocks,
     traits::{
         bill::{BillChainStoreApi, BillStoreApi},
         transaction::TransactionManagerApi,
@@ -109,14 +110,26 @@ where
 
 pub async fn test_bill_transaction_rejects_stale_tip<M, C>(manager: &M, chain_store: &C)
 where
-    M: TransactionManagerApi + ?Sized,
+    M: TransactionManagerApi,
     C: BillChainStoreApi + ?Sized,
 {
     let (bill_id, bill_keys, first, second, _) = make_chain();
     let signer_keys = BcrKeys::new();
-    chain_store.add_block(&bill_id, &first).await.unwrap();
+    seed_bill_blocks(
+        manager as &dyn TransactionManagerApi,
+        &bill_id,
+        None,
+        std::slice::from_ref(&first),
+    )
+    .await;
     let stale_expected = first.clone();
-    chain_store.add_block(&bill_id, &second).await.unwrap();
+    seed_bill_blocks(
+        manager as &dyn TransactionManagerApi,
+        &bill_id,
+        Some(&first),
+        std::slice::from_ref(&second),
+    )
+    .await;
     let third = make_block(
         &bill_id,
         Some(&second),
@@ -137,13 +150,31 @@ where
 
 pub async fn test_bill_transaction_replace<M, C>(manager: &M, chain_store: &C)
 where
-    M: TransactionManagerApi + ?Sized,
+    M: TransactionManagerApi,
     C: BillChainStoreApi + ?Sized,
 {
     let (bill_id, bill_keys, first, second_a, third_a) = make_chain();
-    chain_store.add_block(&bill_id, &first).await.unwrap();
-    chain_store.add_block(&bill_id, &second_a).await.unwrap();
-    chain_store.add_block(&bill_id, &third_a).await.unwrap();
+    seed_bill_blocks(
+        manager as &dyn TransactionManagerApi,
+        &bill_id,
+        None,
+        std::slice::from_ref(&first),
+    )
+    .await;
+    seed_bill_blocks(
+        manager as &dyn TransactionManagerApi,
+        &bill_id,
+        Some(&first),
+        std::slice::from_ref(&second_a),
+    )
+    .await;
+    seed_bill_blocks(
+        manager as &dyn TransactionManagerApi,
+        &bill_id,
+        Some(&second_a),
+        std::slice::from_ref(&third_a),
+    )
+    .await;
     let signer_keys = BcrKeys::new();
     let second_b = make_block(
         &bill_id,

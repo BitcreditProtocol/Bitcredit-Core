@@ -1,5 +1,6 @@
 use crate::{
     Error,
+    tests::transaction_test_utils::{seed_company, seed_company_blocks, seed_identity_blocks},
     traits::{
         company::{CompanyChainStoreApi, CompanyStoreApi},
         identity::IdentityChainStoreApi,
@@ -186,10 +187,12 @@ pub async fn test_company_transaction_commit(
     let identity_keys = BcrKeys::new();
     let identity = test_identity(&identity_keys);
     let identity_create = identity_create_block(&identity, &identity_keys, now - 10);
-    identity_chain_store
-        .add_block(&identity_create)
-        .await
-        .unwrap();
+    seed_identity_blocks(
+        transaction_manager,
+        None,
+        std::slice::from_ref(&identity_create),
+    )
+    .await;
 
     let company_keys = BcrKeys::new();
     let company = test_company(&identity.node_id, &company_keys, now - 9);
@@ -253,7 +256,12 @@ pub async fn test_company_transaction_commit(
         .unwrap();
     tx.commit().await.unwrap();
 
-    let identity_latest = identity_chain_store.get_latest_block().await.unwrap();
+    let identity_latest = identity_chain_store
+        .get_chain()
+        .await
+        .unwrap()
+        .get_latest_block()
+        .to_owned();
     assert_eq!(identity_latest.hash, identity_company.hash);
     let company_chain = company_chain_store.get_chain(&company.id).await.unwrap();
     assert_eq!(company_chain.blocks().len(), 2);
@@ -292,10 +300,12 @@ pub async fn test_company_transaction_rollback(
     let identity_keys = BcrKeys::new();
     let identity = test_identity(&identity_keys);
     let identity_create = identity_create_block(&identity, &identity_keys, now - 10);
-    identity_chain_store
-        .add_block(&identity_create)
-        .await
-        .unwrap();
+    seed_identity_blocks(
+        transaction_manager,
+        None,
+        std::slice::from_ref(&identity_create),
+    )
+    .await;
     let company_keys = BcrKeys::new();
     let company = test_company(&identity.node_id, &company_keys, now - 9);
     let company_create = company_create_block(
@@ -332,14 +342,14 @@ pub async fn test_company_transaction_rollback(
     // no commit
     drop(tx);
 
-    let identity_latest = identity_chain_store.get_latest_block().await.unwrap();
+    let identity_latest = identity_chain_store
+        .get_chain()
+        .await
+        .unwrap()
+        .get_latest_block()
+        .to_owned();
     assert_eq!(identity_latest.hash, identity_create.hash);
-    assert!(
-        company_chain_store
-            .get_latest_block(&company.id)
-            .await
-            .is_err()
-    );
+    assert!(company_chain_store.get_chain(&company.id).await.is_err());
     assert!(company_store.get(&company.id).await.is_err());
 }
 
@@ -354,7 +364,7 @@ pub async fn test_company_transaction_update(
     let identity = test_identity(&identity_keys);
     let company_keys = BcrKeys::new();
     let company = test_company(&identity.node_id, &company_keys, now - 10);
-    company_store.insert(&company).await.unwrap();
+    seed_company(transaction_manager, &company).await;
     let create = company_create_block(
         &company,
         &identity.node_id,
@@ -362,10 +372,13 @@ pub async fn test_company_transaction_update(
         &company_keys,
         now - 9,
     );
-    company_chain_store
-        .add_block(&company.id, &create)
-        .await
-        .unwrap();
+    seed_company_blocks(
+        transaction_manager,
+        &company.id,
+        None,
+        std::slice::from_ref(&create),
+    )
+    .await;
     let update = company_update_block(
         &company.id,
         &create,
@@ -400,9 +413,11 @@ pub async fn test_company_transaction_update(
     assert_eq!(persisted.name, Name::new("Company After Update").unwrap());
     assert_eq!(persisted.signatories.len(), 2);
     let latest = company_chain_store
-        .get_latest_block(&company.id)
+        .get_chain(&company.id)
         .await
-        .unwrap();
+        .unwrap()
+        .get_latest_block()
+        .to_owned();
     assert_eq!(latest.hash, update.hash);
 }
 
@@ -423,10 +438,13 @@ pub async fn test_company_transaction_rejects_stale_tip(
         &company_keys,
         now - 9,
     );
-    company_chain_store
-        .add_block(&company.id, &create)
-        .await
-        .unwrap();
+    seed_company_blocks(
+        transaction_manager,
+        &company.id,
+        None,
+        std::slice::from_ref(&create),
+    )
+    .await;
 
     // latest tip prepared against
     let expected_latest = create.clone();
@@ -439,10 +457,13 @@ pub async fn test_company_transaction_rejects_stale_tip(
         "Competing Update",
         now - 8,
     );
-    company_chain_store
-        .add_block(&company.id, &competing)
-        .await
-        .unwrap();
+    seed_company_blocks(
+        transaction_manager,
+        &company.id,
+        Some(&create),
+        std::slice::from_ref(&competing),
+    )
+    .await;
 
     // stale candidate was also built on block 1
     let stale_candidate = company_update_block(
@@ -465,9 +486,11 @@ pub async fn test_company_transaction_rejects_stale_tip(
     assert!(result.is_err());
     drop(tx);
     let latest = company_chain_store
-        .get_latest_block(&company.id)
+        .get_chain(&company.id)
         .await
-        .unwrap();
+        .unwrap()
+        .get_latest_block()
+        .to_owned();
     assert_eq!(latest.hash, competing.hash);
 }
 
@@ -482,7 +505,7 @@ pub async fn test_company_transaction_replace(
     let identity = test_identity(&identity_keys);
     let company_keys = BcrKeys::new();
     let company = test_company(&identity.node_id, &company_keys, now - 10);
-    company_store.insert(&company).await.unwrap();
+    seed_company(transaction_manager, &company).await;
     let create = company_create_block(
         &company,
         &identity.node_id,
@@ -506,18 +529,27 @@ pub async fn test_company_transaction_replace(
         "Old 3",
         now - 7,
     );
-    company_chain_store
-        .add_block(&company.id, &create)
-        .await
-        .unwrap();
-    company_chain_store
-        .add_block(&company.id, &old_2)
-        .await
-        .unwrap();
-    company_chain_store
-        .add_block(&company.id, &old_3)
-        .await
-        .unwrap();
+    seed_company_blocks(
+        transaction_manager,
+        &company.id,
+        None,
+        std::slice::from_ref(&create),
+    )
+    .await;
+    seed_company_blocks(
+        transaction_manager,
+        &company.id,
+        Some(&create),
+        std::slice::from_ref(&old_2),
+    )
+    .await;
+    seed_company_blocks(
+        transaction_manager,
+        &company.id,
+        Some(&old_2),
+        std::slice::from_ref(&old_3),
+    )
+    .await;
     let new_2 = company_update_block(
         &company.id,
         &create,
@@ -565,7 +597,7 @@ pub async fn test_company_transaction_replace(
 /// Dropping the transaction rolls back the identity as well
 pub async fn test_cross_chain_rollback_when_company_tip_is_stale(
     transaction_manager: &dyn TransactionManagerApi,
-    company_store: &dyn CompanyStoreApi,
+    _company_store: &dyn CompanyStoreApi,
     company_chain_store: &dyn CompanyChainStoreApi,
     identity_chain_store: &dyn IdentityChainStoreApi,
 ) {
@@ -574,13 +606,15 @@ pub async fn test_cross_chain_rollback_when_company_tip_is_stale(
     let identity_keys = BcrKeys::new();
     let identity = test_identity(&identity_keys);
     let identity_create = identity_create_block(&identity, &identity_keys, now - 10);
-    identity_chain_store
-        .add_block(&identity_create)
-        .await
-        .unwrap();
+    seed_identity_blocks(
+        transaction_manager,
+        None,
+        std::slice::from_ref(&identity_create),
+    )
+    .await;
     let company_keys = BcrKeys::new();
     let company = test_company(&identity.node_id, &company_keys, now - 9);
-    company_store.insert(&company).await.unwrap();
+    seed_company(transaction_manager, &company).await;
     let company_create = company_create_block(
         &company,
         &identity.node_id,
@@ -588,10 +622,13 @@ pub async fn test_cross_chain_rollback_when_company_tip_is_stale(
         &company_keys,
         now - 8,
     );
-    company_chain_store
-        .add_block(&company.id, &company_create)
-        .await
-        .unwrap();
+    seed_company_blocks(
+        transaction_manager,
+        &company.id,
+        None,
+        std::slice::from_ref(&company_create),
+    )
+    .await;
 
     // prepared against this tip
     let expected_company_latest = company_create.clone();
@@ -604,10 +641,13 @@ pub async fn test_cross_chain_rollback_when_company_tip_is_stale(
         "Competing",
         now - 7,
     );
-    company_chain_store
-        .add_block(&company.id, &competing_company_block)
-        .await
-        .unwrap();
+    seed_company_blocks(
+        transaction_manager,
+        &company.id,
+        Some(&company_create),
+        std::slice::from_ref(&competing_company_block),
+    )
+    .await;
     // stale company
     let stale_company_block = company_update_block(
         &company.id,
@@ -646,12 +686,19 @@ pub async fn test_cross_chain_rollback_when_company_tip_is_stale(
 
     // roll back the identity block as well
     drop(tx);
-    let identity_latest = identity_chain_store.get_latest_block().await.unwrap();
+    let identity_latest = identity_chain_store
+        .get_chain()
+        .await
+        .unwrap()
+        .get_latest_block()
+        .to_owned();
     assert_eq!(identity_latest.hash, identity_create.hash);
     let company_latest = company_chain_store
-        .get_latest_block(&company.id)
+        .get_chain(&company.id)
         .await
-        .unwrap();
+        .unwrap()
+        .get_latest_block()
+        .to_owned();
     assert_eq!(company_latest.hash, competing_company_block.hash);
 }
 
@@ -659,16 +706,17 @@ pub async fn test_cross_chain_rollback_when_company_tip_is_stale(
 pub async fn test_identity_lock_after_company_lock_is_rejected(
     transaction_manager: &dyn TransactionManagerApi,
     company_chain_store: &dyn CompanyChainStoreApi,
-    identity_chain_store: &dyn IdentityChainStoreApi,
 ) {
     let now = Timestamp::now();
     let identity_keys = BcrKeys::new();
     let identity = test_identity(&identity_keys);
     let identity_create = identity_create_block(&identity, &identity_keys, now - 10);
-    identity_chain_store
-        .add_block(&identity_create)
-        .await
-        .unwrap();
+    seed_identity_blocks(
+        transaction_manager,
+        None,
+        std::slice::from_ref(&identity_create),
+    )
+    .await;
     let company_keys = BcrKeys::new();
     let company = test_company(&identity.node_id, &company_keys, now - 9);
     let company_create = company_create_block(
@@ -678,10 +726,13 @@ pub async fn test_identity_lock_after_company_lock_is_rejected(
         &company_keys,
         now - 8,
     );
-    company_chain_store
-        .add_block(&company.id, &company_create)
-        .await
-        .unwrap();
+    seed_company_blocks(
+        transaction_manager,
+        &company.id,
+        None,
+        std::slice::from_ref(&company_create),
+    )
+    .await;
     let company_update = company_update_block(
         &company.id,
         &company_create,
@@ -717,8 +768,10 @@ pub async fn test_identity_lock_after_company_lock_is_rejected(
     drop(tx);
     // company mutation rolled back as well
     let latest = company_chain_store
-        .get_latest_block(&company.id)
+        .get_chain(&company.id)
         .await
-        .unwrap();
+        .unwrap()
+        .get_latest_block()
+        .to_owned();
     assert_eq!(latest.hash, company_create.hash);
 }

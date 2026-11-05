@@ -3,8 +3,7 @@ use bcr_ebill_core::application::ServiceTraitBounds;
 use bcr_ebill_core::application::company::{
     Company, LocalSignatoryOverride, LocalSignatoryOverrideStatus,
 };
-use bcr_ebill_core::protocol::BlockId;
-use bcr_ebill_core::protocol::blockchain::company::{CompanyBlock, CompanyBlockchain};
+use bcr_ebill_core::protocol::blockchain::company::CompanyBlockchain;
 use bcr_ebill_core::protocol::crypto::BcrKeys;
 use bcr_ebill_core::protocol::{EmailIdentityProofData, SignedIdentityProof};
 use std::collections::HashMap;
@@ -25,15 +24,6 @@ pub trait CompanyStoreApi: ServiceTraitBounds {
 
     /// Returns all companies
     async fn get_all(&self) -> Result<HashMap<NodeId, (Company, BcrKeys)>>;
-
-    /// Inserts the company with the given id
-    async fn insert(&self, data: &Company) -> Result<()>;
-
-    /// Updates the company with the given id
-    async fn update(&self, id: &NodeId, data: &Company) -> Result<()>;
-
-    /// Removes the company with the given id (e.g. if we're removed as signatory)
-    async fn remove(&self, id: &NodeId) -> Result<()>;
 
     /// Saves the key pair for the given company id
     async fn save_key_pair(&self, id: &NodeId, key_pair: &BcrKeys) -> Result<()>;
@@ -78,14 +68,8 @@ pub trait CompanyStoreApi: ServiceTraitBounds {
 
 #[async_trait]
 pub trait CompanyChainStoreApi: ServiceTraitBounds {
-    /// Gets the latest block of the chain
-    async fn get_latest_block(&self, id: &NodeId) -> Result<CompanyBlock>;
-    /// Adds the block to the chain
-    async fn add_block(&self, id: &NodeId, block: &CompanyBlock) -> Result<()>;
     /// Removes the whole blockchain
     async fn remove(&self, id: &NodeId) -> Result<()>;
     /// Get the whole blockchain
     async fn get_chain(&self, id: &NodeId) -> Result<CompanyBlockchain>;
-    /// Removes all blocks with a block id >= from_block_id for the given company
-    async fn remove_blocks_from_height(&self, id: &NodeId, from_block_id: BlockId) -> Result<()>;
 }

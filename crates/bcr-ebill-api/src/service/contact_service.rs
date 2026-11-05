@@ -119,9 +119,6 @@ pub trait ContactServiceApi: ServiceTraitBounds {
         proof_document_file_upload_id: Option<Uuid>,
     ) -> Result<Contact>;
 
-    /// Returns whether a given npub (as hex) is in our contact list.
-    async fn is_known_npub(&self, npub: &NostrPublicKey) -> Result<bool>;
-
     /// Returns the Npubs we want to subscribe to on Nostr.
     async fn get_nostr_npubs(&self) -> Result<Vec<NostrPublicKey>>;
 
@@ -722,16 +719,6 @@ impl ContactServiceApi for ContactService {
         self.cascade_nostr_contact(&contact).await?;
         debug!("deanonymized contact with node_id: {node_id}");
         Ok(contact)
-    }
-
-    async fn is_known_npub(&self, npub: &NostrPublicKey) -> Result<bool> {
-        Ok(!self.config.nostr_config.only_known_contacts
-            || self
-                .nostr_contact_store
-                .by_npub(npub)
-                .await?
-                .map(|c| c.trust_level != TrustLevel::None)
-                .unwrap_or(false))
     }
 
     /// Returns the Npubs we want to subscribe to on Nostr.
@@ -1648,48 +1635,6 @@ pub mod tests {
         } else {
             panic!("wrong error");
         }
-    }
-
-    #[tokio::test]
-    async fn is_known_npub_calls_store() {
-        let (
-            store,
-            file_upload_store,
-            file_upload_client,
-            file_reference_store,
-            identity_store,
-            company_store,
-            mut nostr_contact,
-            notification,
-        ) = get_storages();
-        let pub_key = node_id_test().npub();
-        nostr_contact.expect_by_npub().returning(|_| {
-            Ok(Some(NostrContact {
-                npub: node_id_test().npub(),
-                node_id: node_id_test(),
-                name: None,
-                relays: vec![],
-                blossom_servers: vec![],
-                trust_level: TrustLevel::Participant,
-                handshake_status: HandshakeStatus::None,
-                contact_private_key: None,
-                mint_url: None,
-            }))
-        });
-        let result = get_service(
-            store,
-            file_upload_store,
-            file_upload_client,
-            file_reference_store,
-            identity_store,
-            company_store,
-            nostr_contact,
-            notification,
-        )
-        .is_known_npub(&pub_key)
-        .await;
-        assert!(result.is_ok());
-        assert!(result.as_ref().unwrap());
     }
 
     fn pending_contact_share(pending_share_id: &str) -> PendingContactShare {

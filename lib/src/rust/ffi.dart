@@ -38,7 +38,6 @@ class EbillConfig {
   final List<String> esploraBaseUrls;
   final List<String> nostrRelays;
   final List<String>? blossomServers;
-  final bool? nostrOnlyKnownContacts;
   final BigInt? nostrMaxRelays;
   final BigInt? nostrRelayAckThreshold;
   final BigInt jobRunnerInitialDelaySeconds;
@@ -60,7 +59,6 @@ class EbillConfig {
     required this.esploraBaseUrls,
     required this.nostrRelays,
     this.blossomServers,
-    this.nostrOnlyKnownContacts,
     this.nostrMaxRelays,
     this.nostrRelayAckThreshold,
     required this.jobRunnerInitialDelaySeconds,
@@ -84,7 +82,6 @@ class EbillConfig {
       esploraBaseUrls.hashCode ^
       nostrRelays.hashCode ^
       blossomServers.hashCode ^
-      nostrOnlyKnownContacts.hashCode ^
       nostrMaxRelays.hashCode ^
       nostrRelayAckThreshold.hashCode ^
       jobRunnerInitialDelaySeconds.hashCode ^
@@ -110,7 +107,6 @@ class EbillConfig {
           esploraBaseUrls == other.esploraBaseUrls &&
           nostrRelays == other.nostrRelays &&
           blossomServers == other.blossomServers &&
-          nostrOnlyKnownContacts == other.nostrOnlyKnownContacts &&
           nostrMaxRelays == other.nostrMaxRelays &&
           nostrRelayAckThreshold == other.nostrRelayAckThreshold &&
           jobRunnerInitialDelaySeconds == other.jobRunnerInitialDelaySeconds &&

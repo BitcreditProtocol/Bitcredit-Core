@@ -6048,7 +6048,6 @@ impl SseDecode for crate::ffi::EbillConfig {
         let mut var_esploraBaseUrls = <Vec<String>>::sse_decode(deserializer);
         let mut var_nostrRelays = <Vec<String>>::sse_decode(deserializer);
         let mut var_blossomServers = <Option<Vec<String>>>::sse_decode(deserializer);
-        let mut var_nostrOnlyKnownContacts = <Option<bool>>::sse_decode(deserializer);
         let mut var_nostrMaxRelays = <Option<usize>>::sse_decode(deserializer);
         let mut var_nostrRelayAckThreshold = <Option<usize>>::sse_decode(deserializer);
         let mut var_jobRunnerInitialDelaySeconds = <u64>::sse_decode(deserializer);
@@ -6070,7 +6069,6 @@ impl SseDecode for crate::ffi::EbillConfig {
             esplora_base_urls: var_esploraBaseUrls,
             nostr_relays: var_nostrRelays,
             blossom_servers: var_blossomServers,
-            nostr_only_known_contacts: var_nostrOnlyKnownContacts,
             nostr_max_relays: var_nostrMaxRelays,
             nostr_relay_ack_threshold: var_nostrRelayAckThreshold,
             job_runner_initial_delay_seconds: var_jobRunnerInitialDelaySeconds,
@@ -10372,7 +10370,6 @@ impl flutter_rust_bridge::IntoDart for crate::ffi::EbillConfig {
             self.esplora_base_urls.into_into_dart().into_dart(),
             self.nostr_relays.into_into_dart().into_dart(),
             self.blossom_servers.into_into_dart().into_dart(),
-            self.nostr_only_known_contacts.into_into_dart().into_dart(),
             self.nostr_max_relays.into_into_dart().into_dart(),
             self.nostr_relay_ack_threshold.into_into_dart().into_dart(),
             self.job_runner_initial_delay_seconds
@@ -13483,7 +13480,6 @@ impl SseEncode for crate::ffi::EbillConfig {
         <Vec<String>>::sse_encode(self.esplora_base_urls, serializer);
         <Vec<String>>::sse_encode(self.nostr_relays, serializer);
         <Option<Vec<String>>>::sse_encode(self.blossom_servers, serializer);
-        <Option<bool>>::sse_encode(self.nostr_only_known_contacts, serializer);
         <Option<usize>>::sse_encode(self.nostr_max_relays, serializer);
         <Option<usize>>::sse_encode(self.nostr_relay_ack_threshold, serializer);
         <u64>::sse_encode(self.job_runner_initial_delay_seconds, serializer);

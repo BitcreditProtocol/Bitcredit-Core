@@ -4,13 +4,14 @@ use url::Url;
 
 use crate::{
     protocol::crypto::BcrKeys,
-    tests::tests::{
-        empty_identity, node_id_test_other, private_key_test, signed_identity_proof_test,
+    tests::{
+        tests::{empty_identity, node_id_test_other, private_key_test, signed_identity_proof_test},
+        transaction_test_utils::seed_identity,
     },
-    traits::identity::IdentityStoreApi,
+    traits::{identity::IdentityStoreApi, transaction::TransactionManagerApi},
 };
 
-pub async fn test_identity_store<S>(store: &S)
+pub async fn test_identity_store<S>(transaction_manager: &dyn TransactionManagerApi, store: &S)
 where
     S: IdentityStoreApi + ?Sized,
 {
@@ -24,7 +25,7 @@ where
         Url::parse("wss://relay.example.com").unwrap(),
         Url::parse("wss://relay2.example.com").unwrap(),
     ];
-    store.save(&identity).await.expect("identity can be saved");
+    seed_identity(transaction_manager, &identity).await;
     let fetched = store.get().await;
     assert!(
         fetched.is_ok(),
@@ -37,7 +38,7 @@ where
     // UPSERT IDENTITY
     let mut updated = identity.clone();
     updated.name = Name::new("Updated Minka").unwrap();
-    store.save(&updated).await.expect("identity can be updated");
+    seed_identity(transaction_manager, &updated).await;
     assert_eq!(store.get().await.unwrap(), updated);
 
     // ACTIVE IDENTITY DEFAULT

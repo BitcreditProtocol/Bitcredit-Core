@@ -1,10 +1,8 @@
 use crate::sql::company::{
-    CompanyRow, CompanySignatoryRow, DELETE_COMPANY, DELETE_KEY, DELETE_LOCAL_OVERRIDE,
-    DELETE_SIGNATORIES, EXISTS, INSERT_COMPANY, INSERT_KEY, INSERT_SIGNATORY,
+    CompanyRow, CompanySignatoryRow, DELETE_LOCAL_OVERRIDE, EXISTS, INSERT_KEY,
     LocalSignatoryOverrideRow, SEARCH, SELECT_COMPANIES_WITH_KEYS_BY_STATUS, SELECT_COMPANY,
     SELECT_EMAIL_CONFIRMATIONS, SELECT_KEY, SELECT_LOCAL_OVERRIDES, SELECT_SIGNATORIES,
-    UPDATE_COMPANY, UPSERT_EMAIL_CONFIRMATION, UPSERT_LOCAL_OVERRIDE, bind_company, bind_signatory,
-    company_from_row, company_key_pair_from_db, company_signatory_to_row, company_to_row,
+    UPSERT_EMAIL_CONFIRMATION, UPSERT_LOCAL_OVERRIDE, company_from_row, company_key_pair_from_db,
 };
 use crate::sql::identity::{
     EmailConfirmationRow, email_confirmation_from_row, email_confirmation_to_row,
@@ -130,64 +128,6 @@ impl CompanyStoreApi for SqliteCompanyStore {
         self.get_all_filter_for_status(CompanyStatus::Active).await
     }
 
-    async fn insert(&self, data: &Company) -> Result<()> {
-        let row = company_to_row(data)?;
-        let mut tx = self.pool.begin().await?;
-        bind_company!(sqlx::query(INSERT_COMPANY), row)
-            .execute(&mut *tx)
-            .await?;
-        for (position, signatory) in data.signatories.iter().enumerate() {
-            let row = company_signatory_to_row(&data.id, position, signatory)?;
-            bind_signatory!(sqlx::query(INSERT_SIGNATORY), row)
-                .execute(&mut *tx)
-                .await?;
-        }
-        tx.commit().await?;
-        Ok(())
-    }
-
-    async fn update(&self, id: &NodeId, data: &Company) -> Result<()> {
-        if id != &data.id {
-            return Err(Error::InvalidData("company id mismatch".to_owned()));
-        }
-        let row = company_to_row(data)?;
-        let mut tx = self.pool.begin().await?;
-        let updated = bind_company!(sqlx::query(UPDATE_COMPANY), row)
-            .execute(&mut *tx)
-            .await?;
-        if updated.rows_affected() == 0 {
-            return Err(Error::NoSuchEntity("company".to_owned(), id.to_string()));
-        }
-        sqlx::query(DELETE_SIGNATORIES)
-            .bind(Text(id.clone()))
-            .execute(&mut *tx)
-            .await?;
-        for (position, signatory) in data.signatories.iter().enumerate() {
-            let row = company_signatory_to_row(id, position, signatory)?;
-            bind_signatory!(sqlx::query(INSERT_SIGNATORY), row)
-                .execute(&mut *tx)
-                .await?;
-        }
-        tx.commit().await?;
-        Ok(())
-    }
-
-    async fn remove(&self, id: &NodeId) -> Result<()> {
-        let mut tx = self.pool.begin().await?;
-        // company_signatory cascades
-        sqlx::query(DELETE_COMPANY)
-            .bind(Text(id.clone()))
-            .execute(&mut *tx)
-            .await?;
-        // delete keys
-        sqlx::query(DELETE_KEY)
-            .bind(Text(id.clone()))
-            .execute(&mut *tx)
-            .await?;
-        tx.commit().await?;
-        Ok(())
-    }
-
     async fn save_key_pair(&self, id: &NodeId, key_pair: &BcrKeys) -> Result<()> {
         let plaintext_key = key_pair.get_private_key_string();
         let encrypted_key = self.encryption_ctx.encrypt(plaintext_key.as_bytes())?;
@@ -306,13 +246,18 @@ mod tests {
     use std::sync::Arc;
 
     use super::SqliteCompanyStore;
-    use crate::{EncryptionContext, tests::company::test_company_store};
+    use crate::{
+        EncryptionContext, sqlite::transaction::SqliteTransactionManager,
+        tests::company::test_company_store,
+    };
     use bcr_ebill_core::protocol::crypto::BcrKeys;
     use sqlx::SqlitePool;
 
     #[sqlx::test(migrations = "migrations/sqlite")]
     async fn company_store(pool: SqlitePool) {
-        let store = SqliteCompanyStore::new(pool, Arc::new(EncryptionContext::new(BcrKeys::new())));
-        test_company_store(&store).await;
+        let encryption_ctx = Arc::new(EncryptionContext::new(BcrKeys::new()));
+        let store = SqliteCompanyStore::new(pool.clone(), encryption_ctx.clone());
+        let transaction_mgr = SqliteTransactionManager::new(pool, encryption_ctx);
+        test_company_store(&transaction_mgr, &store).await;
     }
 }

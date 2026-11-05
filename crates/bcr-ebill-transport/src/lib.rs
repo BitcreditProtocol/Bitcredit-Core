@@ -370,7 +370,6 @@ pub async fn create_restore_account_service(
     config: Arc<Config>,
     keys: &BcrKeys,
     chain_key_service: Arc<dyn ChainKeyServiceApi>,
-    contact_service: Arc<dyn ContactServiceApi>,
     push_service: Arc<dyn PushApi>,
     mint_client: Arc<dyn MintClientApi>,
 ) -> Result<RestoreAccountService> {
@@ -464,7 +463,6 @@ pub async fn create_restore_account_service(
     let dm_processor = Arc::new(
         DirectMessageEventProcessor::new(
             nostr_client.clone(),
-            contact_service.clone(),
             db_context.nostr_event_offset_store.clone(),
             chain_key_service.clone(),
             vec![

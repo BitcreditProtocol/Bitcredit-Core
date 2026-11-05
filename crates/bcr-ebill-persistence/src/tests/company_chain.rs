@@ -1,7 +1,11 @@
 use crate::{
-    tests::tests::{empty_address, node_id_test, private_key_test, test_ts},
-    traits::company::CompanyChainStoreApi,
+    tests::{
+        tests::{empty_address, node_id_test, private_key_test, test_ts},
+        transaction_test_utils::{remove_company_blocks_from_height, seed_company_blocks},
+    },
+    traits::{company::CompanyChainStoreApi, transaction::TransactionManagerApi},
 };
+use bcr_common::core::NodeId;
 use bcr_ebill_core::protocol::{
     Address, City, Country, Date, EditOptionalFieldMode, Email, Identification, Name, Sha256Hash,
     Zip,
@@ -69,21 +73,29 @@ pub fn get_second_company_block(previous: &CompanyBlock) -> CompanyBlock {
     .unwrap()
 }
 
-pub async fn test_company_chain<S>(store: &S)
+async fn get_latest_block<S>(store: &S, company_id: &NodeId) -> crate::Result<CompanyBlock>
+where
+    S: CompanyChainStoreApi + ?Sized,
+{
+    Ok(store
+        .get_chain(company_id)
+        .await?
+        .get_latest_block()
+        .to_owned())
+}
+
+pub async fn test_company_chain<S>(transaction_manager: &dyn TransactionManagerApi, store: &S)
 where
     S: CompanyChainStoreApi + ?Sized,
 {
     let id = node_id_test();
 
-    assert!(store.get_latest_block(&id).await.is_err());
+    assert!(get_latest_block(store, &id).await.is_err());
 
     // First block
     let block = get_first_company_block();
-    store
-        .add_block(&id, &block)
-        .await
-        .expect("add first company block");
-    let latest = store.get_latest_block(&id).await.unwrap();
+    seed_company_blocks(transaction_manager, &id, None, std::slice::from_ref(&block)).await;
+    let latest = get_latest_block(store, &id).await.unwrap();
     assert_eq!(latest, block);
     let chain = store.get_chain(&id).await.unwrap();
     assert_eq!(chain.blocks().len(), 1);
@@ -91,11 +103,14 @@ where
 
     // Second block
     let block2 = get_second_company_block(&block);
-    store
-        .add_block(&id, &block2)
-        .await
-        .expect("add second company block");
-    let latest = store.get_latest_block(&id).await.unwrap();
+    seed_company_blocks(
+        transaction_manager,
+        &id,
+        Some(&block),
+        std::slice::from_ref(&block2),
+    )
+    .await;
+    let latest = get_latest_block(store, &id).await.unwrap();
     assert_eq!(latest, block2);
     let chain = store.get_chain(&id).await.unwrap();
     assert_eq!(chain.blocks().len(), 2);
@@ -103,71 +118,25 @@ where
     assert_eq!(chain.blocks()[1], block2);
 
     // Truncate second block
-    store
-        .remove_blocks_from_height(&id, block2.id)
-        .await
-        .unwrap();
-    let latest = store.get_latest_block(&id).await.unwrap();
+    remove_company_blocks_from_height(transaction_manager, &id, &block2, block2.id).await;
+    let latest = get_latest_block(store, &id).await.unwrap();
     assert_eq!(latest, block);
 
     // Re-add after truncation
-    store
-        .add_block(&id, &block2)
-        .await
-        .expect("re-add after truncation");
+    seed_company_blocks(
+        transaction_manager,
+        &id,
+        Some(&block),
+        std::slice::from_ref(&block2),
+    )
+    .await;
     assert_eq!(store.get_chain(&id).await.unwrap().blocks().len(), 2);
 
     // Remove whole chain
     store.remove(&id).await.expect("remove company chain");
-    assert!(store.get_latest_block(&id).await.is_err());
+    assert!(get_latest_block(store, &id).await.is_err());
 
     // lock anchor still exists, but this must not prevent creating a new chain
-    store
-        .add_block(&id, &block)
-        .await
-        .expect("recreate chain after remove");
+    seed_company_blocks(transaction_manager, &id, None, std::slice::from_ref(&block)).await;
     assert_eq!(store.get_chain(&id).await.unwrap().blocks().len(), 1);
-}
-
-pub async fn test_concurrent_company_first_block<S>(store: &S)
-where
-    S: CompanyChainStoreApi + ?Sized,
-{
-    let id = node_id_test();
-    let block = get_first_company_block();
-    let (result_a, result_b) =
-        tokio::join!(store.add_block(&id, &block), store.add_block(&id, &block),);
-    assert_ne!(
-        result_a.is_ok(),
-        result_b.is_ok(),
-        "exactly one concurrent first block \
-         must succeed: \
-         a={result_a:?}, b={result_b:?}"
-    );
-    let chain = store.get_chain(&id).await.unwrap();
-    assert_eq!(chain.blocks().len(), 1);
-    assert_eq!(chain.blocks()[0], block);
-}
-
-pub async fn test_concurrent_company_add<S>(store: &S)
-where
-    S: CompanyChainStoreApi + ?Sized,
-{
-    let id = node_id_test();
-    let block = get_first_company_block();
-    store.add_block(&id, &block).await.unwrap();
-    let block2 = get_second_company_block(&block);
-    let (result_a, result_b) =
-        tokio::join!(store.add_block(&id, &block2), store.add_block(&id, &block2),);
-    assert_ne!(
-        result_a.is_ok(),
-        result_b.is_ok(),
-        "exactly one concurrent append \
-         must succeed: \
-         a={result_a:?}, b={result_b:?}"
-    );
-    let chain = store.get_chain(&id).await.unwrap();
-    assert_eq!(chain.blocks().len(), 2);
-    assert_eq!(chain.blocks()[0], block);
-    assert_eq!(chain.blocks()[1], block2);
 }

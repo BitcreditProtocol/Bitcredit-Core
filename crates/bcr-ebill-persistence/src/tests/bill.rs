@@ -6,8 +6,11 @@ use crate::{
             cached_bill, empty_address, get_bill_keys, node_id_test, node_id_test_other,
             private_key_test, signed_identity_proof_test, test_ts, valid_payment_address_testnet,
         },
+        transaction_test_utils::{
+            remove_bill_blocks_from_height, seed_bill_blocks, seed_bill_keys,
+        },
     },
-    traits::bill::{BillChainStoreApi, BillStoreApi},
+    traits::{bill::BillStoreApi, transaction::TransactionManagerApi},
 };
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::{
@@ -208,10 +211,9 @@ fn recourse_block(id: &BillId, previous: &BillBlock, timestamp: Timestamp) -> Bi
     .unwrap()
 }
 
-pub async fn test_bill_store<B, C>(store: &B, chain_store: &C)
+pub async fn test_bill_store<B>(transaction_manager: &dyn TransactionManagerApi, store: &B)
 where
     B: BillStoreApi + ?Sized,
-    C: BillChainStoreApi + ?Sized,
 {
     let bill_id = bill_id_test();
     let other_bill_id = bill_id_test_other();
@@ -325,28 +327,31 @@ where
     let keys = BcrKeys::from_private_key(&private_key_test());
 
     // Key alone does not constitute an existing bill
-    store
-        .save_keys(&bill_id, &keys)
-        .await
-        .expect("save bill keys");
+    seed_bill_keys(transaction_manager, &bill_id, &keys).await;
     assert!(!store.exists(&bill_id).await.unwrap());
     let stored_keys = store.get_keys(&bill_id).await.expect("get bill keys");
     assert_eq!(stored_keys.get_private_key(), private_key_test(),);
 
     // Bill + key means exists()
     let first = get_first_block(&bill_id);
-    chain_store
-        .add_block(&bill_id, &first)
-        .await
-        .expect("add first block");
+    seed_bill_blocks(
+        transaction_manager,
+        &bill_id,
+        None,
+        std::slice::from_ref(&first),
+    )
+    .await;
     assert!(store.exists(&bill_id).await.unwrap());
 
     // A chain without keys still does not satisfy exists().
     let other_first = get_first_block(&other_bill_id);
-    chain_store
-        .add_block(&other_bill_id, &other_first)
-        .await
-        .expect("add other bill");
+    seed_bill_blocks(
+        transaction_manager,
+        &other_bill_id,
+        None,
+        std::slice::from_ref(&other_first),
+    )
+    .await;
     assert!(!store.exists(&other_bill_id).await.unwrap());
 
     // GET IDS
@@ -472,10 +477,13 @@ where
 
     // WAITING FOR NORMAL PAYMENT
     let request_to_pay = request_to_pay_block(&bill_id, &first, test_ts());
-    chain_store
-        .add_block(&bill_id, &request_to_pay)
-        .await
-        .expect("add request-to-pay block");
+    seed_bill_blocks(
+        transaction_manager,
+        &bill_id,
+        Some(&first),
+        std::slice::from_ref(&request_to_pay),
+    )
+    .await;
 
     // NotFound, so not confirmed-paid
     let waiting = store.get_bill_ids_waiting_for_payment().await.unwrap();
@@ -496,21 +504,33 @@ where
     );
 
     // RESET CHAINS FOR LATEST-OP-CODE TESTS
-    chain_store
-        .remove_blocks_from_height(&bill_id, second_block_id)
-        .await
-        .unwrap();
+    remove_bill_blocks_from_height(
+        transaction_manager,
+        &bill_id,
+        &request_to_pay,
+        request_to_pay.id,
+    )
+    .await;
 
     // WAITING FOR SELL PAYMENT
     let offer_to_sell = offer_to_sell_block(&bill_id, &first, test_ts());
-    chain_store
-        .add_block(&bill_id, &offer_to_sell)
-        .await
-        .unwrap();
+    seed_bill_blocks(
+        transaction_manager,
+        &bill_id,
+        Some(&first),
+        std::slice::from_ref(&offer_to_sell),
+    )
+    .await;
     let waiting = store.get_bill_ids_waiting_for_sell_payment().await.unwrap();
     assert_eq!(waiting, vec![bill_id.clone()],);
     let sell = sell_block(&bill_id, &offer_to_sell, test_ts());
-    chain_store.add_block(&bill_id, &sell).await.unwrap();
+    seed_bill_blocks(
+        transaction_manager,
+        &bill_id,
+        Some(&offer_to_sell),
+        std::slice::from_ref(&sell),
+    )
+    .await;
     assert!(
         store
             .get_bill_ids_waiting_for_sell_payment()
@@ -520,22 +540,29 @@ where
     );
 
     // WAITING FOR RECOURSE PAYMENT
-    chain_store
-        .remove_blocks_from_height(&bill_id, second_block_id)
-        .await
-        .unwrap();
+    remove_bill_blocks_from_height(transaction_manager, &bill_id, &sell, offer_to_sell.id).await;
     let request_recourse = request_recourse_block(&bill_id, &first, test_ts());
-    chain_store
-        .add_block(&bill_id, &request_recourse)
-        .await
-        .unwrap();
+
+    seed_bill_blocks(
+        transaction_manager,
+        &bill_id,
+        Some(&first),
+        std::slice::from_ref(&request_recourse),
+    )
+    .await;
     let waiting = store
         .get_bill_ids_waiting_for_recourse_payment()
         .await
         .unwrap();
     assert_eq!(waiting, vec![bill_id.clone()],);
     let recourse = recourse_block(&bill_id, &request_recourse, test_ts());
-    chain_store.add_block(&bill_id, &recourse).await.unwrap();
+    seed_bill_blocks(
+        transaction_manager,
+        &bill_id,
+        Some(&request_recourse),
+        std::slice::from_ref(&recourse),
+    )
+    .await;
     assert!(
         store
             .get_bill_ids_waiting_for_recourse_payment()
@@ -545,19 +572,30 @@ where
     );
 
     // OP-CODES SINCE
-    chain_store
-        .remove_blocks_from_height(&bill_id, second_block_id)
-        .await
-        .unwrap();
-    chain_store
-        .remove_blocks_from_height(&other_bill_id, second_block_id)
-        .await
-        .unwrap();
+    remove_bill_blocks_from_height(
+        transaction_manager,
+        &bill_id,
+        &recourse,
+        request_recourse.id,
+    )
+    .await;
     let base_ts = first.timestamp;
     let accept = request_to_accept_block(&bill_id, &first, base_ts + 1_000);
-    chain_store.add_block(&bill_id, &accept).await.unwrap();
+    seed_bill_blocks(
+        transaction_manager,
+        &bill_id,
+        Some(&first),
+        std::slice::from_ref(&accept),
+    )
+    .await;
     let pay = request_to_pay_block(&other_bill_id, &other_first, base_ts + 1_500);
-    chain_store.add_block(&other_bill_id, &pay).await.unwrap();
+    seed_bill_blocks(
+        transaction_manager,
+        &other_bill_id,
+        Some(&other_first),
+        std::slice::from_ref(&pay),
+    )
+    .await;
     let all = HashSet::from([BillOpCode::RequestToPay, BillOpCode::RequestToAccept]);
     let result = store
         .get_bill_ids_with_op_codes_since(all.clone(), Timestamp::new(0).unwrap())

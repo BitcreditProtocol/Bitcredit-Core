@@ -1188,6 +1188,9 @@ impl NostrConsumer {
         // Subscribe to private events for ALL local identities (single subscription)
         let local_pubkeys: Vec<PublicKey> = local_node_ids.iter().map(|n| n.npub()).collect();
 
+        // create notifications channel before subscriptions so we don't drop events in-between
+        let mut notifications = client.client.notifications();
+
         client
             .subscribe(
                 Filter::new()
@@ -1227,33 +1230,20 @@ impl NostrConsumer {
             })?;
 
         // Spawn a SINGLE task for the single client
-        let client_for_task = client.clone();
         tasks.spawn(async move {
             let result: Result<()> = async {
-                let mut notifications = client_for_task.client.notifications();
-
                 while let Some(note) = notifications.next().await {
                     let event_handlers = event_handlers.clone();
                     let offset_store = offset_store.clone();
                     let chain_key_store = chain_key_store.clone();
-                    let contact_service = contact_service.clone();
                     let file_metadata_processor = file_metadata_processor.clone();
-                    let local_node_ids = local_node_ids.clone();
                     let client = client.clone();
 
                     let ClientNotification::Event { event, .. } = note else {
                         continue;
                     };
 
-                    if !should_process(
-                        event.clone(),
-                        &local_node_ids,
-                        &contact_service,
-                        &offset_store,
-                        Some(earliest_offset),
-                    )
-                    .await
-                    {
+                    if !should_process(event.clone(), &offset_store, Some(earliest_offset)).await {
                         continue;
                     }
 
@@ -1432,13 +1422,10 @@ pub async fn process_event(
 
 pub async fn should_process(
     event: Box<Event>,
-    local_node_ids: &[NodeId],
-    contact_service: &Arc<dyn ContactServiceApi>,
     offset_store: &Arc<dyn NostrEventOffsetStoreApi>,
     since: Option<Timestamp>,
 ) -> bool {
     valid_time(event.kind, event.created_at, since)
-        && valid_sender(&event.pubkey, local_node_ids, contact_service).await
         && !offset_store
             .is_processed(&event.id.to_hex())
             .await
@@ -1503,22 +1490,6 @@ async fn handle_public_event(
         Ok(true)
     } else {
         Ok(false)
-    }
-}
-
-async fn valid_sender(
-    npub: &PublicKey,
-    local_node_ids: &[NodeId],
-    contact_service: &Arc<dyn ContactServiceApi>,
-) -> bool {
-    if local_node_ids.iter().any(|node_id| node_id.npub() == *npub) {
-        return true;
-    }
-    if let Ok(res) = contact_service.is_known_npub(npub).await {
-        res
-    } else {
-        error!("Could not check if sender is a known contact");
-        false
     }
 }
 
@@ -1716,13 +1687,6 @@ mod tests {
         );
         let event = create_test_event(&BillEventType::BillSigned);
 
-        // expect the receiver to check if the sender contact is known
-        let mut contact_service = MockContactService::new();
-        contact_service
-            .expect_is_known_npub()
-            .with(predicate::eq(keys1.get_nostr_keys().public_key()))
-            .returning(|_| Ok(true));
-
         // expect a handler that is subscribed to the event type w sent
         let mut handler = MockNotificationHandlerApi::new();
         handler
@@ -1768,6 +1732,7 @@ mod tests {
             .once();
 
         let chain_key_store = MockChainKeyService::new();
+        let contact_service = MockContactService::new();
 
         // we start the consumer
         let consumer = NostrConsumer::new(
@@ -2054,11 +2019,6 @@ mod tests {
         contact_service
             .expect_get_nostr_npubs()
             .returning(move || Ok(vec![sender_npub]))
-            .once();
-        contact_service
-            .expect_is_known_npub()
-            .with(predicate::eq(sender_npub))
-            .returning(|_| Ok(true))
             .once();
 
         let mut offset_store = MockNostrEventOffsetStore::new();

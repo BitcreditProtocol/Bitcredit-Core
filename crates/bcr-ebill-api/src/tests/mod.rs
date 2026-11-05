@@ -191,7 +191,6 @@ pub mod tests {
             async fn clear_bill_cache(&self) -> Result<()>;
             async fn exists(&self, id: &BillId) -> Result<bool>;
             async fn get_ids(&self) -> Result<Vec<BillId>>;
-            async fn save_keys(&self, id: &BillId, keys: &BcrKeys) -> Result<()>;
             async fn get_keys(&self, id: &BillId) -> Result<BcrKeys>;
             async fn is_paid(&self, id: &BillId) -> Result<bool>;
             async fn set_payment_state(&self, id: &BillId, payment_state: &PaymentState) -> Result<()>;
@@ -236,10 +235,7 @@ pub mod tests {
 
         #[async_trait]
         impl BillChainStoreApi for BillChainStoreApiMock {
-            async fn get_latest_block(&self, id: &BillId) -> Result<BillBlock>;
-            async fn add_block(&self, id: &BillId, block: &BillBlock) -> Result<()>;
             async fn get_chain(&self, id: &BillId) -> Result<BillBlockchain>;
-            async fn remove_blocks_from_height(&self, id: &BillId, from_block_id: BlockId) -> Result<()>;
         }
     }
 
@@ -265,9 +261,6 @@ pub mod tests {
             async fn exists(&self, id: &NodeId) -> bool;
             async fn get(&self, id: &NodeId) -> Result<Company>;
             async fn get_all(&self) -> Result<HashMap<NodeId, (Company, BcrKeys)>>;
-            async fn insert(&self, data: &Company) -> Result<()>;
-            async fn update(&self, id: &NodeId, data: &Company) -> Result<()>;
-            async fn remove(&self, id: &NodeId) -> Result<()>;
             async fn save_key_pair(&self, id: &NodeId, key_pair: &BcrKeys) -> Result<()>;
             async fn get_key_pair(&self, id: &NodeId) -> Result<BcrKeys>;
             async fn get_email_confirmations(
@@ -302,11 +295,8 @@ pub mod tests {
 
         #[async_trait]
         impl CompanyChainStoreApi for CompanyChainStoreApiMock {
-            async fn get_latest_block(&self, id: &NodeId) -> Result<CompanyBlock>;
-            async fn add_block(&self, id: &NodeId, block: &CompanyBlock) -> Result<()>;
             async fn remove(&self, id: &NodeId) -> Result<()>;
             async fn get_chain(&self, id: &NodeId) -> Result<CompanyBlockchain>;
-            async fn remove_blocks_from_height(&self, id: &NodeId, from_block_id: BlockId) -> Result<()>;
         }
     }
 
@@ -318,7 +308,6 @@ pub mod tests {
         #[async_trait]
         impl IdentityStoreApi for IdentityStoreApiMock {
             async fn exists(&self) -> bool;
-            async fn save(&self, identity: &Identity) -> Result<()>;
             async fn get(&self) -> Result<Identity>;
             async fn get_full(&self) -> Result<IdentityWithAll>;
             async fn save_key_pair(&self, key_pair: &BcrKeys, seed: &str) -> Result<()>;
@@ -346,10 +335,7 @@ pub mod tests {
 
         #[async_trait]
         impl IdentityChainStoreApi for IdentityChainStoreApiMock {
-            async fn get_latest_block(&self) -> Result<IdentityBlock>;
-            async fn add_block(&self, block: &IdentityBlock) -> Result<()>;
             async fn get_chain(&self) -> Result<IdentityBlockchain>;
-            async fn remove_blocks_from_height(&self, from_block_id: BlockId) -> Result<()>;
         }
     }
 
@@ -801,7 +787,6 @@ pub mod tests {
                 temp_files_path: PathBuf::from_str("/tmp").unwrap(),
             },
             nostr_config: NostrConfig {
-                only_known_contacts: false,
                 relays: vec![url::Url::parse("ws://localhost:8080").unwrap()],
                 blossom_servers: vec![],
                 max_relays: Some(50),
@@ -1053,7 +1038,6 @@ pub mod tests {
         #[test]
         fn test_nostr_config_with_custom_max_relays() {
             let config = NostrConfig {
-                only_known_contacts: true,
                 relays: vec![],
                 blossom_servers: vec![],
                 max_relays: Some(100),
@@ -1065,7 +1049,6 @@ pub mod tests {
         #[test]
         fn test_nostr_config_with_no_relay_limit() {
             let config = NostrConfig {
-                only_known_contacts: false,
                 relays: vec![],
                 blossom_servers: vec![],
                 max_relays: None,

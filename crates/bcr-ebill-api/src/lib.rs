@@ -92,8 +92,6 @@ pub struct PaymentConfig {
 /// Nostr specific configuration
 #[derive(Debug, Clone)]
 pub struct NostrConfig {
-    /// Only known contacts can message us via DM.
-    pub only_known_contacts: bool,
     /// All relays we want to publish our messages to and receive messages from.
     pub relays: Vec<url::Url>,
     /// Blossom servers we want to publish and use for file storage.
@@ -109,7 +107,6 @@ pub struct NostrConfig {
 impl Default for NostrConfig {
     fn default() -> Self {
         Self {
-            only_known_contacts: false,
             relays: vec![],
             blossom_servers: vec![],
             max_relays: Some(50),
