@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1377924213;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 934649059;
 
 // Section: executor
 
@@ -4202,6 +4202,21 @@ fn wire__crate__ffi__api__facility__sign_facility_application_admission_impl(
         },
     )
 }
+fn wire__crate__ffi__api__mint_application_admission__sign_mint_application_admission_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec,_,_,_>(flutter_rust_bridge::for_generated::TaskInfo{ debug_name: "sign_mint_application_admission", port: Some(port_), mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal }, move || {
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_payload = <crate::ffi::api::mint_application_admission::MintApplicationAdmissionPayloadFfi>::sse_decode(&mut deserializer);deserializer.end(); move |context| async move {
+                    transform_result_sse::<_, crate::ffi::error::EbillFfiError>((move || async move {
+                         let output_ok = crate::ffi::api::mint_application_admission::sign_mint_application_admission(api_payload).await?;   std::result::Result::Ok(output_ok)
+                    })().await)
+                } })
+}
 fn wire__crate__ffi__api__notification__subscribe_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -7180,6 +7195,52 @@ impl SseDecode for crate::ffi::data::MempoolLinkResponse {
     }
 }
 
+impl SseDecode for crate::ffi::api::mint_application_admission::MintApplicationAdmissionFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_schemaVersion = <String>::sse_decode(deserializer);
+        let mut var_action = <String>::sse_decode(deserializer);
+        let mut var_billId = <String>::sse_decode(deserializer);
+        let mut var_mintNodeId = <String>::sse_decode(deserializer);
+        let mut var_mintQuoteId = <String>::sse_decode(deserializer);
+        let mut var_caseId = <String>::sse_decode(deserializer);
+        let mut var_holderRef = <String>::sse_decode(deserializer);
+        let mut var_applicationTokenDigest = <String>::sse_decode(deserializer);
+        let mut var_issuedAt = <u64>::sse_decode(deserializer);
+        let mut var_expiresAt = <u64>::sse_decode(deserializer);
+        return crate::ffi::api::mint_application_admission::MintApplicationAdmissionFfi {
+            schema_version: var_schemaVersion,
+            action: var_action,
+            bill_id: var_billId,
+            mint_node_id: var_mintNodeId,
+            mint_quote_id: var_mintQuoteId,
+            case_id: var_caseId,
+            holder_ref: var_holderRef,
+            application_token_digest: var_applicationTokenDigest,
+            issued_at: var_issuedAt,
+            expires_at: var_expiresAt,
+        };
+    }
+}
+
+impl SseDecode for crate::ffi::api::mint_application_admission::MintApplicationAdmissionPayloadFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_billId = <String>::sse_decode(deserializer);
+        let mut var_mintNodeId = <String>::sse_decode(deserializer);
+        let mut var_mintQuoteId = <String>::sse_decode(deserializer);
+        let mut var_caseId = <String>::sse_decode(deserializer);
+        let mut var_applicationTokenDigest = <String>::sse_decode(deserializer);
+        return crate::ffi::api::mint_application_admission::MintApplicationAdmissionPayloadFfi {
+            bill_id: var_billId,
+            mint_node_id: var_mintNodeId,
+            mint_quote_id: var_mintQuoteId,
+            case_id: var_caseId,
+            application_token_digest: var_applicationTokenDigest,
+        };
+    }
+}
+
 impl SseDecode for crate::ffi::data::mint::MintOfferFfi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -8283,6 +8344,21 @@ impl SseDecode for crate::ffi::api::facility::SignedFacilityApplicationAdmission
     }
 }
 
+impl SseDecode for crate::ffi::api::mint_application_admission::SignedMintApplicationAdmissionFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_admission =
+            <crate::ffi::api::mint_application_admission::MintApplicationAdmissionFfi>::sse_decode(
+                deserializer,
+            );
+        let mut var_signature = <String>::sse_decode(deserializer);
+        return crate::ffi::api::mint_application_admission::SignedMintApplicationAdmissionFfi {
+            admission: var_admission,
+            signature: var_signature,
+        };
+    }
+}
+
 impl SseDecode for crate::ffi::data::StatusResponse {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -8703,30 +8779,38 @@ fn pde_ffi_dispatcher_primary_impl(
             data_len,
         ),
         112 => {
+            wire__crate__ffi__api__mint_application_admission__sign_mint_application_admission_impl(
+                port,
+                ptr,
+                rust_vec_len,
+                data_len,
+            )
+        }
+        113 => {
             wire__crate__ffi__api__notification__subscribe_impl(port, ptr, rust_vec_len, data_len)
         }
-        113 => wire__crate__ffi__api__bill__sweep_btc_funds_impl(port, ptr, rust_vec_len, data_len),
-        114 => wire__crate__ffi__api__identity__switch_impl(port, ptr, rust_vec_len, data_len),
-        115 => wire__crate__ffi__api__bill__sync_bill_chain_impl(port, ptr, rust_vec_len, data_len),
-        116 => wire__crate__ffi__api__company__sync_company_chain_impl(
+        114 => wire__crate__ffi__api__bill__sweep_btc_funds_impl(port, ptr, rust_vec_len, data_len),
+        115 => wire__crate__ffi__api__identity__switch_impl(port, ptr, rust_vec_len, data_len),
+        116 => wire__crate__ffi__api__bill__sync_bill_chain_impl(port, ptr, rust_vec_len, data_len),
+        117 => wire__crate__ffi__api__company__sync_company_chain_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        117 => wire__crate__ffi__api__identity__sync_identity_chain_impl(
+        118 => wire__crate__ffi__api__identity__sync_identity_chain_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        118 => wire__crate__ffi__api__general__temp_file_impl(port, ptr, rust_vec_len, data_len),
-        119 => wire__crate__ffi__api__bill__upload_impl(port, ptr, rust_vec_len, data_len),
-        120 => wire__crate__ffi__api__company__upload_impl(port, ptr, rust_vec_len, data_len),
-        121 => wire__crate__ffi__api__contact__upload_impl(port, ptr, rust_vec_len, data_len),
-        122 => wire__crate__ffi__api__identity__upload_impl(port, ptr, rust_vec_len, data_len),
-        123 => wire__crate__ffi__api__company__verify_email_impl(port, ptr, rust_vec_len, data_len),
-        124 => {
+        119 => wire__crate__ffi__api__general__temp_file_impl(port, ptr, rust_vec_len, data_len),
+        120 => wire__crate__ffi__api__bill__upload_impl(port, ptr, rust_vec_len, data_len),
+        121 => wire__crate__ffi__api__company__upload_impl(port, ptr, rust_vec_len, data_len),
+        122 => wire__crate__ffi__api__contact__upload_impl(port, ptr, rust_vec_len, data_len),
+        123 => wire__crate__ffi__api__identity__upload_impl(port, ptr, rust_vec_len, data_len),
+        124 => wire__crate__ffi__api__company__verify_email_impl(port, ptr, rust_vec_len, data_len),
+        125 => {
             wire__crate__ffi__api__identity__verify_email_impl(port, ptr, rust_vec_len, data_len)
         }
         _ => unreachable!(),
@@ -11413,6 +11497,71 @@ impl flutter_rust_bridge::IntoIntoDart<crate::ffi::data::MempoolLinkResponse>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart
+    for crate::ffi::api::mint_application_admission::MintApplicationAdmissionFfi
+{
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.schema_version.into_into_dart().into_dart(),
+            self.action.into_into_dart().into_dart(),
+            self.bill_id.into_into_dart().into_dart(),
+            self.mint_node_id.into_into_dart().into_dart(),
+            self.mint_quote_id.into_into_dart().into_dart(),
+            self.case_id.into_into_dart().into_dart(),
+            self.holder_ref.into_into_dart().into_dart(),
+            self.application_token_digest.into_into_dart().into_dart(),
+            self.issued_at.into_into_dart().into_dart(),
+            self.expires_at.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::ffi::api::mint_application_admission::MintApplicationAdmissionFfi
+{
+}
+impl
+    flutter_rust_bridge::IntoIntoDart<
+        crate::ffi::api::mint_application_admission::MintApplicationAdmissionFfi,
+    > for crate::ffi::api::mint_application_admission::MintApplicationAdmissionFfi
+{
+    fn into_into_dart(
+        self,
+    ) -> crate::ffi::api::mint_application_admission::MintApplicationAdmissionFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart
+    for crate::ffi::api::mint_application_admission::MintApplicationAdmissionPayloadFfi
+{
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.bill_id.into_into_dart().into_dart(),
+            self.mint_node_id.into_into_dart().into_dart(),
+            self.mint_quote_id.into_into_dart().into_dart(),
+            self.case_id.into_into_dart().into_dart(),
+            self.application_token_digest.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::ffi::api::mint_application_admission::MintApplicationAdmissionPayloadFfi
+{
+}
+impl
+    flutter_rust_bridge::IntoIntoDart<
+        crate::ffi::api::mint_application_admission::MintApplicationAdmissionPayloadFfi,
+    > for crate::ffi::api::mint_application_admission::MintApplicationAdmissionPayloadFfi
+{
+    fn into_into_dart(
+        self,
+    ) -> crate::ffi::api::mint_application_admission::MintApplicationAdmissionPayloadFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::ffi::data::mint::MintOfferFfi {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -12590,6 +12739,33 @@ impl
     > for crate::ffi::api::facility::SignedFacilityApplicationAdmissionFfi
 {
     fn into_into_dart(self) -> crate::ffi::api::facility::SignedFacilityApplicationAdmissionFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart
+    for crate::ffi::api::mint_application_admission::SignedMintApplicationAdmissionFfi
+{
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.admission.into_into_dart().into_dart(),
+            self.signature.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::ffi::api::mint_application_admission::SignedMintApplicationAdmissionFfi
+{
+}
+impl
+    flutter_rust_bridge::IntoIntoDart<
+        crate::ffi::api::mint_application_admission::SignedMintApplicationAdmissionFfi,
+    > for crate::ffi::api::mint_application_admission::SignedMintApplicationAdmissionFfi
+{
+    fn into_into_dart(
+        self,
+    ) -> crate::ffi::api::mint_application_admission::SignedMintApplicationAdmissionFfi {
         self
     }
 }
@@ -14567,6 +14743,33 @@ impl SseEncode for crate::ffi::data::MempoolLinkResponse {
     }
 }
 
+impl SseEncode for crate::ffi::api::mint_application_admission::MintApplicationAdmissionFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.schema_version, serializer);
+        <String>::sse_encode(self.action, serializer);
+        <String>::sse_encode(self.bill_id, serializer);
+        <String>::sse_encode(self.mint_node_id, serializer);
+        <String>::sse_encode(self.mint_quote_id, serializer);
+        <String>::sse_encode(self.case_id, serializer);
+        <String>::sse_encode(self.holder_ref, serializer);
+        <String>::sse_encode(self.application_token_digest, serializer);
+        <u64>::sse_encode(self.issued_at, serializer);
+        <u64>::sse_encode(self.expires_at, serializer);
+    }
+}
+
+impl SseEncode for crate::ffi::api::mint_application_admission::MintApplicationAdmissionPayloadFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.bill_id, serializer);
+        <String>::sse_encode(self.mint_node_id, serializer);
+        <String>::sse_encode(self.mint_quote_id, serializer);
+        <String>::sse_encode(self.case_id, serializer);
+        <String>::sse_encode(self.application_token_digest, serializer);
+    }
+}
+
 impl SseEncode for crate::ffi::data::mint::MintOfferFfi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -15370,6 +15573,17 @@ impl SseEncode for crate::ffi::api::facility::SignedFacilityApplicationAdmission
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <crate::ffi::api::facility::FacilityApplicationAdmissionFfi>::sse_encode(
+            self.admission,
+            serializer,
+        );
+        <String>::sse_encode(self.signature, serializer);
+    }
+}
+
+impl SseEncode for crate::ffi::api::mint_application_admission::SignedMintApplicationAdmissionFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <crate::ffi::api::mint_application_admission::MintApplicationAdmissionFfi>::sse_encode(
             self.admission,
             serializer,
         );

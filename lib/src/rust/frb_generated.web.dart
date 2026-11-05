@@ -16,6 +16,7 @@ import 'ffi/api/contact.dart';
 import 'ffi/api/facility.dart';
 import 'ffi/api/general.dart';
 import 'ffi/api/identity.dart';
+import 'ffi/api/mint_application_admission.dart';
 import 'ffi/api/notification.dart';
 import 'ffi/data.dart';
 import 'ffi/data/bill.dart';
@@ -425,6 +426,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   LocallyHideSignatoryPayload
   dco_decode_box_autoadd_locally_hide_signatory_payload(dynamic raw);
+
+  @protected
+  MintApplicationAdmissionPayloadFfi
+  dco_decode_box_autoadd_mint_application_admission_payload_ffi(dynamic raw);
 
   @protected
   MintOfferFfi dco_decode_box_autoadd_mint_offer_ffi(dynamic raw);
@@ -877,6 +882,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   MempoolLinkResponse dco_decode_mempool_link_response(dynamic raw);
 
   @protected
+  MintApplicationAdmissionFfi dco_decode_mint_application_admission_ffi(
+    dynamic raw,
+  );
+
+  @protected
+  MintApplicationAdmissionPayloadFfi
+  dco_decode_mint_application_admission_payload_ffi(dynamic raw);
+
+  @protected
   MintOfferFfi dco_decode_mint_offer_ffi(dynamic raw);
 
   @protected
@@ -1125,6 +1139,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   SignedFacilityApplicationAdmissionFfi
   dco_decode_signed_facility_application_admission_ffi(dynamic raw);
+
+  @protected
+  SignedMintApplicationAdmissionFfi
+  dco_decode_signed_mint_application_admission_ffi(dynamic raw);
 
   @protected
   StatusResponse dco_decode_status_response(dynamic raw);
@@ -1639,6 +1657,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   LocallyHideSignatoryPayload
   sse_decode_box_autoadd_locally_hide_signatory_payload(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  MintApplicationAdmissionPayloadFfi
+  sse_decode_box_autoadd_mint_application_admission_payload_ffi(
     SseDeserializer deserializer,
   );
 
@@ -2211,6 +2235,17 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  MintApplicationAdmissionFfi sse_decode_mint_application_admission_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  MintApplicationAdmissionPayloadFfi
+  sse_decode_mint_application_admission_payload_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   MintOfferFfi sse_decode_mint_offer_ffi(SseDeserializer deserializer);
 
   @protected
@@ -2533,6 +2568,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   SignedFacilityApplicationAdmissionFfi
   sse_decode_signed_facility_application_admission_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  SignedMintApplicationAdmissionFfi
+  sse_decode_signed_mint_application_admission_ffi(
     SseDeserializer deserializer,
   );
 
@@ -3152,6 +3193,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_box_autoadd_locally_hide_signatory_payload(
     LocallyHideSignatoryPayload self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_mint_application_admission_payload_ffi(
+    MintApplicationAdmissionPayloadFfi self,
     SseSerializer serializer,
   );
 
@@ -3843,6 +3890,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_mint_application_admission_ffi(
+    MintApplicationAdmissionFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_mint_application_admission_payload_ffi(
+    MintApplicationAdmissionPayloadFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_mint_offer_ffi(MintOfferFfi self, SseSerializer serializer);
 
   @protected
@@ -4247,6 +4306,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_signed_facility_application_admission_ffi(
     SignedFacilityApplicationAdmissionFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_signed_mint_application_admission_ffi(
+    SignedMintApplicationAdmissionFfi self,
     SseSerializer serializer,
   );
 
