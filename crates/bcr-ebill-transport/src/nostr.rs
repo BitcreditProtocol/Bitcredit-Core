@@ -48,16 +48,14 @@ use bcr_ebill_api::{
         contact_service::ContactServiceApi,
         file_server_service::resolve_blossom_servers,
         transport_service::{
-            Error, NostrConfig, NostrContactData, Result, transport_client::TransportClientApi,
+            Error, NostrConfig, NostrContactData, Result,
+            transport_client::{PreparedPrivateNostrEvent, TransportClientApi},
         },
     },
 };
 use bcr_ebill_core::{application::ServiceTraitBounds, protocol::event::EventEnvelope};
 use bcr_ebill_persistence::{NostrEventOffset, NostrEventOffsetStoreApi, NostrStoreApi};
-use futures::{
-    StreamExt,
-    channel::mpsc::{UnboundedReceiver, unbounded},
-};
+use futures::StreamExt;
 
 use tokio::task::JoinSet;
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -411,41 +409,19 @@ impl NostrClient {
         &self,
         sender_node_id: &NodeId,
         recipient: &BillParticipant,
-        event: EventEnvelope,
+        envelope: EventEnvelope,
     ) -> Result<()> {
-        // Get the Keys for the specified sender identity
-        let sender_keys = self.get_signer(sender_node_id)?;
-
-        let receiver_pubkey = recipient.node_id().npub();
-        let message = base58::encode(&borsh::to_vec(&event)?);
-
-        let event = PrivateDirectMessageBuilder::new(receiver_pubkey, message)
-            .finalize(sender_keys.as_ref())
-            .map_err(|e| {
-                error!("Failed to create NIP-17 event: {e}");
-                Error::Message(format!("Failed to create NIP-17 event: {e}"))
-            })?;
-
-        let relays = recipient.nostr_relays();
-        let output = if !relays.is_empty() {
-            self.client()
-                .await?
-                .send_event(&event)
-                .to(to_relay_urls(&relays)?)
-                .await
-                .map_err(|e| {
-                    error!("Error sending NIP-17 message to specific relays: {e}");
-                    Error::Network(format!("Failed to send NIP-17 message: {e}"))
-                })?
-        } else {
-            self.client().await?.send_event(&event).await.map_err(|e| {
-                error!("Error sending NIP-17 message: {e}");
-                Error::Network(format!("Failed to send NIP-17 message: {e}"))
-            })?
-        };
-        check_send_output(output, "send_nip17_message")?;
-
-        Ok(())
+        let prepared = self
+            .prepare_nip17_message(sender_node_id, recipient, envelope)
+            .await?;
+        let output = self
+            .client()
+            .await?
+            .send_event(&prepared.event)
+            .to(to_relay_urls(&prepared.target_relays)?)
+            .await
+            .map_err(|e| Error::Network(format!("Failed to send NIP-17 message: {e}")))?;
+        check_send_output(output, "send_nip17_message")
     }
 
     fn is_connected(&self) -> bool {
@@ -535,47 +511,55 @@ impl NostrClient {
             .values()
             .any(|relay| relay.status() == RelayStatus::Connected)
     }
+
+    async fn prepare_nip17_message(
+        &self,
+        sender_node_id: &NodeId,
+        recipient: &BillParticipant,
+        envelope: EventEnvelope,
+    ) -> Result<PreparedPrivateNostrEvent> {
+        // resolve local signer
+        let sender_keys = self.get_signer(sender_node_id)?;
+        let receiver_pubkey = recipient.node_id().npub();
+        let message = base58::encode(&borsh::to_vec(&envelope)?);
+        // build and sign the NIP-17 GiftWrap
+        let event = PrivateDirectMessageBuilder::new(receiver_pubkey, message)
+            .finalize(sender_keys.as_ref())
+            .map_err(|e| Error::Message(format!("Failed to prepare NIP-17 event: {e}")))?;
+
+        let mut target_relays = recipient.nostr_relays();
+        if target_relays.is_empty() {
+            target_relays = self
+                .client
+                .relays()
+                .await
+                .into_values()
+                .filter(|relay| relay.capabilities().has_write())
+                .map(|relay| {
+                    url::Url::parse(relay.url().as_str())
+                        .map_err(|e| Error::Message(format!("Invalid Nostr relay URL: {e}")))
+                })
+                .collect::<Result<Vec<_>>>()?;
+        }
+        // ensure a deterministic, unique relay list
+        target_relays.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+        target_relays.dedup();
+        // at least one relay
+        if target_relays.is_empty() {
+            return Err(Error::Network(
+                "No writable relays available for NIP-17 event".to_owned(),
+            ));
+        }
+        to_relay_urls(&target_relays)?;
+
+        Ok(PreparedPrivateNostrEvent {
+            event,
+            target_relays,
+        })
+    }
 }
 
 impl ServiceTraitBounds for NostrClient {}
-
-async fn queue_failed_relay_sync(store: &Arc<dyn NostrStoreApi>, relay: &RelayUrl, event: &Event) {
-    let relay_url = match url::Url::parse(relay.as_str()) {
-        Ok(url) => url,
-        Err(parse_err) => {
-            error!("Failed to parse relay url {relay}: {parse_err}");
-            return;
-        }
-    };
-    if let Err(store_err) = store.add_failed_relay_sync(&relay_url, event.clone()).await {
-        error!("Failed to queue failed relay sync for {relay}: {store_err}");
-    }
-}
-
-async fn collect_remaining_broadcast_results(
-    mut rx: UnboundedReceiver<(RelayUrl, std::result::Result<EventId, Error>)>,
-    mut success: HashSet<RelayUrl>,
-    nostr_store: Option<Arc<dyn NostrStoreApi>>,
-    event: Event,
-) {
-    while let Some((relay, result)) = rx.next().await {
-        match result {
-            Ok(_) => {
-                success.insert(relay);
-            }
-            Err(e) => {
-                if let Some(store) = &nostr_store {
-                    queue_failed_relay_sync(store, &relay, &event).await;
-                }
-                debug!("Optimistic broadcast background failure for {relay}: {e}");
-            }
-        }
-    }
-    debug!(
-        "Optimistic broadcast background completion: {} succeeded",
-        success.len()
-    );
-}
 
 fn to_relay_url(url: &url::Url) -> Result<RelayUrl> {
     RelayUrl::parse(url.as_str())
@@ -588,6 +572,67 @@ fn to_relay_urls(urls: &[url::Url]) -> Result<Vec<RelayUrl>> {
 
 #[async_trait]
 impl TransportClientApi for NostrClient {
+    async fn send_signed_event_to_relay(&self, event: &Event, relay: &url::Url) -> Result<()> {
+        let relay_url = to_relay_url(relay)?;
+        let client = self.client().await?;
+        // if a relay was removed after the event was enqueued, add it back to retry the event
+        if client
+            .relay(relay_url.clone())
+            .await
+            .map_err(|e| Error::Network(e.to_string()))?
+            .is_none()
+        {
+            client
+                .add_relay(relay_url.clone())
+                .await
+                .map_err(|e| Error::Network(e.to_string()))?;
+            // adding a relay does not automatically connect it
+            client
+                .connect_relay(relay_url.clone())
+                .await
+                .map_err(|e| Error::Network(e.to_string()))?;
+        }
+
+        // send only to this one relay
+        let output = tokio::time::timeout(
+            self.default_timeout,
+            client.send_event(event).to([relay_url.clone()]),
+        )
+        .await
+        .map_err(|_| Error::Network(format!("Timed out sending event {} to {relay}", event.id)))?
+        .map_err(|e| {
+            Error::Network(format!("Could not send event {} to {relay}: {e}", event.id))
+        })?;
+        // ack = success
+        if output.success.contains_key(&relay_url) {
+            return Ok(());
+        }
+        if let Some(reason) = output.failed.get(&relay_url) {
+            // duplicate is a success - the relay has our event
+            if is_duplicate_response(reason) {
+                return Ok(());
+            }
+            return Err(Error::Network(format!(
+                "Relay {relay} rejected event {}: {reason}",
+                event.id
+            )));
+        }
+        Err(Error::Network(format!(
+            "Relay {relay} did not acknowledge event {}",
+            event.id
+        )))
+    }
+
+    async fn prepare_private_event(
+        &self,
+        sender_node_id: &NodeId,
+        recipient: &BillParticipant,
+        event: EventEnvelope,
+    ) -> Result<PreparedPrivateNostrEvent> {
+        self.prepare_nip17_message(sender_node_id, recipient, event)
+            .await
+    }
+
     async fn send_private_event(
         &self,
         sender_node_id: &NodeId,
@@ -625,95 +670,6 @@ impl TransportClientApi for NostrClient {
             error!("Failed to sign Nostr event: {e}");
             Error::Crypto("Failed to sign Nostr event".to_string())
         })
-    }
-
-    async fn broadcast_event(&self, event: &Event) -> Result<()> {
-        let output = self.client().await?.send_event(event).await.map_err(|e| {
-            error!("Failed to send Nostr event: {e}");
-            Error::Network("Failed to send Nostr event".to_string())
-        })?;
-        check_send_output(output, "broadcast_event")?;
-        Ok(())
-    }
-
-    async fn broadcast_event_optimistic(&self, event: &Event, min_acks: usize) -> Result<()> {
-        let client = self.client().await?;
-        let event = event.clone();
-
-        let relays: Vec<RelayUrl> = client
-            .relays()
-            .await
-            .into_values()
-            .filter(|relay| relay.capabilities().has_write())
-            .map(|relay| relay.url().clone())
-            .collect();
-
-        if relays.is_empty() {
-            return Err(Error::Network(
-                "No write relays available for optimistic broadcast".to_string(),
-            ));
-        }
-
-        let threshold = min_acks.max(1).min(relays.len());
-        let nostr_store = self.nostr_store.clone();
-
-        let (tx, mut rx) = unbounded::<(RelayUrl, std::result::Result<EventId, Error>)>();
-
-        for relay in relays {
-            let client = client.clone();
-            let event = event.clone();
-            let tx = tx.clone();
-            tokio::spawn(async move {
-                let result = client.send_event(&event).to(vec![relay.clone()]).await;
-                let mapped = match result {
-                    Ok(output) => {
-                        if output.success.contains_key(&relay) {
-                            Ok(output.value)
-                        } else {
-                            let err = output
-                                .failed
-                                .get(&relay)
-                                .cloned()
-                                .unwrap_or_else(|| "unknown relay error".to_string());
-                            Err(Error::Network(format!("relay {relay} failed: {err}")))
-                        }
-                    }
-                    Err(e) => Err(Error::Network(format!("relay {relay} error: {e}"))),
-                };
-                let _ = tx.unbounded_send((relay, mapped));
-            });
-        }
-        drop(tx);
-
-        let mut success = HashSet::new();
-
-        while let Some((relay, result)) = rx.next().await {
-            match result {
-                Ok(_) => {
-                    success.insert(relay);
-                    if success.len() >= threshold {
-                        tokio::spawn(collect_remaining_broadcast_results(
-                            rx,
-                            success,
-                            nostr_store,
-                            event,
-                        ));
-                        return Ok(());
-                    }
-                }
-                Err(_) => {
-                    if let Some(store) = &nostr_store {
-                        queue_failed_relay_sync(store, &relay, &event).await;
-                    }
-                }
-            }
-        }
-
-        Err(Error::Network(format!(
-            "broadcast_event_optimistic: only {} of {} required acks received",
-            success.len(),
-            threshold,
-        )))
     }
 
     fn relay_ack_threshold(&self) -> usize {
@@ -1114,6 +1070,23 @@ impl TransportClientApi for NostrClient {
         self.client.relays().await.values().any(|relay| {
             relay.status() == RelayStatus::Connected && relay.capabilities().has_write()
         })
+    }
+
+    async fn writable_relay_urls(&self) -> Result<Vec<url::Url>> {
+        let relays = self.client.relays().await;
+        let mut urls = relays
+            .into_values()
+            .filter(|relay| relay.capabilities().has_write())
+            .map(|relay| {
+                url::Url::parse(relay.url().as_str()).map_err(|e| Error::Network(e.to_string()))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        urls.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+        urls.dedup();
+        if urls.is_empty() {
+            return Err(Error::Network("No writable Nostr relays configured".into()));
+        }
+        Ok(urls)
     }
 }
 
@@ -1553,14 +1526,25 @@ async fn handle_event(
     Ok(())
 }
 
+// nip-01 defines duplicate: as the way to report an event has already been received
+fn is_duplicate_response(reason: &str) -> bool {
+    reason
+        .trim_start()
+        .to_ascii_lowercase()
+        .starts_with("duplicate:")
+}
+
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::HashMap,
-        sync::{Arc, Mutex},
-        time::{Duration, Instant},
+    use super::super::test_utils::get_mock_relay;
+    use super::{NostrClient, NostrConfig, NostrConsumer, prioritized_signers_for_event};
+    use crate::nostr::is_duplicate_response;
+    use crate::test_utils::{
+        MockContactService, MockFileMetadataProcessor, MockNostrEventOffsetStore, TestEventPayload,
+        create_test_event, get_identity_public_data,
     };
-
+    use crate::transport::unwrap_direct_message;
+    use crate::{handler::MockNotificationHandlerApi, test_utils::MockChainKeyService};
     use bcr_common::core::NodeId;
     use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
     use bcr_ebill_core::protocol::Email;
@@ -1569,22 +1553,22 @@ mod tests {
     use bcr_ebill_core::protocol::crypto::BcrKeys;
     use bcr_ebill_core::protocol::event::BillEventType;
     use bcr_ebill_core::protocol::event::{Event, EventType};
+    use bcr_ebill_core::protocol::{
+        blockchain::bill::participant::BillAnonParticipant, event::EventEnvelope,
+    };
     use bcr_ebill_persistence::NostrEventOffset;
     use mockall::predicate;
+    use nostr::event::Kind;
     use nostr::{
         event::{EventBuilder, FinalizeEvent, FinalizeUnsignedEvent},
         nips::nip59::GiftWrapBuilder,
     };
-    use tokio::time;
-
-    use crate::test_utils::{
-        MockContactService, MockFileMetadataProcessor, MockNostrEventOffsetStore, TestEventPayload,
-        create_test_event, get_identity_public_data,
+    use std::{
+        collections::HashMap,
+        sync::{Arc, Mutex},
+        time::{Duration, Instant},
     };
-    use crate::{handler::MockNotificationHandlerApi, test_utils::MockChainKeyService};
-
-    use super::super::test_utils::get_mock_relay;
-    use super::{NostrClient, NostrConfig, NostrConsumer, prioritized_signers_for_event};
+    use tokio::time;
 
     #[tokio::test]
     async fn test_connect() {
@@ -2130,6 +2114,127 @@ mod tests {
         // Clean up tasks
         tasks.abort_all();
     }
+
+    #[tokio::test]
+    async fn prepare_private_event_creates_signed_giftwrap_without_sending() {
+        let sender_keys = BcrKeys::new();
+        let recipient_keys = BcrKeys::new();
+        let sender_id = NodeId::new(sender_keys.pub_key(), bitcoin::Network::Testnet);
+        let recipient_id = NodeId::new(recipient_keys.pub_key(), bitcoin::Network::Testnet);
+        let relay_a = url::Url::parse("wss://relay-a.example").unwrap();
+        let relay_b = url::Url::parse("wss://relay-b.example").unwrap();
+        let client = NostrClient::new(
+            vec![(sender_id.clone(), sender_keys.clone())],
+            vec![relay_a.clone(), relay_b.clone()],
+            vec![],
+            Duration::from_secs(2),
+            None,
+            1,
+            None,
+        )
+        .await
+        .unwrap();
+        let recipient = BillParticipant::Anon(BillAnonParticipant {
+            node_id: recipient_id,
+            nostr_relays: vec![relay_b.clone(), relay_a.clone(), relay_b.clone()],
+        });
+        let envelope = EventEnvelope {
+            event_type: EventType::BillChainInvite,
+            version: "1.0".to_owned(),
+            data: vec![1, 2, 3, 4],
+        };
+        assert!(!client.is_connected());
+        let prepared = client
+            .prepare_private_event(&sender_id, &recipient, envelope.clone())
+            .await
+            .unwrap();
+
+        // preparing must not initiate a connection
+        assert!(!client.is_connected());
+        // signed NIP-17 GiftWrap was created
+        assert_eq!(prepared.event.kind, Kind::GiftWrap);
+        // relays are sorted and deduplicated
+        assert_eq!(prepared.target_relays, vec![relay_a, relay_b],);
+        // recipient can decrypt the event
+        let recipient_nostr_keys = recipient_keys.get_nostr_keys();
+        let (decoded, sender, _, _) = unwrap_direct_message(&prepared.event, &recipient_nostr_keys)
+            .await
+            .expect("recipient must be able to decrypt the GiftWrap");
+        assert_eq!(decoded.event_type, envelope.event_type);
+        assert_eq!(decoded.version, envelope.version);
+        assert_eq!(decoded.data, envelope.data);
+        assert_eq!(sender, sender_keys.get_nostr_keys().public_key(),);
+    }
+
+    #[tokio::test]
+    async fn prepare_private_event_uses_pool_relays_as_fallback() {
+        let sender_keys = BcrKeys::new();
+        let recipient_keys = BcrKeys::new();
+        let sender_id = NodeId::new(sender_keys.pub_key(), bitcoin::Network::Testnet);
+        let recipient = BillParticipant::Anon(BillAnonParticipant {
+            node_id: NodeId::new(recipient_keys.pub_key(), bitcoin::Network::Testnet),
+            nostr_relays: vec![],
+        });
+        let relay = url::Url::parse("wss://relay.example.com").unwrap();
+        let client = NostrClient::new(
+            vec![(sender_id.clone(), sender_keys)],
+            vec![relay.clone()],
+            vec![],
+            Duration::from_secs(2),
+            None,
+            1,
+            None,
+        )
+        .await
+        .unwrap();
+        let envelope = EventEnvelope {
+            event_type: EventType::Bill,
+            version: "1.0".to_owned(),
+            data: vec![1, 2, 3],
+        };
+        let prepared = client
+            .prepare_private_event(&sender_id, &recipient, envelope)
+            .await
+            .unwrap();
+        assert_eq!(prepared.target_relays, vec![relay]);
+        assert!(!client.is_connected());
+    }
+
+    #[test]
+    fn recognize_explicit_duplicate_responses() {
+        assert!(is_duplicate_response("duplicate: already have this event"));
+        assert!(is_duplicate_response("  DUPLICATE: already stored"));
+        assert!(!is_duplicate_response("invalid: bad signature"));
+        assert!(!is_duplicate_response("rate-limited: slow down"));
+        assert!(!is_duplicate_response("error: relay unavailable"));
+    }
+
+    #[tokio::test]
+    async fn signed_event_can_be_sent_to_one_relay() {
+        let relay = get_mock_relay().await;
+        let relay_url = url::Url::parse(&relay.url().await.to_string()).unwrap();
+        let keys = BcrKeys::new();
+        let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
+        let client = NostrClient::new(
+            vec![(node_id, keys.clone())],
+            vec![relay_url.clone()],
+            vec![],
+            Duration::from_secs(5),
+            None,
+            1,
+            None,
+        )
+        .await
+        .unwrap();
+        client.connect().await.unwrap();
+        let event = EventBuilder::new(Kind::TextNote, "single-relay propagation test")
+            .finalize(&keys.get_nostr_keys())
+            .unwrap();
+        client
+            .send_signed_event_to_relay(&event, &relay_url)
+            .await
+            .unwrap();
+    }
 }
 
 /// Internal relay calculation function (pure function for testing)
@@ -2396,14 +2501,11 @@ mod relay_calculation_tests {
 
 #[cfg(test)]
 mod optimistic_broadcast_tests {
-    use super::super::test_utils::{MockNostrContactStore, get_mock_relay};
+    use super::super::test_utils::get_mock_relay;
     use super::{NostrClient, NostrConfig};
     use bcr_common::core::NodeId;
     use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
     use bcr_ebill_core::protocol::crypto::BcrKeys;
-    use nostr::event::{EventBuilder, FinalizeEvent};
-    use std::sync::Arc;
-    use std::time::Duration;
 
     #[tokio::test]
     async fn test_relay_ack_threshold_returns_configured_value() {
@@ -2423,107 +2525,5 @@ mod optimistic_broadcast_tests {
             .expect("failed to create nostr client");
 
         assert_eq!(client.relay_ack_threshold(), 3);
-    }
-
-    #[tokio::test]
-    async fn test_broadcast_event_optimistic_returns_after_ack() {
-        let relay = get_mock_relay().await;
-        let url = url::Url::parse(&relay.url().await.to_string()).unwrap();
-        let keys = BcrKeys::new();
-        let config = NostrConfig::new(
-            keys.clone(),
-            vec![url],
-            vec![],
-            true,
-            NodeId::new(keys.pub_key(), bitcoin::Network::Testnet),
-        );
-        let client = NostrClient::default(&config)
-            .await
-            .expect("failed to create nostr client");
-
-        client.connect().await.expect("failed to connect");
-
-        let event = EventBuilder::new(nostr::event::Kind::TextNote, "test optimistic broadcast")
-            .finalize(&keys.get_nostr_keys())
-            .unwrap();
-
-        let result = client.broadcast_event_optimistic(&event, 1).await;
-        assert!(
-            result.is_ok(),
-            "optimistic broadcast should return after first ack: {:?}",
-            result.err()
-        );
-    }
-
-    #[tokio::test]
-    async fn test_broadcast_event_optimistic_clamps_threshold_to_relay_count() {
-        let relay = get_mock_relay().await;
-        let url = url::Url::parse(&relay.url().await.to_string()).unwrap();
-        let keys = BcrKeys::new();
-        let config = NostrConfig::new(
-            keys.clone(),
-            vec![url],
-            vec![],
-            true,
-            NodeId::new(keys.pub_key(), bitcoin::Network::Testnet),
-        );
-        let client = NostrClient::default(&config)
-            .await
-            .expect("failed to create nostr client");
-
-        client.connect().await.expect("failed to connect");
-
-        let event = EventBuilder::new(nostr::event::Kind::TextNote, "test threshold clamping")
-            .finalize(&keys.get_nostr_keys())
-            .unwrap();
-
-        let result = client.broadcast_event_optimistic(&event, 5).await;
-        assert!(
-            result.is_ok(),
-            "optimistic broadcast should clamp threshold to relay count: {:?}",
-            result.err()
-        );
-    }
-
-    #[tokio::test]
-    #[ignore] // slow test - enable on-demand
-    async fn test_pre_threshold_relay_failure_is_queued_for_resync() {
-        let relay = get_mock_relay().await;
-        let real_url = url::Url::parse(&relay.url().await.to_string()).unwrap();
-        let unreachable_url = url::Url::parse("ws://127.0.0.1:1").unwrap();
-        let keys = BcrKeys::new();
-        let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
-
-        let mut mock_store = MockNostrContactStore::new();
-        let unreachable_url_for_assert = unreachable_url.clone();
-        mock_store
-            .expect_add_failed_relay_sync()
-            .withf(move |url, _event| url.as_str() == unreachable_url_for_assert.as_str())
-            .times(1..)
-            .returning(|_, _| Ok(()));
-
-        let client = NostrClient::new(
-            vec![(node_id, keys.clone())],
-            vec![real_url, unreachable_url],
-            vec![],
-            Duration::from_secs(2),
-            Some(10),
-            2,
-            Some(Arc::new(mock_store)),
-        )
-        .await
-        .expect("failed to create nostr client");
-
-        client.connect().await.expect("failed to connect");
-
-        let event = EventBuilder::new(nostr::event::Kind::TextNote, "pre-threshold failure")
-            .finalize(&keys.get_nostr_keys())
-            .unwrap();
-
-        let result = client.broadcast_event_optimistic(&event, 2).await;
-        assert!(
-            result.is_err(),
-            "threshold should not be met because one relay is unreachable"
-        );
     }
 }

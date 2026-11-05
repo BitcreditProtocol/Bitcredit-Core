@@ -1,7 +1,8 @@
 use crate::ffi::{
     context::Context,
     data::{
-        Base64FileResponse, BinaryFileResponse, PostalAddressFfi, UploadFile, UploadFileResponse,
+        Base64FileResponse, BinaryFileResponse, PostalAddressFfi, PropagationStatusFfi, UploadFile,
+        UploadFileResponse,
         company::{
             AcceptCompanyInvitePayload, ChangeSignatoryEmailPayload, CompaniesResponse,
             CompanyConfirmEmailPayload, CompanyFfi, CompanyKeysFfi, CompanyVerifyEmailPayload,
@@ -22,7 +23,7 @@ use bcr_ebill_api::service::{
     transport_service::ResyncMode,
 };
 use bcr_ebill_core::{
-    application::company::CompanySignatory,
+    application::{company::CompanySignatory, nostr::PropagationBlockInfo},
     protocol::{
         Address, City, Country, Date, Email, Identification, Name, PostalAddress,
         ProtocolValidationError, Timestamp, Zip,
@@ -472,4 +473,41 @@ async fn filter_hidden_signatories_for_companies(
             .await?;
     }
     Ok(())
+}
+
+#[frb]
+pub async fn propagation_status(id: &str) -> Result<Option<PropagationStatusFfi>, EbillFfiError> {
+    let company_id = NodeId::from_str(id).map_err(ProtocolValidationError::from)?;
+    let ctx = get_active_ctx().await?;
+    let status = ctx
+        .company_service
+        .get_latest_propagation_status(&company_id)
+        .await?;
+    let Some(status) = status else {
+        return Ok(None);
+    };
+    let mut last_block: Option<PropagationBlockInfo> = None;
+    for message in &status.messages {
+        if message.chain_id.as_deref() != Some(status.subject_id.as_str()) {
+            continue;
+        }
+        let Some(hash) = message.block_hash.as_ref() else {
+            continue;
+        };
+        if let Ok(Some(info)) = ctx
+            .company_service
+            .propagation_block_info(&company_id, hash)
+            .await
+        {
+            if last_block
+                .as_ref()
+                .is_none_or(|current| info.block_height > current.block_height)
+            {
+                last_block = Some(info);
+            }
+        }
+    }
+    let mut response: PropagationStatusFfi = status.into();
+    response.last_block = last_block.map(Into::into);
+    Ok(Some(response))
 }

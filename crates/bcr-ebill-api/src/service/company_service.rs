@@ -4,6 +4,7 @@ use crate::constants::{COMPANY_LOGO_FILE_FIELD, COMPANY_PROOF_OF_REGISTRATION_FI
 use crate::external::email::EmailClientApi;
 use crate::external::file_storage::FileStorageClientApi;
 use crate::service::Error;
+use crate::service::chain_propagation_helper::PreparedChainPropagation;
 use crate::service::file_reference_helper::{company_file_context, encrypt_upload_and_track_file};
 use crate::service::file_server_service::{
     configured_blossom_servers, download_file_with_fallback,
@@ -18,6 +19,7 @@ use bcr_ebill_core::application::company::{
 };
 use bcr_ebill_core::application::contact::Contact;
 use bcr_ebill_core::application::identity::ActiveIdentityState;
+use bcr_ebill_core::application::nostr::{PropagationBlockInfo, find_block_info};
 use bcr_ebill_core::application::{ServiceTraitBounds, ValidationError};
 use bcr_ebill_core::protocol::EditOptionalFieldMode;
 use bcr_ebill_core::protocol::Sha256Hash;
@@ -59,6 +61,7 @@ use bcr_ebill_persistence::traits::file_upload::FileUploadStoreApi;
 use bcr_ebill_persistence::traits::identity::{IdentityChainStoreApi, IdentityStoreApi};
 use bcr_ebill_persistence::traits::nostr::NostrContactStoreApi;
 use bcr_ebill_persistence::traits::notification::EmailNotificationStoreApi;
+use bcr_ebill_persistence::traits::propagation::{PropagationStatus, PropagationSubjectType};
 use bcr_ebill_persistence::traits::transaction::TransactionManagerApi;
 use bitcoin::base58;
 use log::{debug, error, info};
@@ -197,6 +200,13 @@ pub trait CompanyServiceApi: ServiceTraitBounds {
         company_id: &NodeId,
         signatories: &mut Vec<CompanySignatory>,
     ) -> Result<()>;
+    async fn get_latest_propagation_status(&self, id: &NodeId)
+    -> Result<Option<PropagationStatus>>;
+    async fn propagation_block_info(
+        &self,
+        company_id: &NodeId,
+        block_hash: &Sha256Hash,
+    ) -> Result<Option<PropagationBlockInfo>>;
 }
 
 #[derive(Debug, Clone)]
@@ -318,26 +328,6 @@ impl CompanyService {
         .await
     }
 
-    async fn populate_block(
-        &self,
-        company: &Company,
-        chain: &CompanyBlockchain,
-        keys: &BcrKeys,
-        new_signatory: Option<NodeId>,
-    ) -> Result<()> {
-        self.transport_service
-            .block_transport()
-            .send_company_chain_events(CompanyChainEvent::new(
-                &company.id,
-                chain,
-                keys,
-                new_signatory,
-                true,
-            ))
-            .await?;
-        Ok(())
-    }
-
     async fn on_company_contact_change(&self, company: &Company, keys: &BcrKeys) -> Result<()> {
         debug!("Company change");
         self.publish_contact(company, keys).await
@@ -393,6 +383,50 @@ impl CompanyService {
                 needs_persisting: true,
             })
         }
+    }
+
+    async fn prepare_company_propagation(
+        &self,
+        company_id: &NodeId,
+        identity_events: &[IdentityChainEvent],
+        company_events: &[CompanyChainEvent],
+        expected_invites: usize,
+    ) -> Result<PreparedChainPropagation> {
+        self.transport_service.ensure_publish_ready().await?;
+        let block_transport = self.transport_service.block_transport();
+        let identity_chain_events = block_transport
+            .prepare_identity_chain_events(identity_events)
+            .await?;
+        let company_chain_events = block_transport
+            .prepare_company_chain_events(company_events)
+            .await?;
+        if identity_chain_events.len() != identity_events.len()
+            || company_chain_events.len() != company_events.len()
+        {
+            return Err(Error::Internal(
+                "Not all company operation chain events were prepared".into(),
+            ));
+        }
+        let mut invites = Vec::new();
+        for event in company_events {
+            invites.extend(block_transport.prepare_company_chain_invites(event).await?);
+        }
+        if invites.len() != expected_invites {
+            return Err(Error::Internal(format!(
+                "Expected {expected_invites} company chain invites, prepared {}",
+                invites.len()
+            )));
+        }
+        let relays = self.transport_service.writable_relay_urls().await?;
+        let mut chain_events = identity_chain_events;
+        chain_events.extend(company_chain_events);
+        PreparedChainPropagation::new(
+            PropagationSubjectType::Company,
+            company_id.to_string(),
+            chain_events,
+            invites,
+            relays,
+        )
     }
 }
 
@@ -706,6 +740,25 @@ impl CompanyServiceApi for CompanyService {
             &Some(reference_block),
         )?;
 
+        let identity_events = [IdentityChainEvent::new(
+            &full_identity.identity.node_id,
+            &identity_block,
+            &full_identity.key_pair,
+        )];
+        let company_events = [
+            CompanyChainEvent::new(
+                &id,
+                &company_chain_after_create, // use chain snapshot after create for the event
+                &company_keys,
+                None,
+                true,
+            ),
+            CompanyChainEvent::new(&id, &company_chain, &company_keys, None, true),
+        ];
+        let prepared = self
+            .prepare_company_propagation(&id, &identity_events, &company_events, 0)
+            .await?;
+
         // persist atomically
 
         let mut tx = self.transaction_mgr.begin().await?;
@@ -732,31 +785,22 @@ impl CompanyServiceApi for CompanyService {
                 .await?;
         }
 
+        prepared.enqueue(&mut *tx).await?;
+
         tx.commit().await?;
 
         // effects & propagation
 
-        // populate create block
-        self.populate_block(&company, &company_chain_after_create, &company_keys, None)
-            .await?;
+        prepared
+            .attempt_after_commit(&*self.transport_service)
+            .await;
 
-        // populate identity block
-        self.transport_service
-            .block_transport()
-            .send_identity_chain_events(IdentityChainEvent::new(
-                &full_identity.identity.node_id,
-                &identity_block,
-                &full_identity.key_pair,
-            ))
-            .await?;
-
-        // populate identity proof block
-        self.populate_block(&company, &company_chain, &company_keys, None)
-            .await?;
-
-        // publish our company contact to nostr
-        self.on_company_contact_change(&company, &company_keys)
-            .await?;
+        if let Err(e) = self
+            .on_company_contact_change(&company, &company_keys)
+            .await
+        {
+            error!("Company {id} created, but contact publishing failed: {e}");
+        }
 
         // add to contacts without files if it's not there already, but don't fail
         if let Ok(None) = self.contact_store.get(&id).await
@@ -1005,6 +1049,17 @@ impl CompanyServiceApi for CompanyService {
         .map_err(|e| Error::Protocol(e.into()))?;
         validate_and_append_block(&mut company_chain, new_block.clone())?;
 
+        let company_events = [CompanyChainEvent::new(
+            id,
+            &company_chain,
+            &company_keys,
+            None,
+            true,
+        )];
+        let prepared = self
+            .prepare_company_propagation(id, &[], &company_events, 0)
+            .await?;
+
         // persist atomically
         let mut tx = self.transaction_mgr.begin().await?;
 
@@ -1017,16 +1072,23 @@ impl CompanyServiceApi for CompanyService {
 
         tx.update_company(id, &company).await?;
 
+        prepared.enqueue(&mut *tx).await?;
+
         tx.commit().await?;
 
         // effects & propagation
 
-        self.populate_block(&company, &company_chain, &company_keys, None)
-            .await?;
+        prepared
+            .attempt_after_commit(&*self.transport_service)
+            .await;
 
         // publish our company contact to nostr
-        self.on_company_contact_change(&company, &company_keys)
-            .await?;
+        if let Err(e) = self
+            .on_company_contact_change(&company, &company_keys)
+            .await
+        {
+            error!("Company {id} updated, but contact publishing failed: {e}");
+        }
 
         debug!("company with id {id} updated");
 
@@ -1172,6 +1234,27 @@ impl CompanyServiceApi for CompanyService {
         .map_err(|e| Error::Protocol(e.into()))?;
         validate_and_append_identity_block(&mut identity_chain, new_identity_block.clone())?;
 
+        let identity_events = [IdentityChainEvent::new(
+            &full_identity.identity.node_id,
+            &new_identity_block,
+            &full_identity.key_pair,
+        )];
+        let company_events = [CompanyChainEvent::new(
+            id,
+            &company_chain,
+            &company_keys,
+            Some(signatory_node_id.clone()),
+            true,
+        )];
+        let prepared = self
+            .prepare_company_propagation(
+                id,
+                &identity_events,
+                &company_events,
+                1, // one chain invite
+            )
+            .await?;
+
         // persist atomically
 
         let mut tx = self.transaction_mgr.begin().await?;
@@ -1193,26 +1276,15 @@ impl CompanyServiceApi for CompanyService {
 
         tx.update_company(id, &company).await?;
 
+        prepared.enqueue(&mut *tx).await?;
+
         tx.commit().await?;
 
         // effects & propagation
 
-        self.populate_block(
-            &company,
-            &company_chain,
-            &company_keys,
-            Some(signatory_node_id.clone()),
-        )
-        .await?;
-
-        self.transport_service
-            .block_transport()
-            .send_identity_chain_events(IdentityChainEvent::new(
-                &full_identity.identity.node_id,
-                &new_identity_block,
-                &full_identity.key_pair,
-            ))
-            .await?;
+        prepared
+            .attempt_after_commit(&*self.transport_service)
+            .await;
 
         debug!(
             "added signatory {} to company with id: {id}",
@@ -1325,6 +1397,22 @@ impl CompanyServiceApi for CompanyService {
         .map_err(|e| Error::Protocol(e.into()))?;
         validate_and_append_identity_block(&mut identity_chain, new_identity_block.clone())?;
 
+        let identity_events = [IdentityChainEvent::new(
+            &full_identity.identity.node_id,
+            &new_identity_block,
+            &full_identity.key_pair,
+        )];
+        let company_events = [CompanyChainEvent::new(
+            id,
+            &company_chain,
+            &company_keys,
+            None,
+            true,
+        )];
+        let prepared = self
+            .prepare_company_propagation(id, &identity_events, &company_events, 0)
+            .await?;
+
         // persist atomically
 
         let mut tx = self.transaction_mgr.begin().await?;
@@ -1346,20 +1434,14 @@ impl CompanyServiceApi for CompanyService {
 
         tx.update_company(id, &company).await?;
 
+        prepared.enqueue(&mut *tx).await?;
+
         tx.commit().await?;
 
         // effects & propagation
-        self.populate_block(&company, &company_chain, &company_keys, None)
-            .await?;
-
-        self.transport_service
-            .block_transport()
-            .send_identity_chain_events(IdentityChainEvent::new(
-                &full_identity.identity.node_id,
-                &new_identity_block,
-                &full_identity.key_pair,
-            ))
-            .await?;
+        prepared
+            .attempt_after_commit(&*self.transport_service)
+            .await;
 
         if full_identity.identity.node_id == signatory_node_id {
             info!("Removed self from company {id} - deleting company chain");
@@ -1568,7 +1650,17 @@ impl CompanyServiceApi for CompanyService {
             &mut company_chain,
             &None, // no reference block, just updating signatory email
         )?;
-        self.transport_service.ensure_publish_ready().await?;
+
+        let company_events = [CompanyChainEvent::new(
+            id,
+            &company_chain,
+            &company_keys,
+            None,
+            true,
+        )];
+        let prepared = self
+            .prepare_company_propagation(id, &[], &company_events, 0)
+            .await?;
 
         // persist atomically
 
@@ -1587,12 +1679,15 @@ impl CompanyServiceApi for CompanyService {
             tx.set_company_email_confirmation(id, &proof, &data).await?;
         }
 
+        prepared.enqueue(&mut *tx).await?;
+
         tx.commit().await?;
 
         // effects & propagation
 
-        self.populate_block(&company, &company_chain, &company_keys, None)
-            .await?;
+        prepared
+            .attempt_after_commit(&*self.transport_service)
+            .await;
 
         debug!("updated signatory email");
         Ok(())
@@ -1808,6 +1903,24 @@ impl CompanyServiceApi for CompanyService {
             &Some(reference_block),
         )?;
 
+        // Ensure the company identity is registered with the transport layer before
+        // creating and broadcasting chain events, in case it was lost (e.g. after restart).
+        self.transport_service
+            .add_identity(id, &company_keys)
+            .await?;
+        let identity_events = [IdentityChainEvent::new(
+            &our_node_id,
+            &new_identity_block,
+            &full_identity.key_pair,
+        )];
+        let company_events = [
+            CompanyChainEvent::new(id, &company_chain_after_accept, &company_keys, None, true),
+            CompanyChainEvent::new(id, &company_chain, &company_keys, None, true),
+        ];
+        let prepared = self
+            .prepare_company_propagation(id, &identity_events, &company_events, 0)
+            .await?;
+
         // persist atomically
         let mut tx = self.transaction_mgr.begin().await?;
 
@@ -1832,15 +1945,11 @@ impl CompanyServiceApi for CompanyService {
             tx.set_company_email_confirmation(id, &proof, &data).await?;
         }
 
+        prepared.enqueue(&mut *tx).await?;
+
         tx.commit().await?;
 
         // effects & propagation
-
-        // Ensure the company identity is registered with the transport layer before
-        // broadcasting chain events, in case it was lost (e.g. after restart).
-        self.transport_service
-            .add_identity(id, &company_keys)
-            .await?;
 
         // Ensure all company signatories and the company itself are in our nostr contacts
         // so that we can receive and decrypt messages from them.
@@ -1857,23 +1966,9 @@ impl CompanyServiceApi for CompanyService {
             .ensure_nostr_contact(id)
             .await;
 
-        // populate accept block
-        self.populate_block(&company, &company_chain_after_accept, &company_keys, None)
-            .await?;
-
-        // populate identity block
-        self.transport_service
-            .block_transport()
-            .send_identity_chain_events(IdentityChainEvent::new(
-                &our_node_id,
-                &new_identity_block,
-                &full_identity.key_pair,
-            ))
-            .await?;
-
-        // populate identity proof block
-        self.populate_block(&company, &company_chain, &company_keys, None)
-            .await?;
+        prepared
+            .attempt_after_commit(&*self.transport_service)
+            .await;
 
         // Process any historical bill invites that were sent to this company
         // before we joined, so we can construct those bills in our store.
@@ -1982,6 +2077,25 @@ impl CompanyServiceApi for CompanyService {
         .map_err(|e| Error::Protocol(e.into()))?;
         validate_and_append_identity_block(&mut identity_chain, new_identity_block.clone())?;
 
+        self.transport_service
+            .add_identity(id, &company_keys)
+            .await?;
+        let identity_events = [IdentityChainEvent::new(
+            &our_node_id,
+            &new_identity_block,
+            &full_identity.key_pair,
+        )];
+        let company_events = [CompanyChainEvent::new(
+            id,
+            &company_chain,
+            &company_keys,
+            None,
+            true,
+        )];
+        let prepared = self
+            .prepare_company_propagation(id, &identity_events, &company_events, 0)
+            .await?;
+
         // persist atomically
 
         let mut tx = self.transaction_mgr.begin().await?;
@@ -2003,20 +2117,14 @@ impl CompanyServiceApi for CompanyService {
 
         tx.update_company(id, &company).await?;
 
+        prepared.enqueue(&mut *tx).await?;
+
         tx.commit().await?;
 
         // effects & propagation
-        self.populate_block(&company, &company_chain, &company_keys, None)
-            .await?;
-
-        self.transport_service
-            .block_transport()
-            .send_identity_chain_events(IdentityChainEvent::new(
-                &our_node_id,
-                &new_identity_block,
-                &full_identity.key_pair,
-            ))
-            .await?;
+        prepared
+            .attempt_after_commit(&*self.transport_service)
+            .await;
 
         debug!("rejected invite to company with id: {id}");
         Ok(())
@@ -2086,6 +2194,30 @@ impl CompanyServiceApi for CompanyService {
         });
         Ok(())
     }
+
+    async fn get_latest_propagation_status(
+        &self,
+        id: &NodeId,
+    ) -> Result<Option<PropagationStatus>> {
+        validate_node_id_network(id, self.config.bitcoin_network())?;
+        if !self.store.exists(id).await {
+            return Err(Error::NotFound);
+        }
+        Ok(self
+            .transport_service
+            .get_latest_propagation(PropagationSubjectType::Company, &id.to_string())
+            .await?)
+    }
+
+    async fn propagation_block_info(
+        &self,
+        company_id: &NodeId,
+        block_hash: &Sha256Hash,
+    ) -> Result<Option<PropagationBlockInfo>> {
+        validate_node_id_network(company_id, self.config.bitcoin_network())?;
+        let chain = self.company_blockchain_store.get_chain(company_id).await?;
+        Ok(find_block_info(&chain, block_hash))
+    }
 }
 
 fn validate_and_append_identity_block(
@@ -2139,6 +2271,9 @@ fn prepare_identity_proof_block(
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use crate::service::chain_propagation_helper::test_utils::{
+        InviteBehavior, expect_company_preparation,
+    };
     use crate::{
         external::{email::MockEmailClientApi, file_storage::MockFileStorageClientApi},
         service::{
@@ -2157,6 +2292,7 @@ pub mod tests {
         },
         util::get_uuid_v4,
     };
+    use bcr_ebill_core::protocol::event::EventType;
     use bcr_ebill_core::{
         application::{company::LocalSignatoryOverride, identity::IdentityWithAll},
         protocol::{
@@ -2165,6 +2301,7 @@ pub mod tests {
             file_reference::FileReference,
         },
     };
+    use bcr_ebill_persistence::traits::propagation::PropagationSubjectType;
     use bcr_ebill_persistence::traits::transaction::PersistenceTransactionApi;
     use bitcoin::hashes::sha256::Hash as Sha256HexHash;
     use mockall::predicate::eq;
@@ -2179,7 +2316,66 @@ pub mod tests {
         tx.expect_update_company().returning(|_, _| Ok(()));
         tx.expect_set_company_email_confirmation()
             .returning(|_, _, _| Ok(()));
+        tx.expect_add_chain_event().times(1..).returning(|_| Ok(()));
+        tx.expect_enqueue_propagation()
+            .withf(|p| {
+                p.subject_type == PropagationSubjectType::Company
+                    && !p.subject_id.is_empty()
+                    && p.messages
+                        .iter()
+                        .any(|m| m.event_type == EventType::CompanyChain)
+                    && p.validate().is_ok()
+            })
+            .once()
+            .returning(|_| Ok(()));
         tx.expect_commit().return_once(|| Ok(()));
+        Box::new(tx)
+    }
+
+    fn successful_company_transaction_with_counts(
+        identity_count: usize,
+        company_count: usize,
+        invite_count: usize,
+    ) -> Box<dyn PersistenceTransactionApi> {
+        let mut tx = MockPersistenceTransactionApiMock::new();
+        tx.expect_append_identity_blocks()
+            .times(usize::from(identity_count > 0))
+            .withf(move |_, blocks| blocks.len() == identity_count)
+            .returning(|_, _| Ok(()));
+        tx.expect_append_company_blocks()
+            .once()
+            .withf(move |_, _, blocks| blocks.len() == company_count)
+            .returning(|_, _, _| Ok(()));
+        tx.expect_insert_company()
+            .times(0..=1)
+            .returning(|_| Ok(()));
+        tx.expect_update_company()
+            .times(0..=1)
+            .returning(|_, _| Ok(()));
+        tx.expect_set_company_email_confirmation()
+            .times(0..=1)
+            .returning(|_, _, _| Ok(()));
+        tx.expect_add_chain_event()
+            .times(identity_count + company_count)
+            .returning(|_| Ok(()));
+        tx.expect_enqueue_propagation()
+            .withf(move |p| {
+                let count = |event_type: EventType| {
+                    p.messages
+                        .iter()
+                        .filter(|m| m.event_type == event_type)
+                        .count()
+                };
+
+                p.subject_type == PropagationSubjectType::Company
+                    && count(EventType::IdentityChain) == identity_count
+                    && count(EventType::CompanyChain) == company_count
+                    && count(EventType::CompanyChainInvite) == invite_count
+                    && p.validate().is_ok()
+            })
+            .once()
+            .returning(|_| Ok(()));
+        tx.expect_commit().once().return_once(|| Ok(()));
         Box::new(tx)
     }
 
@@ -2188,6 +2384,22 @@ pub mod tests {
         manager
             .expect_begin()
             .returning(|| Ok(successful_company_transaction()));
+        manager
+    }
+
+    fn successful_company_transaction_manager_with_counts(
+        identity_count: usize,
+        company_count: usize,
+        invite_count: usize,
+    ) -> MockTransactionManagerApiMock {
+        let mut manager = MockTransactionManagerApiMock::new();
+        manager.expect_begin().once().return_once(move || {
+            Ok(successful_company_transaction_with_counts(
+                identity_count,
+                company_count,
+                invite_count,
+            ))
+        });
         manager
     }
 
@@ -2228,6 +2440,10 @@ pub mod tests {
         transport_service
             .expect_ensure_publish_ready()
             .returning(|| Ok(()));
+        transport_service
+            .expect_attempt_propagation()
+            .times(0..)
+            .returning(|_, _| Ok(()));
         CompanyService::new(
             Arc::new(mock_storage),
             Arc::new(mock_file_upload_storage),
@@ -2816,18 +3032,11 @@ pub mod tests {
             .expect_add_identity()
             .returning(|_, _| Ok(()))
             .times(1);
-        transport.expect_on_block_transport(|t| {
-            t.expect_send_company_chain_events()
-                .returning(|_| Ok(()))
-                .times(2);
-            t.expect_send_identity_chain_events()
-                .returning(|_| Ok(()))
-                .times(1);
-        });
         transport.expect_on_contact_transport(|c| {
             c.expect_publish_contact().returning(|_, _| Ok(()));
             c.expect_ensure_nostr_contact().returning(|_| ());
         });
+        expect_company_preparation(&mut transport, 1, 2, InviteBehavior::Prepare);
         let service = get_service(
             storage,
             file_upload_store,
@@ -2841,7 +3050,7 @@ pub mod tests {
             transport,
             email_client,
             email_notification_store,
-            successful_transaction_manager(),
+            successful_company_transaction_manager_with_counts(1, 2, 0),
         );
         let res = service
             .create_company(
@@ -2873,7 +3082,7 @@ pub mod tests {
             contact_store,
             mut identity_chain_store,
             company_chain_store,
-            mut notification,
+            mut transport,
             nostr_contact_store,
             email_client,
             email_notification_store,
@@ -2897,10 +3106,11 @@ pub mod tests {
                 key_pair: BcrKeys::from_private_key(&private_key_test_another()),
             })
         });
-        notification
+        transport
             .expect_add_identity()
             .returning(|_, _| Ok(()))
             .times(1);
+        expect_company_preparation(&mut transport, 1, 2, InviteBehavior::Prepare);
         let service = get_service(
             storage,
             file_upload_store,
@@ -2911,7 +3121,7 @@ pub mod tests {
             nostr_contact_store,
             identity_chain_store,
             company_chain_store,
-            notification,
+            transport,
             email_client,
             email_notification_store,
             failing_company_transaction_manager(),
@@ -3016,16 +3226,11 @@ pub mod tests {
             .returning(|_| Ok(get_valid_company_chain()))
             .once();
 
-        transport.expect_on_block_transport(|t| {
-            t.expect_send_company_chain_events()
-                .returning(|_| Ok(()))
-                .once();
-        });
-
         transport.expect_on_contact_transport(|t| {
             t.expect_publish_contact().returning(|_, _| Ok(())).once();
             t.expect_ensure_nostr_contact().returning(|_| ()).once();
         });
+        expect_company_preparation(&mut transport, 0, 1, InviteBehavior::Prepare);
 
         storage.expect_get().returning(move |_| {
             let data = get_baseline_company_data().1.0;
@@ -3094,7 +3299,7 @@ pub mod tests {
             transport,
             email_client,
             email_notification_store,
-            successful_transaction_manager(),
+            successful_company_transaction_manager_with_counts(0, 1, 0),
         );
         let res = service
             .edit_company(
@@ -3201,7 +3406,7 @@ pub mod tests {
             contact_store,
             identity_chain_store,
             mut company_chain_store,
-            notification,
+            mut transport,
             nostr_contact_store,
             email_client,
             email_notification_store,
@@ -3225,6 +3430,7 @@ pub mod tests {
                 key_pair: BcrKeys::from_private_key(&private_key_test_another()),
             })
         });
+        expect_company_preparation(&mut transport, 0, 1, InviteBehavior::Prepare);
         let service = get_service(
             storage,
             file_upload_store,
@@ -3235,7 +3441,7 @@ pub mod tests {
             nostr_contact_store,
             identity_chain_store,
             company_chain_store,
-            notification,
+            transport,
             email_client,
             email_notification_store,
             failing_company_transaction_manager(),
@@ -3285,16 +3491,6 @@ pub mod tests {
             .expect_get_chain()
             .returning(|_| Ok(add_invite_signatory_block(get_valid_company_chain())))
             .once();
-        transport.expect_on_block_transport(|t| {
-            // sends company block
-            t.expect_send_company_chain_events()
-                .returning(|_| Ok(()))
-                .once();
-            // sends identity block
-            t.expect_send_identity_chain_events()
-                .returning(|_| Ok(()))
-                .once();
-        });
         let caller_keys = BcrKeys::from_private_key(&private_key_test_another());
         let caller_keys_clone = caller_keys.clone();
         let caller_node_id = NodeId::new(caller_keys.pub_key(), bitcoin::Network::Testnet);
@@ -3320,6 +3516,11 @@ pub mod tests {
         identity_chain_store
             .expect_get_chain()
             .returning(|| Ok(get_valid_identity_chain()));
+        expect_company_preparation(&mut transport, 1, 1, InviteBehavior::Prepare);
+        transport
+            .expect_add_identity()
+            .once()
+            .returning(|_, _| Ok(()));
 
         let service = get_service(
             storage,
@@ -3372,14 +3573,6 @@ pub mod tests {
             .expect_get_chain()
             .returning(|_| Ok(add_invite_signatory_block(get_valid_company_chain())))
             .once();
-        transport.expect_on_block_transport(|t| {
-            t.expect_send_company_chain_events()
-                .returning(|_| Ok(()))
-                .times(2);
-            t.expect_send_identity_chain_events()
-                .returning(|_| Ok(()))
-                .once();
-        });
         let caller_keys = BcrKeys::from_private_key(&private_key_test_another());
         let caller_keys_clone = caller_keys.clone();
         let caller_node_id = NodeId::new(caller_keys.pub_key(), bitcoin::Network::Testnet);
@@ -3416,6 +3609,7 @@ pub mod tests {
             .expect_process_company_historical_bill_invites()
             .returning(|_| Ok(()))
             .times(1);
+        expect_company_preparation(&mut transport, 1, 2, InviteBehavior::Prepare);
 
         let service = get_service(
             storage,
@@ -3430,7 +3624,7 @@ pub mod tests {
             transport,
             email_client,
             email_notification_store,
-            successful_transaction_manager(),
+            successful_company_transaction_manager_with_counts(1, 2, 0),
         );
         let res = service
             .accept_company_invite(
@@ -3467,16 +3661,6 @@ pub mod tests {
             .expect_get_chain()
             .returning(|_| Ok(get_valid_company_chain()))
             .once();
-        transport.expect_on_block_transport(|t| {
-            // sends company block
-            t.expect_send_company_chain_events()
-                .returning(|_| Ok(()))
-                .once();
-            // sends identity block
-            t.expect_send_identity_chain_events()
-                .returning(|_| Ok(()))
-                .once();
-        });
         let signatory_node_id_clone = signatory_node_id.clone();
         contact_store.expect_get_map().returning(move || {
             let mut map = HashMap::new();
@@ -3504,6 +3688,7 @@ pub mod tests {
         identity_chain_store
             .expect_get_chain()
             .returning(|| Ok(get_valid_identity_chain()));
+        expect_company_preparation(&mut transport, 1, 1, InviteBehavior::Prepare);
 
         let service = get_service(
             storage,
@@ -3518,12 +3703,89 @@ pub mod tests {
             transport,
             email_client,
             email_notification_store,
-            successful_transaction_manager(),
+            successful_company_transaction_manager_with_counts(1, 1, 1),
         );
         let res = service
             .invite_signatory(&node_id_test(), signatory_node_id, test_ts())
             .await;
         assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn invite_signatory_without_prepared_invite_does_not_commit() {
+        let (
+            mut storage,
+            file_upload_store,
+            file_upload_client,
+            file_reference_store,
+            mut identity_store,
+            mut contact_store,
+            mut identity_chain_store,
+            mut company_chain_store,
+            mut transport,
+            nostr_contact_store,
+            email_client,
+            email_notification_store,
+        ) = get_storages();
+        let signatory_node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
+        storage.expect_exists().returning(|_| true);
+        storage
+            .expect_get_key_pair()
+            .returning(|_| Ok(get_baseline_company_data().1.1));
+        company_chain_store
+            .expect_get_chain()
+            .returning(|_| Ok(get_valid_company_chain()))
+            .once();
+        let signatory_node_id_clone = signatory_node_id.clone();
+        contact_store.expect_get_map().returning(move || {
+            let mut map = HashMap::new();
+            let mut contact = get_baseline_contact();
+            contact.node_id = signatory_node_id_clone.clone();
+            map.insert(signatory_node_id_clone.clone(), contact);
+            Ok(map)
+        });
+        let caller_keys = BcrKeys::from_private_key(&private_key_test_another());
+        let caller_keys_clone = caller_keys.clone();
+        storage
+            .expect_get_key_pair()
+            .returning(|_| Ok(get_baseline_company_data().1.1));
+        storage.expect_get().returning(move |_| {
+            let data = get_baseline_company_data().1.0;
+            Ok(data)
+        });
+        identity_store.expect_get_full().returning(move || {
+            let identity = empty_other_identity();
+            Ok(IdentityWithAll {
+                identity,
+                key_pair: caller_keys_clone.clone(),
+            })
+        });
+        identity_chain_store
+            .expect_get_chain()
+            .returning(|| Ok(get_valid_identity_chain()));
+        expect_company_preparation(&mut transport, 1, 1, InviteBehavior::Missing);
+        let mut tx_manager = MockTransactionManagerApiMock::new();
+        tx_manager.expect_begin().never();
+
+        let service = get_service(
+            storage,
+            file_upload_store,
+            file_upload_client,
+            file_reference_store,
+            identity_store,
+            contact_store,
+            nostr_contact_store,
+            identity_chain_store,
+            company_chain_store,
+            transport,
+            email_client,
+            email_notification_store,
+            tx_manager,
+        );
+        let res = service
+            .invite_signatory(&node_id_test(), signatory_node_id, test_ts())
+            .await;
+        assert!(res.is_err());
     }
 
     #[tokio::test]
@@ -3775,7 +4037,7 @@ pub mod tests {
             mut contact_store,
             mut identity_chain_store,
             mut company_chain_store,
-            notification,
+            mut transport,
             nostr_contact_store,
             email_client,
             email_notification_store,
@@ -3812,6 +4074,7 @@ pub mod tests {
         storage
             .expect_get_key_pair()
             .returning(|_| Ok(get_baseline_company_data().1.1));
+        expect_company_preparation(&mut transport, 1, 1, InviteBehavior::Prepare);
         let service = get_service(
             storage,
             file_upload_store,
@@ -3822,7 +4085,7 @@ pub mod tests {
             nostr_contact_store,
             identity_chain_store,
             company_chain_store,
-            notification,
+            transport,
             email_client,
             email_notification_store,
             failing_company_transaction_manager(),
@@ -3871,20 +4134,11 @@ pub mod tests {
             .expect_get_chain()
             .returning(|| Ok(get_valid_identity_chain()));
 
-        transport.expect_on_block_transport(|t| {
-            // sends identity block
-            t.expect_send_identity_chain_events()
-                .returning(|_| Ok(()))
-                .once();
-            // sends company block
-            t.expect_send_company_chain_events()
-                .returning(|_| Ok(()))
-                .once();
-        });
         company_chain_store
             .expect_get_chain()
             .returning(|_| Ok(add_other_invite_signatory_block(get_valid_company_chain())))
             .once();
+        expect_company_preparation(&mut transport, 1, 1, InviteBehavior::Prepare);
 
         let service = get_service(
             storage,
@@ -3977,16 +4231,6 @@ pub mod tests {
                 )))
             })
             .once();
-        transport.expect_on_block_transport(|t| {
-            // sends company block
-            t.expect_send_company_chain_events()
-                .returning(|_| Ok(()))
-                .once();
-            // sends identity block
-            t.expect_send_identity_chain_events()
-                .returning(|_| Ok(()))
-                .once();
-        });
         company_chain_store.expect_remove().returning(|_| Ok(()));
         storage.expect_exists().returning(|_| true);
         storage.expect_get().returning(move |_| {
@@ -4017,6 +4261,7 @@ pub mod tests {
         identity_chain_store
             .expect_get_chain()
             .returning(|| Ok(get_valid_identity_chain()));
+        expect_company_preparation(&mut transport, 1, 1, InviteBehavior::Prepare);
         let service = get_service(
             storage,
             file_upload_store,
@@ -4177,15 +4422,6 @@ pub mod tests {
             .returning(|_| Ok(add_other_invite_signatory_block(get_valid_company_chain())))
             .once();
 
-        transport.expect_on_block_transport(|t| {
-            t.expect_send_company_chain_events()
-                .returning(|_| Ok(()))
-                .once();
-            t.expect_send_identity_chain_events()
-                .returning(|_| Ok(()))
-                .once();
-        });
-
         identity_chain_store
             .expect_get_chain()
             .returning(|| Ok(get_valid_identity_chain()));
@@ -4213,6 +4449,7 @@ pub mod tests {
                 key_pair: BcrKeys::from_private_key(&private_key_test_another()),
             })
         });
+        expect_company_preparation(&mut transport, 1, 1, InviteBehavior::Prepare);
 
         let service = get_service(
             storage,
@@ -4247,7 +4484,7 @@ pub mod tests {
             contact_store,
             mut identity_chain_store,
             mut company_chain_store,
-            notification,
+            mut transport,
             nostr_contact_store,
             email_client,
             email_notification_store,
@@ -4276,6 +4513,7 @@ pub mod tests {
             .expect_get_chain()
             .returning(|_| Ok(add_other_invite_signatory_block(get_valid_company_chain())))
             .once();
+        expect_company_preparation(&mut transport, 1, 1, InviteBehavior::Prepare);
         let service = get_service(
             storage,
             file_upload_store,
@@ -4286,7 +4524,7 @@ pub mod tests {
             nostr_contact_store,
             identity_chain_store,
             company_chain_store,
-            notification,
+            transport,
             email_client,
             email_notification_store,
             failing_company_transaction_manager(),

@@ -96,7 +96,6 @@ class _HarnessPageState extends State<HarnessPage> {
 
   final _notificationNodeIds = TextEditingController();
   final _notificationId = TextEditingController();
-  final _resendQueueId = TextEditingController();
 
   Iterable<TextEditingController> get _controllers => [
         _currency,
@@ -140,7 +139,6 @@ class _HarnessPageState extends State<HarnessPage> {
         _btcFee,
         _notificationNodeIds,
         _notificationId,
-        _resendQueueId,
       ];
 
   @override
@@ -238,7 +236,7 @@ class _HarnessPageState extends State<HarnessPage> {
         _billActionSection(),
         _billDevMintBtcSection(),
         _notificationSection(),
-        _resendQueueSection(),
+        _propagationSection(),
       ],
     );
   }
@@ -1216,16 +1214,37 @@ class _HarnessPageState extends State<HarnessPage> {
     ]);
   }
 
-  Widget _resendQueueSection() {
-    return _section('Resend queue', [
-      _button('Fetch resend queue', () async => general_api.fetchResendQueueEntries()),
-      _field('Failed resend queue entry ID', _resendQueueId, width: 520),
-      _button('Requeue failed entry', () async {
-        await general_api.requeueFailedResendQueueEntry(
-          pl: data.RequeueFailedResendMessagePayload(id: _required(_resendQueueId, 'Resend queue ID')),
+  Widget _propagationSection() {
+    return _section('Nostr propagation', [
+      _button('Bill propagation status', () async {
+        return bill_api.propagationStatus(
+          id: _required(_billId, 'Bill ID'),
         );
-        return 'OK';
       }),
+
+      _button('Company propagation status', () async {
+        return company_api.propagationStatus(
+          id: _required(_companyId, 'Company ID'),
+        );
+      }),
+
+      _button('Identity propagation status', () async {
+        return identity_api.propagationStatus();
+      }),
+
+      _button('Retry all pending now', () async {
+        await general_api.retryPendingPropagationsNow();
+
+        return 'Retry requested. Refresh propagation '
+            'status to see new relay acknowledgments.';
+      }),
+
+      _note(
+        'Propagation statuses are persisted in a queue.'
+        'An acknowledged relay has a non-null acceptedAt.'
+        'Pending deliveries are retried automatically, '
+        'or immediately on request.',
+      ),
     ]);
   }
 

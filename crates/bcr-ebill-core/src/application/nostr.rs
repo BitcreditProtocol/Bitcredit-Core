@@ -1,23 +1,25 @@
-use bcr_common::core::NodeId;
+use crate::protocol::{
+    Sha256Hash,
+    blockchain::{Block, Blockchain},
+};
 
-/// Represents a resend queue entry fetched from the DB
-/// block_height and block_op_code are set for events of chain block types
-/// recipient is only set for private messages
-#[derive(Debug, Clone)]
-pub struct ResendQueueEntry {
-    pub id: String,
-    pub sender_id: NodeId,
-    pub event_type: String,
-    pub status: ResendQueueEntryStatus,
-    pub recipient: Option<NodeId>,
-    pub block_height: Option<usize>,
-    pub block_op_code: Option<String>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PropagationBlockInfo {
+    pub block_height: u64,
+    pub block_type: String,
 }
 
-/// Fetched Resend Queue entries can either be pending being sent, or failed to have been sent
-/// since there is no point in showing, or re-queuing re-sent events
-#[derive(Debug, Clone)]
-pub enum ResendQueueEntryStatus {
-    Pending,
-    Failed,
+pub fn find_block_info<C>(chain: &C, block_hash: &Sha256Hash) -> Option<PropagationBlockInfo>
+where
+    C: Blockchain,
+    <C::Block as Block>::OpCode: std::fmt::Debug,
+{
+    chain
+        .blocks()
+        .iter()
+        .find(|block| block.hash() == block_hash)
+        .map(|block| PropagationBlockInfo {
+            block_height: block.id().inner(),
+            block_type: format!("{:?}", block.op_code()),
+        })
 }

@@ -11,8 +11,8 @@ use bcr_ebill_persistence::{
         file_upload::FileUploadStoreApi,
         identity::{IdentityChainStoreApi, IdentityStoreApi},
         mint::MintStoreApi,
-        nostr::NostrQueuedMessageStoreApi,
         notification::EmailNotificationStoreApi,
+        propagation::NostrPropagationStoreApi,
         transaction::TransactionManagerApi,
     },
 };
@@ -150,11 +150,11 @@ pub struct DbContext {
     pub nostr_event_offset_store: Arc<dyn NostrEventOffsetStoreApi>,
     pub notification_store: Arc<dyn NotificationStoreApi>,
     pub email_notification_store: Arc<dyn EmailNotificationStoreApi>,
-    pub queued_message_store: Arc<dyn NostrQueuedMessageStoreApi>,
     pub nostr_contact_store: Arc<dyn NostrContactStoreApi>,
     pub mint_store: Arc<dyn MintStoreApi>,
     pub nostr_chain_event_store: Arc<dyn NostrChainEventStoreApi>,
     pub transaction_mgr: Arc<dyn TransactionManagerApi>,
+    pub nostr_propagation_store: Arc<dyn NostrPropagationStoreApi>,
 }
 
 /// Creates a new instance of the DbContext with the given configuration
@@ -224,10 +224,6 @@ pub async fn get_db_context(
         Arc::new(database.mint_store(encryption_context.clone()));
 
     #[cfg(any(feature = "sqlite", feature = "postgres"))]
-    let queued_message_store: Arc<dyn NostrQueuedMessageStoreApi> =
-        Arc::new(database.nostr_event_queue_store(encryption_context.clone()));
-
-    #[cfg(any(feature = "sqlite", feature = "postgres"))]
     let nostr_contact_store: Arc<dyn NostrContactStoreApi> =
         Arc::new(database.nostr_contact_store(encryption_context.clone()));
 
@@ -238,6 +234,10 @@ pub async fn get_db_context(
     #[cfg(any(feature = "sqlite", feature = "postgres"))]
     let file_reference_store: Arc<dyn FileReferenceStoreApi> =
         Arc::new(database.file_reference_store());
+
+    #[cfg(any(feature = "sqlite", feature = "postgres"))]
+    let nostr_propagation_store: Arc<dyn NostrPropagationStoreApi> =
+        Arc::new(database.nostr_propagation_store(encryption_context.clone()));
 
     Ok(DbContext {
         contact_store,
@@ -252,10 +252,10 @@ pub async fn get_db_context(
         nostr_event_offset_store,
         notification_store,
         email_notification_store,
-        queued_message_store,
         nostr_contact_store,
         mint_store,
         nostr_chain_event_store,
         transaction_mgr,
+        nostr_propagation_store,
     })
 }

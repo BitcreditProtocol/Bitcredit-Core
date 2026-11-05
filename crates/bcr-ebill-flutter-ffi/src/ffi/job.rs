@@ -15,7 +15,6 @@ use tokio_util::sync::CancellationToken;
 
 const BILL_PAYMENT_CHECK_INTERVAL_SECS: u64 = 60;
 const BILL_TIMEOUT_CHECK_INTERVAL_SECS: u64 = 60;
-const NOSTR_MESSAGE_QUEUE_INTERVAL_SECS: u64 = 60;
 const RELAY_RETRY_SYNC_INTERVAL_SECS: u64 = 120;
 const MINT_STATE_CHECK_INTERVAL_SECS: u64 = 300;
 const RELAY_SYNC_INTERVAL_SECS: u64 = 300;
@@ -157,11 +156,6 @@ fn create_jobs() -> Vec<Job> {
             BILL_PAYMENT_CHECK_INTERVAL_SECS,
             |ctx| Box::pin(run_check_bill_recourse_payment_job(ctx)),
         ),
-        Job::new(
-            "Process Nostr Message Queue Job",
-            NOSTR_MESSAGE_QUEUE_INTERVAL_SECS,
-            |ctx| Box::pin(run_process_nostr_message_queue_job(ctx)),
-        ),
         Job::new("Relay Sync Job", RELAY_SYNC_INTERVAL_SECS, |ctx| {
             Box::pin(run_relay_sync_job(ctx))
         }),
@@ -228,17 +222,6 @@ async fn run_check_bill_timeouts(ctx: Arc<Context>) -> bool {
     if let Err(e) = ctx.bill_service.check_bills_timeouts(current_time).await {
         error!(
             "[{}] Error while running Check Bill Timeouts Job: {e}",
-            ctx.cfg.bitcoin_network
-        );
-    }
-
-    true
-}
-
-async fn run_process_nostr_message_queue_job(ctx: Arc<Context>) -> bool {
-    if let Err(e) = ctx.transport_service.send_retry_messages().await {
-        error!(
-            "[{}] Error while running Process Nostr Message Queue Job: {e}",
             ctx.cfg.bitcoin_network
         );
     }

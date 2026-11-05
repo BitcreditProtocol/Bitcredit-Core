@@ -1,4 +1,5 @@
 pub mod bill_service;
+pub(crate) mod chain_propagation_helper;
 pub mod company_service;
 pub mod contact_service;
 pub mod file_reference_helper;
@@ -51,6 +52,10 @@ pub enum Error {
 
     #[error("Json error: {0}")]
     Json(#[from] serde_json::Error),
+
+    /// errors stemming from internal errors
+    #[error("internal error")]
+    Internal(String),
 }
 
 impl From<ProtocolValidationError> for Error {

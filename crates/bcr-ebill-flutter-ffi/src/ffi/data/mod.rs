@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
 use bcr_ebill_api::service::file_upload_service::{
@@ -8,6 +6,7 @@ use bcr_ebill_api::service::file_upload_service::{
 use bcr_ebill_core::{
     application::{
         GeneralSearchFilterItemType, GeneralSearchResult, UploadFileResult, ValidationError,
+        nostr::PropagationBlockInfo,
     },
     protocol::{
         Address, City, Country, Date, EditOptionalFieldMode, File, Name, OptionalPostalAddress,
@@ -15,8 +14,10 @@ use bcr_ebill_core::{
     },
 };
 use bcr_ebill_persistence::traits::notification::NotificationFilter;
+use bcr_ebill_persistence::traits::propagation::PropagationStatus;
 use bitcoin::hashes::sha256::Hash as Sha256HexHash;
 use flutter_rust_bridge::frb;
+use std::str::FromStr;
 
 use crate::ffi::data::{bill::LightBitcreditBillFfi, company::CompanyFfi, contact::ContactFfi};
 
@@ -420,55 +421,86 @@ impl EditOptionalFieldModeFfi {
 }
 
 #[derive(Debug, Clone)]
-pub struct RequeueFailedResendMessagePayload {
-    pub id: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct ResendQueueEntry {
-    pub id: String,
-    pub sender_id: String,
-    pub event_type: String,
-    pub status: ResendQueueEntryStatus,
-    pub recipient: Option<String>,
-    pub block_height: Option<usize>,
-    pub block_op_code: Option<String>,
-}
-
-impl From<bcr_ebill_core::application::nostr::ResendQueueEntry> for ResendQueueEntry {
-    fn from(value: bcr_ebill_core::application::nostr::ResendQueueEntry) -> Self {
-        ResendQueueEntry {
-            id: value.id,
-            sender_id: value.sender_id.to_string(),
-            event_type: value.event_type,
-            status: value.status.into(),
-            recipient: value.recipient.map(|r| r.to_string()),
-            block_height: value.block_height,
-            block_op_code: value.block_op_code,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum ResendQueueEntryStatus {
-    Pending,
-    Failed,
-}
-
-impl From<bcr_ebill_core::application::nostr::ResendQueueEntryStatus> for ResendQueueEntryStatus {
-    fn from(value: bcr_ebill_core::application::nostr::ResendQueueEntryStatus) -> Self {
-        match value {
-            bcr_ebill_core::application::nostr::ResendQueueEntryStatus::Pending => {
-                ResendQueueEntryStatus::Pending
-            }
-            bcr_ebill_core::application::nostr::ResendQueueEntryStatus::Failed => {
-                ResendQueueEntryStatus::Failed
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
 pub struct MnemonicResponse {
     pub mnemonic: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct PropagationStatusFfi {
+    pub id: String,
+    pub subject_type: String,
+    pub subject_id: String,
+    pub created_at: u64,
+    pub messages: Vec<PropagationMessageFfi>,
+    pub last_block: Option<PropagationBlockInfoFfi>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PropagationMessageFfi {
+    pub id: String,
+    pub event_type: String,
+    pub recipient_id: Option<String>,
+    pub chain_id: Option<String>,
+    pub block_hash: Option<String>,
+    pub nostr_event_id: String,
+    pub relays: Vec<PropagationRelayFfi>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PropagationRelayFfi {
+    pub relay_url: String,
+    pub accepted_at: Option<u64>,
+    pub attempts: u32,
+    pub next_try_at: u64,
+    pub last_error: Option<String>,
+}
+
+impl From<PropagationStatus> for PropagationStatusFfi {
+    fn from(status: PropagationStatus) -> Self {
+        Self {
+            id: status.id,
+            subject_type: format!("{:?}", status.subject_type),
+            subject_id: status.subject_id,
+            created_at: status.created_at.inner(),
+            messages: status
+                .messages
+                .into_iter()
+                .map(|message| PropagationMessageFfi {
+                    id: message.id,
+                    event_type: message.event_type.to_string(),
+                    recipient_id: message.recipient_id.map(|id| id.to_string()),
+                    chain_id: message.chain_id,
+                    block_hash: message.block_hash.map(|hash| hash.to_string()),
+                    nostr_event_id: message.nostr_event_id,
+                    relays: message
+                        .relays
+                        .into_iter()
+                        .map(|relay| PropagationRelayFfi {
+                            relay_url: relay.relay_url.to_string(),
+                            accepted_at: relay.accepted_at.map(|t| t.inner()),
+                            attempts: relay.attempts,
+                            next_try_at: relay.next_try_at.inner(),
+                            last_error: relay.last_error,
+                        })
+                        .collect(),
+                })
+                .collect(),
+            last_block: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PropagationBlockInfoFfi {
+    pub block_height: u64,
+    pub block_type: String,
+}
+
+impl From<PropagationBlockInfo> for PropagationBlockInfoFfi {
+    fn from(value: PropagationBlockInfo) -> Self {
+        Self {
+            block_height: value.block_height,
+            block_type: value.block_type,
+        }
+    }
 }

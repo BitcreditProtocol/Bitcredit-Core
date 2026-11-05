@@ -14,7 +14,7 @@ import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
 part 'data.freezed.dart';
 
 // These functions are ignored because they have generic arguments: `try_map`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `detect_content_type`, `eq`, `extension`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `get_contents`, `len`, `name`, `try_from`, `try_from`, `try_from`, `try_from`, `try_from`, `try_from`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `detect_content_type`, `eq`, `extension`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `get_contents`, `len`, `name`, `try_from`, `try_from`, `try_from`, `try_from`, `try_from`, `try_from`
 // These functions are ignored (category: IgnoreBecauseExplicitAttribute): `parse_deadline_string`
 
 class BalanceResponse {
@@ -510,66 +510,143 @@ class PostalAddressFfi {
           address == other.address;
 }
 
-class RequeueFailedResendMessagePayload {
-  final String id;
+class PropagationBlockInfoFfi {
+  final BigInt blockHeight;
+  final String blockType;
 
-  const RequeueFailedResendMessagePayload({required this.id});
+  const PropagationBlockInfoFfi({
+    required this.blockHeight,
+    required this.blockType,
+  });
 
   @override
-  int get hashCode => id.hashCode;
+  int get hashCode => blockHeight.hashCode ^ blockType.hashCode;
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is RequeueFailedResendMessagePayload &&
+      other is PropagationBlockInfoFfi &&
           runtimeType == other.runtimeType &&
-          id == other.id;
+          blockHeight == other.blockHeight &&
+          blockType == other.blockType;
 }
 
-class ResendQueueEntry {
+class PropagationMessageFfi {
   final String id;
-  final String senderId;
   final String eventType;
-  final ResendQueueEntryStatus status;
-  final String? recipient;
-  final BigInt? blockHeight;
-  final String? blockOpCode;
+  final String? recipientId;
+  final String? chainId;
+  final String? blockHash;
+  final String nostrEventId;
+  final List<PropagationRelayFfi> relays;
 
-  const ResendQueueEntry({
+  const PropagationMessageFfi({
     required this.id,
-    required this.senderId,
     required this.eventType,
-    required this.status,
-    this.recipient,
-    this.blockHeight,
-    this.blockOpCode,
+    this.recipientId,
+    this.chainId,
+    this.blockHash,
+    required this.nostrEventId,
+    required this.relays,
   });
 
   @override
   int get hashCode =>
       id.hashCode ^
-      senderId.hashCode ^
       eventType.hashCode ^
-      status.hashCode ^
-      recipient.hashCode ^
-      blockHeight.hashCode ^
-      blockOpCode.hashCode;
+      recipientId.hashCode ^
+      chainId.hashCode ^
+      blockHash.hashCode ^
+      nostrEventId.hashCode ^
+      relays.hashCode;
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is ResendQueueEntry &&
+      other is PropagationMessageFfi &&
           runtimeType == other.runtimeType &&
           id == other.id &&
-          senderId == other.senderId &&
           eventType == other.eventType &&
-          status == other.status &&
-          recipient == other.recipient &&
-          blockHeight == other.blockHeight &&
-          blockOpCode == other.blockOpCode;
+          recipientId == other.recipientId &&
+          chainId == other.chainId &&
+          blockHash == other.blockHash &&
+          nostrEventId == other.nostrEventId &&
+          relays == other.relays;
 }
 
-enum ResendQueueEntryStatus { pending, failed }
+class PropagationRelayFfi {
+  final String relayUrl;
+  final BigInt? acceptedAt;
+  final int attempts;
+  final BigInt nextTryAt;
+  final String? lastError;
+
+  const PropagationRelayFfi({
+    required this.relayUrl,
+    this.acceptedAt,
+    required this.attempts,
+    required this.nextTryAt,
+    this.lastError,
+  });
+
+  @override
+  int get hashCode =>
+      relayUrl.hashCode ^
+      acceptedAt.hashCode ^
+      attempts.hashCode ^
+      nextTryAt.hashCode ^
+      lastError.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PropagationRelayFfi &&
+          runtimeType == other.runtimeType &&
+          relayUrl == other.relayUrl &&
+          acceptedAt == other.acceptedAt &&
+          attempts == other.attempts &&
+          nextTryAt == other.nextTryAt &&
+          lastError == other.lastError;
+}
+
+class PropagationStatusFfi {
+  final String id;
+  final String subjectType;
+  final String subjectId;
+  final BigInt createdAt;
+  final List<PropagationMessageFfi> messages;
+  final PropagationBlockInfoFfi? lastBlock;
+
+  const PropagationStatusFfi({
+    required this.id,
+    required this.subjectType,
+    required this.subjectId,
+    required this.createdAt,
+    required this.messages,
+    this.lastBlock,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      subjectType.hashCode ^
+      subjectId.hashCode ^
+      createdAt.hashCode ^
+      messages.hashCode ^
+      lastBlock.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PropagationStatusFfi &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          subjectType == other.subjectType &&
+          subjectId == other.subjectId &&
+          createdAt == other.createdAt &&
+          messages == other.messages &&
+          lastBlock == other.lastBlock;
+}
 
 class StatusResponse {
   /// Name of the currently configured Bitcoin network (e.g. `mainnet`, `testnet`).

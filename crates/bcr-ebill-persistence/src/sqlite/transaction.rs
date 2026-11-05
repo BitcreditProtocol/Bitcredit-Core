@@ -15,12 +15,15 @@ use crate::{
         },
         identity_chain::{IdentityBlockRow, validate_expected_identity_tip},
         nostr_chain_event::NostrChainEventRow,
+        nostr_propagation::{INSERT_MESSAGE, INSERT_PROPAGATION, INSERT_RELAY},
     },
     traits::{
         nostr::NostrChainEvent,
+        propagation::PreparedPropagation,
         transaction::{
             BillTransactionApi, CompanyTransactionApi, IdentityTransactionApi,
-            NostrChainEventTransactionApi, PersistenceTransactionApi, TransactionManagerApi,
+            NostrChainEventTransactionApi, NostrPropagationTransactionApi,
+            PersistenceTransactionApi, TransactionManagerApi,
         },
     },
 };
@@ -537,6 +540,44 @@ impl NostrChainEventTransactionApi for SqlitePersistenceTransaction {
     }
 }
 
+#[async_trait]
+impl NostrPropagationTransactionApi for SqlitePersistenceTransaction {
+    async fn enqueue_propagation(&mut self, propagation: &PreparedPropagation) -> Result<()> {
+        propagation.validate()?;
+        let created_at = crate::sql::timestamp_to_db(propagation.created_at)?;
+        sqlx::query(INSERT_PROPAGATION)
+            .bind(&propagation.id)
+            .bind(propagation.subject_type.as_str())
+            .bind(&propagation.subject_id)
+            .bind(created_at)
+            .execute(&mut *self.tx)
+            .await?;
+        for message in &propagation.messages {
+            let payload = serde_json::to_vec(&message.event)?;
+            let encrypted_payload = self.encryption_ctx.encrypt(&payload)?;
+            sqlx::query(INSERT_MESSAGE)
+                .bind(&message.id)
+                .bind(&propagation.id)
+                .bind(message.event_type.to_string())
+                .bind(message.recipient_id.as_ref().map(ToString::to_string))
+                .bind(message.chain_id.as_deref())
+                .bind(message.block_hash.as_ref().map(ToString::to_string))
+                .bind(message.event.id.to_string())
+                .bind(encrypted_payload)
+                .execute(&mut *self.tx)
+                .await?;
+            for relay in &message.target_relays {
+                sqlx::query(INSERT_RELAY)
+                    .bind(&message.id)
+                    .bind(relay.as_str())
+                    .execute(&mut *self.tx)
+                    .await?;
+            }
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::SqliteTransactionManager;
@@ -569,6 +610,10 @@ mod tests {
             },
             nostr_transaction::{test_nostr_transaction_commit, test_nostr_transaction_rollback},
         },
+    };
+    use crate::{
+        tests::propagation_transaction::sample_propagation,
+        traits::transaction::TransactionManagerApi,
     };
     use bcr_ebill_core::protocol::crypto::BcrKeys;
     use sqlx::SqlitePool;
@@ -749,5 +794,55 @@ mod tests {
         let manager = SqliteTransactionManager::new(pool.clone(), encryption_ctx);
         let store = SqliteNostrChainEventStore::new(pool);
         test_nostr_transaction_rollback(&manager, &store).await;
+    }
+
+    #[sqlx::test(migrations = "migrations/sqlite")]
+    async fn propagation_enqueue_is_atomic(pool: SqlitePool) {
+        let encryption_ctx = Arc::new(EncryptionContext::new(BcrKeys::new()));
+        let manager = SqliteTransactionManager::new(pool.clone(), encryption_ctx.clone());
+        let propagation = sample_propagation();
+        let message = &propagation.messages[0];
+
+        // commit
+        let mut tx = manager.begin().await.unwrap();
+        tx.enqueue_propagation(&propagation).await.unwrap();
+        tx.commit().await.unwrap();
+
+        let encrypted_payload: Vec<u8> =
+            sqlx::query_scalar("SELECT payload FROM nostr_propagation_messages WHERE id = $1")
+                .bind(&message.id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+
+        let original_payload = serde_json::to_vec(&message.event).unwrap();
+        assert_ne!(encrypted_payload, original_payload);
+        assert_eq!(
+            encryption_ctx.decrypt(&encrypted_payload).unwrap(),
+            original_payload
+        );
+
+        let relay_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM nostr_propagation_relays WHERE message_id = $1",
+        )
+        .bind(&message.id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(relay_count, 2);
+
+        // rollback
+        let rollback = sample_propagation();
+        let mut tx = manager.begin().await.unwrap();
+        tx.enqueue_propagation(&rollback).await.unwrap();
+        drop(tx);
+
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM nostr_propagations WHERE id = $1")
+                .bind(&rollback.id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(count, 0);
     }
 }

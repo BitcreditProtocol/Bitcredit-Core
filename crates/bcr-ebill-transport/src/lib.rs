@@ -33,6 +33,7 @@ pub mod handler;
 mod nostr;
 mod nostr_transport;
 mod notification_transport;
+pub mod propagation;
 pub mod push_notification;
 pub mod relay_sync;
 #[cfg(test)]
@@ -43,6 +44,7 @@ pub mod transport_service;
 pub use async_broadcast::Receiver;
 pub use handler::RestoreAccountService;
 pub use nostr::{NostrClient, NostrConsumer};
+pub use propagation::NostrPropagationService;
 pub use push_notification::{PushApi, PushService};
 pub use transport::bcr_nostr_tag;
 
@@ -135,6 +137,12 @@ pub async fn create_transport_service(
 ) -> Result<Arc<dyn TransportServiceApi>> {
     let transport = client.clone();
 
+    let propagation_service = Arc::new(NostrPropagationService::new(
+        db_context.nostr_propagation_store.clone(),
+        transport.clone(),
+        config.bitcoin_network(),
+    ));
+
     let nostr_contact_processor = Arc::new(NostrContactProcessor::new(
         transport.clone(),
         db_context.nostr_contact_store.clone(),
@@ -197,7 +205,6 @@ pub async fn create_transport_service(
         client,
         db_context.contact_store,
         db_context.nostr_contact_store.clone(),
-        db_context.queued_message_store.clone(),
         db_context.nostr_chain_event_store.clone(),
         nostr_relays,
         config.clone(),
@@ -233,6 +240,7 @@ pub async fn create_transport_service(
         contact_transport,
         block_transport,
         bill_invite_handler,
+        propagation_service,
     )))
 }
 

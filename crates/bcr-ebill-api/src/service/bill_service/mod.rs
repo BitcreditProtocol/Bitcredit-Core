@@ -7,10 +7,12 @@ use bcr_ebill_core::application::bill::{
     SweepEstimate, SweepResult,
 };
 use bcr_ebill_core::application::identity::{Identity, IdentityWithAll};
+use bcr_ebill_core::application::nostr::PropagationBlockInfo;
 use bcr_ebill_core::protocol::BitcoinAddress;
 use bcr_ebill_core::protocol::Currency;
 use bcr_ebill_core::protocol::File;
 use bcr_ebill_core::protocol::SecretKey;
+use bcr_ebill_core::protocol::Sha256Hash;
 use bcr_ebill_core::protocol::Sum;
 use bcr_ebill_core::protocol::Timestamp;
 use bcr_ebill_core::protocol::blockchain::bill::chain::BillBlockPlaintextWrapper;
@@ -21,6 +23,7 @@ use bcr_ebill_core::protocol::blockchain::bill::{
 };
 use bcr_ebill_core::protocol::crypto::BcrKeys;
 use bcr_ebill_core::protocol::mint::MintRequestState;
+use bcr_ebill_persistence::traits::propagation::PropagationStatus;
 
 use uuid::Uuid;
 
@@ -301,4 +304,13 @@ pub trait BillServiceApi: ServiceTraitBounds {
         &self,
         bill_id: &BillId,
     ) -> Result<AddressDerivationMetadataForPaymentRequest>;
+    async fn get_latest_propagation_status(
+        &self,
+        bill_id: &BillId,
+    ) -> Result<Option<PropagationStatus>>;
+    async fn propagation_block_info(
+        &self,
+        bill_id: &BillId,
+        block_hash: &Sha256Hash,
+    ) -> Result<Option<PropagationBlockInfo>>;
 }

@@ -21,7 +21,7 @@ pub mod mint;
 pub mod nostr_chain_event;
 pub mod nostr_contact_store;
 pub mod nostr_event_offset;
-pub mod nostr_send_queue;
+pub mod nostr_propagation;
 pub mod notification;
 
 pub(crate) fn decode_file(

@@ -473,6 +473,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PostalAddressFfi dco_decode_box_autoadd_postal_address_ffi(dynamic raw);
 
   @protected
+  PropagationBlockInfoFfi dco_decode_box_autoadd_propagation_block_info_ffi(
+    dynamic raw,
+  );
+
+  @protected
+  PropagationStatusFfi dco_decode_box_autoadd_propagation_status_ffi(
+    dynamic raw,
+  );
+
+  @protected
   RejectActionBillPayload dco_decode_box_autoadd_reject_action_bill_payload(
     dynamic raw,
   );
@@ -507,10 +517,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   RequestToPayBitcreditBillPayload
   dco_decode_box_autoadd_request_to_pay_bitcredit_bill_payload(dynamic raw);
-
-  @protected
-  RequeueFailedResendMessagePayload
-  dco_decode_box_autoadd_requeue_failed_resend_message_payload(dynamic raw);
 
   @protected
   ResyncBillPayload dco_decode_box_autoadd_resync_bill_payload(dynamic raw);
@@ -838,7 +844,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
   @protected
-  List<ResendQueueEntry> dco_decode_list_resend_queue_entry(dynamic raw);
+  List<PropagationMessageFfi> dco_decode_list_propagation_message_ffi(
+    dynamic raw,
+  );
+
+  @protected
+  List<PropagationRelayFfi> dco_decode_list_propagation_relay_ffi(dynamic raw);
 
   @protected
   ListSignatoriesResponse dco_decode_list_signatories_response(dynamic raw);
@@ -961,6 +972,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PostalAddressFfi? dco_decode_opt_box_autoadd_postal_address_ffi(dynamic raw);
 
   @protected
+  PropagationBlockInfoFfi?
+  dco_decode_opt_box_autoadd_propagation_block_info_ffi(dynamic raw);
+
+  @protected
+  PropagationStatusFfi? dco_decode_opt_box_autoadd_propagation_status_ffi(
+    dynamic raw,
+  );
+
+  @protected
   SwitchIdentityTypeFfi? dco_decode_opt_box_autoadd_switch_identity_type_ffi(
     dynamic raw,
   );
@@ -1035,6 +1055,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PostalAddressFfi dco_decode_postal_address_ffi(dynamic raw);
 
   @protected
+  PropagationBlockInfoFfi dco_decode_propagation_block_info_ffi(dynamic raw);
+
+  @protected
+  PropagationMessageFfi dco_decode_propagation_message_ffi(dynamic raw);
+
+  @protected
+  PropagationRelayFfi dco_decode_propagation_relay_ffi(dynamic raw);
+
+  @protected
+  PropagationStatusFfi dco_decode_propagation_status_ffi(dynamic raw);
+
+  @protected
   RejectActionBillPayload dco_decode_reject_action_bill_payload(dynamic raw);
 
   @protected
@@ -1063,16 +1095,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   RequestToPayBitcreditBillPayload
   dco_decode_request_to_pay_bitcredit_bill_payload(dynamic raw);
-
-  @protected
-  RequeueFailedResendMessagePayload
-  dco_decode_requeue_failed_resend_message_payload(dynamic raw);
-
-  @protected
-  ResendQueueEntry dco_decode_resend_queue_entry(dynamic raw);
-
-  @protected
-  ResendQueueEntryStatus dco_decode_resend_queue_entry_status(dynamic raw);
 
   @protected
   ResyncBillPayload dco_decode_resync_bill_payload(dynamic raw);
@@ -1686,6 +1708,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  PropagationBlockInfoFfi sse_decode_box_autoadd_propagation_block_info_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  PropagationStatusFfi sse_decode_box_autoadd_propagation_status_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   RejectActionBillPayload sse_decode_box_autoadd_reject_action_bill_payload(
     SseDeserializer deserializer,
   );
@@ -1728,12 +1760,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   RequestToPayBitcreditBillPayload
   sse_decode_box_autoadd_request_to_pay_bitcredit_bill_payload(
-    SseDeserializer deserializer,
-  );
-
-  @protected
-  RequeueFailedResendMessagePayload
-  sse_decode_box_autoadd_requeue_failed_resend_message_payload(
     SseDeserializer deserializer,
   );
 
@@ -2137,7 +2163,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
-  List<ResendQueueEntry> sse_decode_list_resend_queue_entry(
+  List<PropagationMessageFfi> sse_decode_list_propagation_message_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<PropagationRelayFfi> sse_decode_list_propagation_relay_ffi(
     SseDeserializer deserializer,
   );
 
@@ -2302,6 +2333,17 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  PropagationBlockInfoFfi?
+  sse_decode_opt_box_autoadd_propagation_block_info_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  PropagationStatusFfi? sse_decode_opt_box_autoadd_propagation_status_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   SwitchIdentityTypeFfi? sse_decode_opt_box_autoadd_switch_identity_type_ffi(
     SseDeserializer deserializer,
   );
@@ -2390,6 +2432,26 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PostalAddressFfi sse_decode_postal_address_ffi(SseDeserializer deserializer);
 
   @protected
+  PropagationBlockInfoFfi sse_decode_propagation_block_info_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  PropagationMessageFfi sse_decode_propagation_message_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  PropagationRelayFfi sse_decode_propagation_relay_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  PropagationStatusFfi sse_decode_propagation_status_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   RejectActionBillPayload sse_decode_reject_action_bill_payload(
     SseDeserializer deserializer,
   );
@@ -2430,20 +2492,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   RequestToPayBitcreditBillPayload
   sse_decode_request_to_pay_bitcredit_bill_payload(
-    SseDeserializer deserializer,
-  );
-
-  @protected
-  RequeueFailedResendMessagePayload
-  sse_decode_requeue_failed_resend_message_payload(
-    SseDeserializer deserializer,
-  );
-
-  @protected
-  ResendQueueEntry sse_decode_resend_queue_entry(SseDeserializer deserializer);
-
-  @protected
-  ResendQueueEntryStatus sse_decode_resend_queue_entry_status(
     SseDeserializer deserializer,
   );
 
@@ -3179,6 +3227,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_box_autoadd_propagation_block_info_ffi(
+    PropagationBlockInfoFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_propagation_status_ffi(
+    PropagationStatusFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_reject_action_bill_payload(
     RejectActionBillPayload self,
     SseSerializer serializer,
@@ -3223,12 +3283,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_box_autoadd_request_to_pay_bitcredit_bill_payload(
     RequestToPayBitcreditBillPayload self,
-    SseSerializer serializer,
-  );
-
-  @protected
-  void sse_encode_box_autoadd_requeue_failed_resend_message_payload(
-    RequeueFailedResendMessagePayload self,
     SseSerializer serializer,
   );
 
@@ -3734,8 +3788,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
-  void sse_encode_list_resend_queue_entry(
-    List<ResendQueueEntry> self,
+  void sse_encode_list_propagation_message_ffi(
+    List<PropagationMessageFfi> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_propagation_relay_ffi(
+    List<PropagationRelayFfi> self,
     SseSerializer serializer,
   );
 
@@ -3941,6 +4001,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_opt_box_autoadd_propagation_block_info_ffi(
+    PropagationBlockInfoFfi? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_propagation_status_ffi(
+    PropagationStatusFfi? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_box_autoadd_switch_identity_type_ffi(
     SwitchIdentityTypeFfi? self,
     SseSerializer serializer,
@@ -4055,6 +4127,30 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_propagation_block_info_ffi(
+    PropagationBlockInfoFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_propagation_message_ffi(
+    PropagationMessageFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_propagation_relay_ffi(
+    PropagationRelayFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_propagation_status_ffi(
+    PropagationStatusFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_reject_action_bill_payload(
     RejectActionBillPayload self,
     SseSerializer serializer,
@@ -4099,24 +4195,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_request_to_pay_bitcredit_bill_payload(
     RequestToPayBitcreditBillPayload self,
-    SseSerializer serializer,
-  );
-
-  @protected
-  void sse_encode_requeue_failed_resend_message_payload(
-    RequeueFailedResendMessagePayload self,
-    SseSerializer serializer,
-  );
-
-  @protected
-  void sse_encode_resend_queue_entry(
-    ResendQueueEntry self,
-    SseSerializer serializer,
-  );
-
-  @protected
-  void sse_encode_resend_queue_entry_status(
-    ResendQueueEntryStatus self,
     SseSerializer serializer,
   );
 

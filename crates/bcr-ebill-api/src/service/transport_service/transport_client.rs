@@ -16,9 +16,27 @@ use super::{NostrContactData, Result};
 #[cfg(test)]
 impl ServiceTraitBounds for MockTransportClientApi {}
 
+#[derive(Debug, Clone)]
+pub struct PreparedPrivateNostrEvent {
+    /// signed NIP-17 GiftWrap event
+    pub event: Event,
+    /// snapshot of the relays this event should be sent to
+    pub target_relays: Vec<url::Url>,
+}
+
 #[cfg_attr(test, automock)]
 #[async_trait]
 pub trait TransportClientApi: ServiceTraitBounds {
+    /// publish a signed Nostr event to one relay
+    /// succeeds only if the relay ack's the event, or already has it
+    async fn send_signed_event_to_relay(&self, event: &Event, relay: &url::Url) -> Result<()>;
+    /// prepares a signed NIP-17 event without publishing it
+    async fn prepare_private_event(
+        &self,
+        sender_node_id: &NodeId,
+        recipient: &BillParticipant,
+        event: EventEnvelope,
+    ) -> Result<PreparedPrivateNostrEvent>;
     /// Sends a private json event to the given recipient.
     async fn send_private_event(
         &self,
@@ -38,12 +56,6 @@ pub trait TransportClientApi: ServiceTraitBounds {
         previous_event: Option<Event>,
         root_event: Option<Event>,
     ) -> Result<Event>;
-    /// Broadcasts a pre-signed event to all configured relays.
-    async fn broadcast_event(&self, event: &Event) -> Result<()>;
-    /// Broadcasts a pre-signed event to all configured relays, returning as soon as
-    /// `min_acks` relays have acknowledged it. Remaining relays continue publishing
-    /// in the background.
-    async fn broadcast_event_optimistic(&self, event: &Event, min_acks: usize) -> Result<()>;
     /// Returns the configured minimum number of relay acknowledgements required for
     /// an optimistic broadcast to return early.
     fn relay_ack_threshold(&self) -> usize;
@@ -128,4 +140,7 @@ pub trait TransportClientApi: ServiceTraitBounds {
         file_hash: &str,
         nostr_hash: &str,
     ) -> Result<Vec<Event>>;
+
+    /// Return writable relay urls
+    async fn writable_relay_urls(&self) -> Result<Vec<url::Url>>;
 }

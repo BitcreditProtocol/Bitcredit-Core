@@ -4,7 +4,7 @@ use crate::ffi::{
         BalanceResponse, BinaryFileResponse, BtcAddressAndSumPayload, BtcAddressPayload,
         CurrenciesResponse, CurrencyResponse, GeneralSearchFilterPayload, GeneralSearchResponse,
         LinkToPayResponse, MempoolLinkResponse, MnemonicResponse, OverviewBalanceResponse,
-        OverviewResponse, RequeueFailedResendMessagePayload, ResendQueueEntry, StatusResponse,
+        OverviewResponse, StatusResponse,
     },
     error::{EbillFfiError, EbillFfiErrorCode, EbillFfiErrorKind},
     get_active_ctx, get_active_instance_snapshot,
@@ -32,7 +32,12 @@ pub async fn get_status() -> Result<StatusResponse, EbillFfiError> {
         app_version: VERSION.to_owned(),
         bitcoin_network: instance.ctx.cfg.bitcoin_network.clone(),
         connected: instance.state.is_transport_connected()
-            && instance.ctx.nostr_client.has_connected_relays().await,
+            && instance
+                .ctx
+                .transport_service
+                .ensure_publish_ready()
+                .await
+                .is_ok(),
     })
 }
 
@@ -156,29 +161,6 @@ pub async fn mempool_link(pl: BtcAddressPayload) -> Result<MempoolLinkResponse, 
 }
 
 #[frb]
-pub async fn fetch_resend_queue_entries() -> Result<Vec<ResendQueueEntry>, EbillFfiError> {
-    let ctx = get_active_ctx().await?;
-    let result = ctx
-        .transport_service
-        .block_transport()
-        .fetch_resend_queue_entries()
-        .await?;
-    Ok(result.into_iter().map(|e| e.into()).collect())
-}
-
-#[frb]
-pub async fn requeue_failed_resend_queue_entry(
-    pl: RequeueFailedResendMessagePayload,
-) -> Result<(), EbillFfiError> {
-    let ctx = get_active_ctx().await?;
-    ctx.transport_service
-        .block_transport()
-        .requeue_resend_queue_entry(&pl.id)
-        .await?;
-    Ok(())
-}
-
-#[frb]
 pub async fn generate_random_mnemonic() -> Result<MnemonicResponse, EbillFfiError> {
     let mnemonic = bip39::Mnemonic::generate_in(bip39::Language::English, BIP39_WORD_COUNT)
         .map_err(|e| EbillFfiError {
@@ -190,4 +172,13 @@ pub async fn generate_random_mnemonic() -> Result<MnemonicResponse, EbillFfiErro
     Ok(MnemonicResponse {
         mnemonic: mnemonic.to_string(),
     })
+}
+
+#[frb]
+pub async fn retry_pending_propagations_now() -> Result<(), EbillFfiError> {
+    let ctx = get_active_ctx().await?;
+    ctx.transport_service
+        .retry_pending_propagations_now()
+        .await?;
+    Ok(())
 }

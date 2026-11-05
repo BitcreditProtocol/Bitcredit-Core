@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1941252715;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 441969371;
 
 // Section: executor
 
@@ -1748,42 +1748,6 @@ fn wire__crate__ffi__api__bill__endorsements_impl(
         },
     )
 }
-fn wire__crate__ffi__api__general__fetch_resend_queue_entries_impl(
-    port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
-) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
-        flutter_rust_bridge::for_generated::TaskInfo {
-            debug_name: "fetch_resend_queue_entries",
-            port: Some(port_),
-            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
-        },
-        move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            deserializer.end();
-            move |context| async move {
-                transform_result_sse::<_, crate::ffi::error::EbillFfiError>(
-                    (move || async move {
-                        let output_ok =
-                            crate::ffi::api::general::fetch_resend_queue_entries().await?;
-                        std::result::Result::Ok(output_ok)
-                    })()
-                    .await,
-                )
-            }
-        },
-    )
-}
 fn wire__crate__ffi__api__company__file_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -3157,6 +3121,114 @@ fn wire__crate__ffi__api__bill__past_payments_impl(
         },
     )
 }
+fn wire__crate__ffi__api__bill__propagation_status_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "propagation_status",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_id = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, crate::ffi::error::EbillFfiError>(
+                    (move || async move {
+                        let output_ok = crate::ffi::api::bill::propagation_status(&api_id).await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__ffi__api__company__propagation_status_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "propagation_status",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_id = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, crate::ffi::error::EbillFfiError>(
+                    (move || async move {
+                        let output_ok =
+                            crate::ffi::api::company::propagation_status(&api_id).await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__ffi__api__identity__propagation_status_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "propagation_status",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, crate::ffi::error::EbillFfiError>(
+                    (move || async move {
+                        let output_ok = crate::ffi::api::identity::propagation_status().await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
 fn wire__crate__ffi__api__contact__reject_contact_share_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -3747,46 +3819,6 @@ fn wire__crate__ffi__api__bill__request_to_recourse_bill_payment_impl(
         },
     )
 }
-fn wire__crate__ffi__api__general__requeue_failed_resend_queue_entry_impl(
-    port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
-) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
-        flutter_rust_bridge::for_generated::TaskInfo {
-            debug_name: "requeue_failed_resend_queue_entry",
-            port: Some(port_),
-            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
-        },
-        move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_pl = <crate::ffi::data::RequeueFailedResendMessagePayload>::sse_decode(
-                &mut deserializer,
-            );
-            deserializer.end();
-            move |context| async move {
-                transform_result_sse::<_, crate::ffi::error::EbillFfiError>(
-                    (move || async move {
-                        let output_ok =
-                            crate::ffi::api::general::requeue_failed_resend_queue_entry(api_pl)
-                                .await?;
-                        std::result::Result::Ok(output_ok)
-                    })()
-                    .await,
-                )
-            }
-        },
-    )
-}
 fn wire__crate__ffi__reset_ebill_instance_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -3815,6 +3847,42 @@ fn wire__crate__ffi__reset_ebill_instance_impl(
                 transform_result_sse::<_, crate::ffi::error::EbillFfiError>(
                     (move || async move {
                         let output_ok = crate::ffi::reset_ebill_instance(api_instance_id).await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__ffi__api__general__retry_pending_propagations_now_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "retry_pending_propagations_now",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, crate::ffi::error::EbillFfiError>(
+                    (move || async move {
+                        let output_ok =
+                            crate::ffi::api::general::retry_pending_propagations_now().await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -7019,13 +7087,27 @@ impl SseDecode for Vec<u8> {
     }
 }
 
-impl SseDecode for Vec<crate::ffi::data::ResendQueueEntry> {
+impl SseDecode for Vec<crate::ffi::data::PropagationMessageFfi> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut len_ = <i32>::sse_decode(deserializer);
         let mut ans_ = Vec::with_capacity(len_ as usize);
         for idx_ in 0..len_ {
-            ans_.push(<crate::ffi::data::ResendQueueEntry>::sse_decode(
+            ans_.push(<crate::ffi::data::PropagationMessageFfi>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::ffi::data::PropagationRelayFfi> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::ffi::data::PropagationRelayFfi>::sse_decode(
                 deserializer,
             ));
         }
@@ -7579,6 +7661,32 @@ impl SseDecode for Option<crate::ffi::data::PostalAddressFfi> {
     }
 }
 
+impl SseDecode for Option<crate::ffi::data::PropagationBlockInfoFfi> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::ffi::data::PropagationBlockInfoFfi>::sse_decode(
+                deserializer,
+            ));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<crate::ffi::data::PropagationStatusFfi> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::ffi::data::PropagationStatusFfi>::sse_decode(
+                deserializer,
+            ));
+        } else {
+            return None;
+        }
+    }
+}
+
 impl SseDecode for Option<crate::ffi::data::identity::SwitchIdentityTypeFfi> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -7916,6 +8024,80 @@ impl SseDecode for crate::ffi::data::PostalAddressFfi {
     }
 }
 
+impl SseDecode for crate::ffi::data::PropagationBlockInfoFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_blockHeight = <u64>::sse_decode(deserializer);
+        let mut var_blockType = <String>::sse_decode(deserializer);
+        return crate::ffi::data::PropagationBlockInfoFfi {
+            block_height: var_blockHeight,
+            block_type: var_blockType,
+        };
+    }
+}
+
+impl SseDecode for crate::ffi::data::PropagationMessageFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_id = <String>::sse_decode(deserializer);
+        let mut var_eventType = <String>::sse_decode(deserializer);
+        let mut var_recipientId = <Option<String>>::sse_decode(deserializer);
+        let mut var_chainId = <Option<String>>::sse_decode(deserializer);
+        let mut var_blockHash = <Option<String>>::sse_decode(deserializer);
+        let mut var_nostrEventId = <String>::sse_decode(deserializer);
+        let mut var_relays = <Vec<crate::ffi::data::PropagationRelayFfi>>::sse_decode(deserializer);
+        return crate::ffi::data::PropagationMessageFfi {
+            id: var_id,
+            event_type: var_eventType,
+            recipient_id: var_recipientId,
+            chain_id: var_chainId,
+            block_hash: var_blockHash,
+            nostr_event_id: var_nostrEventId,
+            relays: var_relays,
+        };
+    }
+}
+
+impl SseDecode for crate::ffi::data::PropagationRelayFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_relayUrl = <String>::sse_decode(deserializer);
+        let mut var_acceptedAt = <Option<u64>>::sse_decode(deserializer);
+        let mut var_attempts = <u32>::sse_decode(deserializer);
+        let mut var_nextTryAt = <u64>::sse_decode(deserializer);
+        let mut var_lastError = <Option<String>>::sse_decode(deserializer);
+        return crate::ffi::data::PropagationRelayFfi {
+            relay_url: var_relayUrl,
+            accepted_at: var_acceptedAt,
+            attempts: var_attempts,
+            next_try_at: var_nextTryAt,
+            last_error: var_lastError,
+        };
+    }
+}
+
+impl SseDecode for crate::ffi::data::PropagationStatusFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_id = <String>::sse_decode(deserializer);
+        let mut var_subjectType = <String>::sse_decode(deserializer);
+        let mut var_subjectId = <String>::sse_decode(deserializer);
+        let mut var_createdAt = <u64>::sse_decode(deserializer);
+        let mut var_messages =
+            <Vec<crate::ffi::data::PropagationMessageFfi>>::sse_decode(deserializer);
+        let mut var_lastBlock =
+            <Option<crate::ffi::data::PropagationBlockInfoFfi>>::sse_decode(deserializer);
+        return crate::ffi::data::PropagationStatusFfi {
+            id: var_id,
+            subject_type: var_subjectType,
+            subject_id: var_subjectId,
+            created_at: var_createdAt,
+            messages: var_messages,
+            last_block: var_lastBlock,
+        };
+    }
+}
+
 impl SseDecode for crate::ffi::data::bill::RejectActionBillPayload {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -8020,48 +8202,6 @@ impl SseDecode for crate::ffi::data::bill::RequestToPayBitcreditBillPayload {
             bill_id: var_billId,
             currency: var_currency,
             payment_deadline: var_paymentDeadline,
-        };
-    }
-}
-
-impl SseDecode for crate::ffi::data::RequeueFailedResendMessagePayload {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
-        let mut var_id = <String>::sse_decode(deserializer);
-        return crate::ffi::data::RequeueFailedResendMessagePayload { id: var_id };
-    }
-}
-
-impl SseDecode for crate::ffi::data::ResendQueueEntry {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
-        let mut var_id = <String>::sse_decode(deserializer);
-        let mut var_senderId = <String>::sse_decode(deserializer);
-        let mut var_eventType = <String>::sse_decode(deserializer);
-        let mut var_status = <crate::ffi::data::ResendQueueEntryStatus>::sse_decode(deserializer);
-        let mut var_recipient = <Option<String>>::sse_decode(deserializer);
-        let mut var_blockHeight = <Option<usize>>::sse_decode(deserializer);
-        let mut var_blockOpCode = <Option<String>>::sse_decode(deserializer);
-        return crate::ffi::data::ResendQueueEntry {
-            id: var_id,
-            sender_id: var_senderId,
-            event_type: var_eventType,
-            status: var_status,
-            recipient: var_recipient,
-            block_height: var_blockHeight,
-            block_op_code: var_blockOpCode,
-        };
-    }
-}
-
-impl SseDecode for crate::ffi::data::ResendQueueEntryStatus {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
-        let mut inner = <i32>::sse_decode(deserializer);
-        return match inner {
-            0 => crate::ffi::data::ResendQueueEntryStatus::Pending,
-            1 => crate::ffi::data::ResendQueueEntryStatus::Failed,
-            _ => unreachable!("Invalid variant for ResendQueueEntryStatus: {}", inner),
         };
     }
 }
@@ -8404,210 +8544,219 @@ fn pde_ffi_dispatcher_primary_impl(
             wire__crate__ffi__api__bill__endorse_bill_blank_impl(port, ptr, rust_vec_len, data_len)
         }
         45 => wire__crate__ffi__api__bill__endorsements_impl(port, ptr, rust_vec_len, data_len),
-        46 => wire__crate__ffi__api__general__fetch_resend_queue_entries_impl(
+        46 => wire__crate__ffi__api__company__file_impl(port, ptr, rust_vec_len, data_len),
+        47 => wire__crate__ffi__api__contact__file_impl(port, ptr, rust_vec_len, data_len),
+        48 => wire__crate__ffi__api__identity__file_impl(port, ptr, rust_vec_len, data_len),
+        49 => wire__crate__ffi__api__company__file_base64_impl(port, ptr, rust_vec_len, data_len),
+        50 => wire__crate__ffi__api__contact__file_base64_impl(port, ptr, rust_vec_len, data_len),
+        51 => wire__crate__ffi__api__identity__file_base64_impl(port, ptr, rust_vec_len, data_len),
+        52 => wire__crate__ffi__api__general__generate_random_mnemonic_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        47 => wire__crate__ffi__api__company__file_impl(port, ptr, rust_vec_len, data_len),
-        48 => wire__crate__ffi__api__contact__file_impl(port, ptr, rust_vec_len, data_len),
-        49 => wire__crate__ffi__api__identity__file_impl(port, ptr, rust_vec_len, data_len),
-        50 => wire__crate__ffi__api__company__file_base64_impl(port, ptr, rust_vec_len, data_len),
-        51 => wire__crate__ffi__api__contact__file_base64_impl(port, ptr, rust_vec_len, data_len),
-        52 => wire__crate__ffi__api__identity__file_base64_impl(port, ptr, rust_vec_len, data_len),
-        53 => wire__crate__ffi__api__general__generate_random_mnemonic_impl(
+        53 => wire__crate__ffi__get_active_instance_impl(port, ptr, rust_vec_len, data_len),
+        54 => wire__crate__ffi__api__company__get_email_confirmations_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        54 => wire__crate__ffi__get_active_instance_impl(port, ptr, rust_vec_len, data_len),
-        55 => wire__crate__ffi__api__company__get_email_confirmations_impl(
+        55 => wire__crate__ffi__api__identity__get_email_confirmations_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        56 => wire__crate__ffi__api__identity__get_email_confirmations_impl(
+        56 => wire__crate__ffi__api__notification__get_email_notifications_preferences_link_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        57 => wire__crate__ffi__api__notification__get_email_notifications_preferences_link_impl(
+        57 => wire__crate__ffi__api__contact__get_pending_contact_share_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        58 => wire__crate__ffi__api__contact__get_pending_contact_share_impl(
-            port,
-            ptr,
-            rust_vec_len,
-            data_len,
-        ),
-        59 => wire__crate__ffi__api__general__get_status_impl(port, ptr, rust_vec_len, data_len),
-        60 => wire__crate__ffi__init_app_impl(port, ptr, rust_vec_len, data_len),
-        61 => wire__crate__ffi__init_ebill_instance_impl(port, ptr, rust_vec_len, data_len),
-        62 => {
+        58 => wire__crate__ffi__api__general__get_status_impl(port, ptr, rust_vec_len, data_len),
+        59 => wire__crate__ffi__init_app_impl(port, ptr, rust_vec_len, data_len),
+        60 => wire__crate__ffi__init_ebill_instance_impl(port, ptr, rust_vec_len, data_len),
+        61 => {
             wire__crate__ffi__api__company__invite_signatory_impl(port, ptr, rust_vec_len, data_len)
         }
-        63 => wire__crate__ffi__api__bill__issue_impl(port, ptr, rust_vec_len, data_len),
-        64 => wire__crate__ffi__api__bill__issue_blank_impl(port, ptr, rust_vec_len, data_len),
-        65 => wire__crate__ffi__api__general__link_to_pay_impl(port, ptr, rust_vec_len, data_len),
-        66 => wire__crate__ffi__api__bill__list_impl(port, ptr, rust_vec_len, data_len),
-        67 => wire__crate__ffi__api__company__list_impl(port, ptr, rust_vec_len, data_len),
-        68 => wire__crate__ffi__api__contact__list_impl(port, ptr, rust_vec_len, data_len),
-        69 => wire__crate__ffi__api__notification__list_impl(port, ptr, rust_vec_len, data_len),
-        70 => wire__crate__ffi__api__company__list_invites_impl(port, ptr, rust_vec_len, data_len),
-        71 => wire__crate__ffi__api__bill__list_light_impl(port, ptr, rust_vec_len, data_len),
-        72 => wire__crate__ffi__api__contact__list_pending_contact_shares_impl(
+        62 => wire__crate__ffi__api__bill__issue_impl(port, ptr, rust_vec_len, data_len),
+        63 => wire__crate__ffi__api__bill__issue_blank_impl(port, ptr, rust_vec_len, data_len),
+        64 => wire__crate__ffi__api__general__link_to_pay_impl(port, ptr, rust_vec_len, data_len),
+        65 => wire__crate__ffi__api__bill__list_impl(port, ptr, rust_vec_len, data_len),
+        66 => wire__crate__ffi__api__company__list_impl(port, ptr, rust_vec_len, data_len),
+        67 => wire__crate__ffi__api__contact__list_impl(port, ptr, rust_vec_len, data_len),
+        68 => wire__crate__ffi__api__notification__list_impl(port, ptr, rust_vec_len, data_len),
+        69 => wire__crate__ffi__api__company__list_invites_impl(port, ptr, rust_vec_len, data_len),
+        70 => wire__crate__ffi__api__bill__list_light_impl(port, ptr, rust_vec_len, data_len),
+        71 => wire__crate__ffi__api__contact__list_pending_contact_shares_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        73 => {
+        72 => {
             wire__crate__ffi__api__company__list_signatories_impl(port, ptr, rust_vec_len, data_len)
         }
-        74 => wire__crate__ffi__api__company__locally_hide_signatory_impl(
+        73 => wire__crate__ffi__api__company__locally_hide_signatory_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        75 => wire__crate__ffi__api__notification__mark_as_done_impl(
+        74 => wire__crate__ffi__api__notification__mark_as_done_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        76 => wire__crate__ffi__api__general__mempool_link_impl(port, ptr, rust_vec_len, data_len),
-        77 => wire__crate__ffi__api__bill__mint_state_impl(port, ptr, rust_vec_len, data_len),
-        78 => wire__crate__ffi__data__notification_filters_ffi_default_impl(
+        75 => wire__crate__ffi__api__general__mempool_link_impl(port, ptr, rust_vec_len, data_len),
+        76 => wire__crate__ffi__api__bill__mint_state_impl(port, ptr, rust_vec_len, data_len),
+        77 => wire__crate__ffi__data__notification_filters_ffi_default_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        79 => wire__crate__ffi__api__bill__offer_to_sell_impl(port, ptr, rust_vec_len, data_len),
-        80 => {
+        78 => wire__crate__ffi__api__bill__offer_to_sell_impl(port, ptr, rust_vec_len, data_len),
+        79 => {
             wire__crate__ffi__api__bill__offer_to_sell_blank_impl(port, ptr, rust_vec_len, data_len)
         }
-        81 => wire__crate__ffi__data__optional_postal_address_ffi_is_none_impl(
+        80 => wire__crate__ffi__data__optional_postal_address_ffi_is_none_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        82 => wire__crate__ffi__api__general__overview_impl(port, ptr, rust_vec_len, data_len),
-        83 => wire__crate__ffi__api__bill__past_endorsees_impl(port, ptr, rust_vec_len, data_len),
-        84 => wire__crate__ffi__api__bill__past_payments_impl(port, ptr, rust_vec_len, data_len),
-        85 => wire__crate__ffi__api__contact__reject_contact_share_impl(
+        81 => wire__crate__ffi__api__general__overview_impl(port, ptr, rust_vec_len, data_len),
+        82 => wire__crate__ffi__api__bill__past_endorsees_impl(port, ptr, rust_vec_len, data_len),
+        83 => wire__crate__ffi__api__bill__past_payments_impl(port, ptr, rust_vec_len, data_len),
+        84 => {
+            wire__crate__ffi__api__bill__propagation_status_impl(port, ptr, rust_vec_len, data_len)
+        }
+        85 => wire__crate__ffi__api__company__propagation_status_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        86 => wire__crate__ffi__api__company__reject_invite_impl(port, ptr, rust_vec_len, data_len),
-        87 => {
+        86 => wire__crate__ffi__api__identity__propagation_status_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        87 => wire__crate__ffi__api__contact__reject_contact_share_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        88 => wire__crate__ffi__api__company__reject_invite_impl(port, ptr, rust_vec_len, data_len),
+        89 => {
             wire__crate__ffi__api__bill__reject_mint_offer_impl(port, ptr, rust_vec_len, data_len)
         }
-        88 => wire__crate__ffi__api__bill__reject_to_accept_impl(port, ptr, rust_vec_len, data_len),
-        89 => wire__crate__ffi__api__bill__reject_to_buy_impl(port, ptr, rust_vec_len, data_len),
-        90 => wire__crate__ffi__api__bill__reject_to_pay_impl(port, ptr, rust_vec_len, data_len),
-        91 => wire__crate__ffi__api__bill__reject_to_pay_recourse_impl(
+        90 => wire__crate__ffi__api__bill__reject_to_accept_impl(port, ptr, rust_vec_len, data_len),
+        91 => wire__crate__ffi__api__bill__reject_to_buy_impl(port, ptr, rust_vec_len, data_len),
+        92 => wire__crate__ffi__api__bill__reject_to_pay_impl(port, ptr, rust_vec_len, data_len),
+        93 => wire__crate__ffi__api__bill__reject_to_pay_recourse_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        92 => wire__crate__ffi__api__contact__remove_impl(port, ptr, rust_vec_len, data_len),
-        93 => {
+        94 => wire__crate__ffi__api__contact__remove_impl(port, ptr, rust_vec_len, data_len),
+        95 => {
             wire__crate__ffi__api__company__remove_signatory_impl(port, ptr, rust_vec_len, data_len)
         }
-        94 => {
+        96 => {
             wire__crate__ffi__api__bill__request_to_accept_impl(port, ptr, rust_vec_len, data_len)
         }
-        95 => wire__crate__ffi__api__bill__request_to_mint_impl(port, ptr, rust_vec_len, data_len),
-        96 => wire__crate__ffi__api__bill__request_to_pay_impl(port, ptr, rust_vec_len, data_len),
-        97 => wire__crate__ffi__api__bill__request_to_pay_as_mint_impl(
+        97 => wire__crate__ffi__api__bill__request_to_mint_impl(port, ptr, rust_vec_len, data_len),
+        98 => wire__crate__ffi__api__bill__request_to_pay_impl(port, ptr, rust_vec_len, data_len),
+        99 => wire__crate__ffi__api__bill__request_to_pay_as_mint_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        98 => wire__crate__ffi__api__bill__request_to_recourse_bill_acceptance_impl(
+        100 => wire__crate__ffi__api__bill__request_to_recourse_bill_acceptance_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        99 => wire__crate__ffi__api__bill__request_to_recourse_bill_payment_impl(
+        101 => wire__crate__ffi__api__bill__request_to_recourse_bill_payment_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        100 => wire__crate__ffi__api__general__requeue_failed_resend_queue_entry_impl(
+        102 => wire__crate__ffi__reset_ebill_instance_impl(port, ptr, rust_vec_len, data_len),
+        103 => wire__crate__ffi__api__general__retry_pending_propagations_now_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        101 => wire__crate__ffi__reset_ebill_instance_impl(port, ptr, rust_vec_len, data_len),
-        102 => wire__crate__ffi__api__bill__search_impl(port, ptr, rust_vec_len, data_len),
-        103 => wire__crate__ffi__api__contact__search_impl(port, ptr, rust_vec_len, data_len),
-        104 => wire__crate__ffi__api__general__search_impl(port, ptr, rust_vec_len, data_len),
-        105 => wire__crate__ffi__api__identity__seed_backup_impl(port, ptr, rust_vec_len, data_len),
-        106 => {
+        104 => wire__crate__ffi__api__bill__search_impl(port, ptr, rust_vec_len, data_len),
+        105 => wire__crate__ffi__api__contact__search_impl(port, ptr, rust_vec_len, data_len),
+        106 => wire__crate__ffi__api__general__search_impl(port, ptr, rust_vec_len, data_len),
+        107 => wire__crate__ffi__api__identity__seed_backup_impl(port, ptr, rust_vec_len, data_len),
+        108 => {
             wire__crate__ffi__api__identity__seed_recover_impl(port, ptr, rust_vec_len, data_len)
         }
-        107 => wire__crate__ffi__set_active_instance_impl(port, ptr, rust_vec_len, data_len),
-        108 => wire__crate__ffi__api__bill__share_bill_with_court_impl(
+        109 => wire__crate__ffi__set_active_instance_impl(port, ptr, rust_vec_len, data_len),
+        110 => wire__crate__ffi__api__bill__share_bill_with_court_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        109 => wire__crate__ffi__api__company__share_contact_details_impl(
+        111 => wire__crate__ffi__api__company__share_contact_details_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        110 => wire__crate__ffi__api__identity__share_contact_details_impl(
+        112 => wire__crate__ffi__api__identity__share_contact_details_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        111 => {
+        113 => {
             wire__crate__ffi__api__notification__subscribe_impl(port, ptr, rust_vec_len, data_len)
         }
-        112 => wire__crate__ffi__api__bill__sweep_btc_funds_impl(port, ptr, rust_vec_len, data_len),
-        113 => wire__crate__ffi__api__identity__switch_impl(port, ptr, rust_vec_len, data_len),
-        114 => wire__crate__ffi__api__bill__sync_bill_chain_impl(port, ptr, rust_vec_len, data_len),
-        115 => wire__crate__ffi__api__company__sync_company_chain_impl(
+        114 => wire__crate__ffi__api__bill__sweep_btc_funds_impl(port, ptr, rust_vec_len, data_len),
+        115 => wire__crate__ffi__api__identity__switch_impl(port, ptr, rust_vec_len, data_len),
+        116 => wire__crate__ffi__api__bill__sync_bill_chain_impl(port, ptr, rust_vec_len, data_len),
+        117 => wire__crate__ffi__api__company__sync_company_chain_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        116 => wire__crate__ffi__api__identity__sync_identity_chain_impl(
+        118 => wire__crate__ffi__api__identity__sync_identity_chain_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        117 => wire__crate__ffi__api__general__temp_file_impl(port, ptr, rust_vec_len, data_len),
-        118 => wire__crate__ffi__api__bill__upload_impl(port, ptr, rust_vec_len, data_len),
-        119 => wire__crate__ffi__api__company__upload_impl(port, ptr, rust_vec_len, data_len),
-        120 => wire__crate__ffi__api__contact__upload_impl(port, ptr, rust_vec_len, data_len),
-        121 => wire__crate__ffi__api__identity__upload_impl(port, ptr, rust_vec_len, data_len),
-        122 => wire__crate__ffi__api__company__verify_email_impl(port, ptr, rust_vec_len, data_len),
-        123 => {
+        119 => wire__crate__ffi__api__general__temp_file_impl(port, ptr, rust_vec_len, data_len),
+        120 => wire__crate__ffi__api__bill__upload_impl(port, ptr, rust_vec_len, data_len),
+        121 => wire__crate__ffi__api__company__upload_impl(port, ptr, rust_vec_len, data_len),
+        122 => wire__crate__ffi__api__contact__upload_impl(port, ptr, rust_vec_len, data_len),
+        123 => wire__crate__ffi__api__identity__upload_impl(port, ptr, rust_vec_len, data_len),
+        124 => wire__crate__ffi__api__company__verify_email_impl(port, ptr, rust_vec_len, data_len),
+        125 => {
             wire__crate__ffi__api__identity__verify_email_impl(port, ptr, rust_vec_len, data_len)
         }
         _ => unreachable!(),
@@ -11969,6 +12118,102 @@ impl flutter_rust_bridge::IntoIntoDart<crate::ffi::data::PostalAddressFfi>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::ffi::data::PropagationBlockInfoFfi {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.block_height.into_into_dart().into_dart(),
+            self.block_type.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::ffi::data::PropagationBlockInfoFfi
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::ffi::data::PropagationBlockInfoFfi>
+    for crate::ffi::data::PropagationBlockInfoFfi
+{
+    fn into_into_dart(self) -> crate::ffi::data::PropagationBlockInfoFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::ffi::data::PropagationMessageFfi {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.id.into_into_dart().into_dart(),
+            self.event_type.into_into_dart().into_dart(),
+            self.recipient_id.into_into_dart().into_dart(),
+            self.chain_id.into_into_dart().into_dart(),
+            self.block_hash.into_into_dart().into_dart(),
+            self.nostr_event_id.into_into_dart().into_dart(),
+            self.relays.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::ffi::data::PropagationMessageFfi
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::ffi::data::PropagationMessageFfi>
+    for crate::ffi::data::PropagationMessageFfi
+{
+    fn into_into_dart(self) -> crate::ffi::data::PropagationMessageFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::ffi::data::PropagationRelayFfi {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.relay_url.into_into_dart().into_dart(),
+            self.accepted_at.into_into_dart().into_dart(),
+            self.attempts.into_into_dart().into_dart(),
+            self.next_try_at.into_into_dart().into_dart(),
+            self.last_error.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::ffi::data::PropagationRelayFfi
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::ffi::data::PropagationRelayFfi>
+    for crate::ffi::data::PropagationRelayFfi
+{
+    fn into_into_dart(self) -> crate::ffi::data::PropagationRelayFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::ffi::data::PropagationStatusFfi {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.id.into_into_dart().into_dart(),
+            self.subject_type.into_into_dart().into_dart(),
+            self.subject_id.into_into_dart().into_dart(),
+            self.created_at.into_into_dart().into_dart(),
+            self.messages.into_into_dart().into_dart(),
+            self.last_block.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::ffi::data::PropagationStatusFfi
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::ffi::data::PropagationStatusFfi>
+    for crate::ffi::data::PropagationStatusFfi
+{
+    fn into_into_dart(self) -> crate::ffi::data::PropagationStatusFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::ffi::data::bill::RejectActionBillPayload {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [self.bill_id.into_into_dart().into_dart()].into_dart()
@@ -12140,70 +12385,6 @@ impl flutter_rust_bridge::IntoIntoDart<crate::ffi::data::bill::RequestToPayBitcr
     for crate::ffi::data::bill::RequestToPayBitcreditBillPayload
 {
     fn into_into_dart(self) -> crate::ffi::data::bill::RequestToPayBitcreditBillPayload {
-        self
-    }
-}
-// Codec=Dco (DartCObject based), see doc to use other codecs
-impl flutter_rust_bridge::IntoDart for crate::ffi::data::RequeueFailedResendMessagePayload {
-    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
-        [self.id.into_into_dart().into_dart()].into_dart()
-    }
-}
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::ffi::data::RequeueFailedResendMessagePayload
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::ffi::data::RequeueFailedResendMessagePayload>
-    for crate::ffi::data::RequeueFailedResendMessagePayload
-{
-    fn into_into_dart(self) -> crate::ffi::data::RequeueFailedResendMessagePayload {
-        self
-    }
-}
-// Codec=Dco (DartCObject based), see doc to use other codecs
-impl flutter_rust_bridge::IntoDart for crate::ffi::data::ResendQueueEntry {
-    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
-        [
-            self.id.into_into_dart().into_dart(),
-            self.sender_id.into_into_dart().into_dart(),
-            self.event_type.into_into_dart().into_dart(),
-            self.status.into_into_dart().into_dart(),
-            self.recipient.into_into_dart().into_dart(),
-            self.block_height.into_into_dart().into_dart(),
-            self.block_op_code.into_into_dart().into_dart(),
-        ]
-        .into_dart()
-    }
-}
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::ffi::data::ResendQueueEntry
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::ffi::data::ResendQueueEntry>
-    for crate::ffi::data::ResendQueueEntry
-{
-    fn into_into_dart(self) -> crate::ffi::data::ResendQueueEntry {
-        self
-    }
-}
-// Codec=Dco (DartCObject based), see doc to use other codecs
-impl flutter_rust_bridge::IntoDart for crate::ffi::data::ResendQueueEntryStatus {
-    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
-        match self {
-            Self::Pending => 0.into_dart(),
-            Self::Failed => 1.into_dart(),
-            _ => unreachable!(),
-        }
-    }
-}
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::ffi::data::ResendQueueEntryStatus
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::ffi::data::ResendQueueEntryStatus>
-    for crate::ffi::data::ResendQueueEntryStatus
-{
-    fn into_into_dart(self) -> crate::ffi::data::ResendQueueEntryStatus {
         self
     }
 }
@@ -14261,12 +14442,22 @@ impl SseEncode for Vec<u8> {
     }
 }
 
-impl SseEncode for Vec<crate::ffi::data::ResendQueueEntry> {
+impl SseEncode for Vec<crate::ffi::data::PropagationMessageFfi> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
-            <crate::ffi::data::ResendQueueEntry>::sse_encode(item, serializer);
+            <crate::ffi::data::PropagationMessageFfi>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::ffi::data::PropagationRelayFfi> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::ffi::data::PropagationRelayFfi>::sse_encode(item, serializer);
         }
     }
 }
@@ -14685,6 +14876,26 @@ impl SseEncode for Option<crate::ffi::data::PostalAddressFfi> {
     }
 }
 
+impl SseEncode for Option<crate::ffi::data::PropagationBlockInfoFfi> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::ffi::data::PropagationBlockInfoFfi>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<crate::ffi::data::PropagationStatusFfi> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::ffi::data::PropagationStatusFfi>::sse_encode(value, serializer);
+        }
+    }
+}
+
 impl SseEncode for Option<crate::ffi::data::identity::SwitchIdentityTypeFfi> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -14932,6 +15143,53 @@ impl SseEncode for crate::ffi::data::PostalAddressFfi {
     }
 }
 
+impl SseEncode for crate::ffi::data::PropagationBlockInfoFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <u64>::sse_encode(self.block_height, serializer);
+        <String>::sse_encode(self.block_type, serializer);
+    }
+}
+
+impl SseEncode for crate::ffi::data::PropagationMessageFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.id, serializer);
+        <String>::sse_encode(self.event_type, serializer);
+        <Option<String>>::sse_encode(self.recipient_id, serializer);
+        <Option<String>>::sse_encode(self.chain_id, serializer);
+        <Option<String>>::sse_encode(self.block_hash, serializer);
+        <String>::sse_encode(self.nostr_event_id, serializer);
+        <Vec<crate::ffi::data::PropagationRelayFfi>>::sse_encode(self.relays, serializer);
+    }
+}
+
+impl SseEncode for crate::ffi::data::PropagationRelayFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.relay_url, serializer);
+        <Option<u64>>::sse_encode(self.accepted_at, serializer);
+        <u32>::sse_encode(self.attempts, serializer);
+        <u64>::sse_encode(self.next_try_at, serializer);
+        <Option<String>>::sse_encode(self.last_error, serializer);
+    }
+}
+
+impl SseEncode for crate::ffi::data::PropagationStatusFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.id, serializer);
+        <String>::sse_encode(self.subject_type, serializer);
+        <String>::sse_encode(self.subject_id, serializer);
+        <u64>::sse_encode(self.created_at, serializer);
+        <Vec<crate::ffi::data::PropagationMessageFfi>>::sse_encode(self.messages, serializer);
+        <Option<crate::ffi::data::PropagationBlockInfoFfi>>::sse_encode(
+            self.last_block,
+            serializer,
+        );
+    }
+}
+
 impl SseEncode for crate::ffi::data::bill::RejectActionBillPayload {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -14999,42 +15257,6 @@ impl SseEncode for crate::ffi::data::bill::RequestToPayBitcreditBillPayload {
         <String>::sse_encode(self.bill_id, serializer);
         <String>::sse_encode(self.currency, serializer);
         <String>::sse_encode(self.payment_deadline, serializer);
-    }
-}
-
-impl SseEncode for crate::ffi::data::RequeueFailedResendMessagePayload {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
-        <String>::sse_encode(self.id, serializer);
-    }
-}
-
-impl SseEncode for crate::ffi::data::ResendQueueEntry {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
-        <String>::sse_encode(self.id, serializer);
-        <String>::sse_encode(self.sender_id, serializer);
-        <String>::sse_encode(self.event_type, serializer);
-        <crate::ffi::data::ResendQueueEntryStatus>::sse_encode(self.status, serializer);
-        <Option<String>>::sse_encode(self.recipient, serializer);
-        <Option<usize>>::sse_encode(self.block_height, serializer);
-        <Option<String>>::sse_encode(self.block_op_code, serializer);
-    }
-}
-
-impl SseEncode for crate::ffi::data::ResendQueueEntryStatus {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
-        <i32>::sse_encode(
-            match self {
-                crate::ffi::data::ResendQueueEntryStatus::Pending => 0,
-                crate::ffi::data::ResendQueueEntryStatus::Failed => 1,
-                _ => {
-                    unimplemented!("");
-                }
-            },
-            serializer,
-        );
     }
 }
 

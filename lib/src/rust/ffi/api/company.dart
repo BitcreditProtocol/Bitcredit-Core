@@ -112,3 +112,6 @@ Future<void> locallyHideSignatory({
 }) => RustLib.instance.api.crateFfiApiCompanyLocallyHideSignatory(
   payload: payload,
 );
+
+Future<PropagationStatusFfi?> propagationStatus({required String id}) =>
+    RustLib.instance.api.crateFfiApiCompanyPropagationStatus(id: id);
