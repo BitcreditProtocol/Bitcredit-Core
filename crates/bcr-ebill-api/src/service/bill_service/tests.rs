@@ -548,7 +548,7 @@ async fn issue_bill_with_auto_accept_queues_both_blocks() {
         })
         .await
         .unwrap();
-    assert_eq!(bill.id.to_string().is_empty(), false);
+    assert!(!bill.id.to_string().is_empty());
 }
 
 #[tokio::test]
