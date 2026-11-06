@@ -336,10 +336,14 @@ mod tests {
         COMPANY_LOGO_FILE_FIELD, IDENTITY_DOCUMENT_FILE_FIELD, IDENTITY_PROFILE_PICTURE_FILE_FIELD,
     };
     use crate::tests::tests::MockFileReferenceStoreApiMock;
+    use bcr_ebill_core::protocol::event::{BillChainEventPayload, Event};
     use bcr_ebill_core::protocol::{Name, file_reference::FileReference};
     use bitcoin::hashes::Hash;
     use mockall::predicate;
+    use std::collections::HashMap;
     use std::str::FromStr;
+
+    use bcr_ebill_persistence::traits::propagation::PreparedPropagationMessage;
 
     mockall::mock! {
         TransportService {}
@@ -369,6 +373,7 @@ mod tests {
             async fn process_company_historical_bill_invites(&self, company_id: &bcr_common::core::NodeId) -> crate::service::transport_service::Result<()>;
             async fn publish_file_metadata(&self, node_id: &bcr_common::core::NodeId, plaintext_hash: &str, encrypted_hash: &str, server_urls: Vec<url::Url>, mime_type: Option<String>) -> crate::service::transport_service::Result<()>;
             async fn query_file_metadata_events(&self, file_hash: &str, nostr_hash: &str) -> crate::service::transport_service::Result<Vec<nostr::event::Event>>;
+            async fn prepare_bill_private_messages(&self, sender: &NodeId, events: &HashMap<NodeId, Event<BillChainEventPayload>>) -> crate::service::transport_service::Result<Vec<PreparedPropagationMessage>>;
         }
     }
 

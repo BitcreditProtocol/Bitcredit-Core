@@ -31,6 +31,7 @@ use bcr_ebill_persistence::traits::nostr::{
     NostrChainEvent, NostrChainEventStoreApi, NostrContactStoreApi, NostrQueuedMessage,
     NostrQueuedMessageStoreApi,
 };
+use bcr_ebill_persistence::traits::propagation::PreparedPropagationMessage;
 use bitcoin::base58;
 use log::info;
 use log::{debug, error, warn};
@@ -427,6 +428,61 @@ impl NostrTransportService {
         if let Err(e) = self.nostr_client.connect().await {
             error!("Failed to connect to transport: {e}");
         }
+    }
+
+    pub(crate) async fn prepare_private_propagation_message_to(
+        &self,
+        sender: &NodeId,
+        recipient: &BillParticipant,
+        envelope: EventEnvelope,
+    ) -> Result<PreparedPropagationMessage> {
+        let event_type = envelope.event_type.clone();
+        let prepared = self
+            .get_node_transport(sender)
+            .prepare_private_event(sender, recipient, envelope)
+            .await?;
+        Ok(PreparedPropagationMessage {
+            id: uuid::Uuid::new_v4().to_string(),
+            event_type,
+            recipient_id: Some(recipient.node_id()),
+            chain_id: None,
+            block_hash: None,
+            event: prepared.event,
+            target_relays: prepared.target_relays,
+        })
+    }
+
+    pub(crate) async fn prepare_private_propagation_message(
+        &self,
+        sender: &NodeId,
+        recipient_id: &NodeId,
+        envelope: EventEnvelope,
+    ) -> Result<PreparedPropagationMessage> {
+        let recipient = self.resolve_identity(recipient_id).await.ok_or_else(|| {
+            Error::Message(format!(
+                "Cannot prepare Nostr message: recipient {recipient_id} could not be resolved"
+            ))
+        })?;
+        self.prepare_private_propagation_message_to(sender, &recipient, envelope)
+            .await
+    }
+
+    pub(crate) async fn prepare_bill_private_messages(
+        &self,
+        sender: &NodeId,
+        events: &HashMap<NodeId, Event<BillChainEventPayload>>,
+    ) -> Result<Vec<PreparedPropagationMessage>> {
+        let mut recipients = events.iter().collect::<Vec<_>>();
+        recipients.sort_by_key(|(a, _)| a.to_string());
+        let mut prepared = Vec::with_capacity(recipients.len());
+        for (recipient_id, event) in recipients {
+            let envelope: EventEnvelope = event.clone().try_into()?;
+            let message = self
+                .prepare_private_propagation_message(sender, recipient_id, envelope)
+                .await?;
+            prepared.push(message);
+        }
+        Ok(prepared)
     }
 }
 

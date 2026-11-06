@@ -19,6 +19,7 @@ use bcr_ebill_core::protocol::event::{
 };
 use bcr_ebill_core::protocol::{Sha256Hash, Timestamp};
 use bcr_ebill_persistence::traits::nostr::NostrChainEvent;
+use bcr_ebill_persistence::traits::propagation::PreparedPropagationMessage;
 use bitcoin::base58;
 use log::{debug, error};
 
@@ -552,6 +553,43 @@ impl BlockTransportServiceApi for BlockTransportService {
 
     async fn requeue_resend_queue_entry(&self, id: &str) -> Result<()> {
         self.nostr_transport.requeue_resend_queue_entry(id).await
+    }
+
+    async fn prepare_bill_chain_invites(
+        &self,
+        events: &BillChainEvent,
+    ) -> Result<Vec<PreparedPropagationMessage>> {
+        let sender = events.sender();
+        let mut invites = events
+            .generate_bill_invite_events()
+            .into_iter()
+            .collect::<Vec<_>>();
+        invites.sort_by_key(|(a, _)| a.to_string());
+        let mut prepared = Vec::with_capacity(invites.len());
+        for (recipient_id, event) in invites {
+            let envelope: EventEnvelope = event.try_into()?;
+            let message = self
+                .nostr_transport
+                .prepare_private_propagation_message(&sender, &recipient_id, envelope)
+                .await?;
+            prepared.push(message);
+        }
+        Ok(prepared)
+    }
+
+    async fn prepare_company_chain_invites(
+        &self,
+        events: &CompanyChainEvent,
+    ) -> Result<Vec<PreparedPropagationMessage>> {
+        let Some((recipient_id, event)) = events.generate_company_invite_message() else {
+            return Ok(Vec::new());
+        };
+        let envelope: EventEnvelope = event.try_into()?;
+        let message = self
+            .nostr_transport
+            .prepare_private_propagation_message(&events.sender(), &recipient_id, envelope)
+            .await?;
+        Ok(vec![message])
     }
 }
 

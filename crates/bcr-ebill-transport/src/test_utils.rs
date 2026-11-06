@@ -47,6 +47,7 @@ use bcr_ebill_persistence::traits::notification::NotificationFilter;
 use bcr_ebill_persistence::{
     ContactStoreApi, DbConfig, FileReferenceStoreApi, NostrChainEventStoreApi,
     NostrEventOffsetStoreApi, NotificationStoreApi, PendingContactShare, ShareDirection,
+    traits::propagation::PreparedPropagationMessage,
 };
 use nostr_relay_builder::MockRelay;
 
@@ -513,6 +514,8 @@ mockall::mock! {
         async fn prepare_identity_chain_event(&self, events: &IdentityChainEvent) -> Result<Option<NostrChainEvent>>;
         async fn prepare_company_chain_event(&self, events: &CompanyChainEvent) -> Result<Option<NostrChainEvent>>;
         async fn prepare_bill_chain_event(&self, events: &BillChainEvent) -> Result<Option<NostrChainEvent>>;
+        async fn prepare_bill_chain_invites(&self, events: &BillChainEvent) -> Result<Vec<PreparedPropagationMessage>>;
+        async fn prepare_company_chain_invites(&self, events: &CompanyChainEvent) -> Result<Vec<PreparedPropagationMessage>>;
     }
 }
 
@@ -650,6 +653,12 @@ mockall::mock! {
             file_hash: &str,
             nostr_hash: &str,
         ) -> Result<Vec<nostr::event::Event>>;
+        async fn prepare_private_event(
+            &self,
+            sender_node_id: &NodeId,
+            recipient: &BillParticipant,
+            event: EventEnvelope,
+        ) -> Result<bcr_ebill_api::service::transport_service::transport_client::PreparedPrivateNostrEvent>;
     }
 }
 

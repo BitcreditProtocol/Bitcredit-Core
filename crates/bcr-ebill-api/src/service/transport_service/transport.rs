@@ -4,6 +4,7 @@ use crate::service::transport_service::{
 };
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
+use bcr_ebill_core::protocol::event::{BillChainEventPayload, Event};
 use bcr_ebill_core::{
     application::ServiceTraitBounds,
     protocol::blockchain::bill::{
@@ -14,6 +15,8 @@ use bcr_ebill_core::{
     protocol::event::ActionType,
     protocol::event::BillChainEvent,
 };
+use bcr_ebill_persistence::traits::propagation::PreparedPropagationMessage;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -156,6 +159,13 @@ pub trait TransportServiceApi: ServiceTraitBounds {
         file_hash: &str,
         nostr_hash: &str,
     ) -> Result<Vec<nostr::event::Event>>;
+
+    /// Prepare private Nostr notifications for bill participants - does not publish, or persist
+    async fn prepare_bill_private_messages(
+        &self,
+        sender: &NodeId,
+        events: &HashMap<NodeId, Event<BillChainEventPayload>>,
+    ) -> Result<Vec<PreparedPropagationMessage>>;
 }
 
 #[cfg(test)]

@@ -48,7 +48,8 @@ use bcr_ebill_api::{
         contact_service::ContactServiceApi,
         file_server_service::resolve_blossom_servers,
         transport_service::{
-            Error, NostrConfig, NostrContactData, Result, transport_client::TransportClientApi,
+            Error, NostrConfig, NostrContactData, Result,
+            transport_client::{PreparedPrivateNostrEvent, TransportClientApi},
         },
     },
 };
@@ -411,41 +412,19 @@ impl NostrClient {
         &self,
         sender_node_id: &NodeId,
         recipient: &BillParticipant,
-        event: EventEnvelope,
+        envelope: EventEnvelope,
     ) -> Result<()> {
-        // Get the Keys for the specified sender identity
-        let sender_keys = self.get_signer(sender_node_id)?;
-
-        let receiver_pubkey = recipient.node_id().npub();
-        let message = base58::encode(&borsh::to_vec(&event)?);
-
-        let event = PrivateDirectMessageBuilder::new(receiver_pubkey, message)
-            .finalize(sender_keys.as_ref())
-            .map_err(|e| {
-                error!("Failed to create NIP-17 event: {e}");
-                Error::Message(format!("Failed to create NIP-17 event: {e}"))
-            })?;
-
-        let relays = recipient.nostr_relays();
-        let output = if !relays.is_empty() {
-            self.client()
-                .await?
-                .send_event(&event)
-                .to(to_relay_urls(&relays)?)
-                .await
-                .map_err(|e| {
-                    error!("Error sending NIP-17 message to specific relays: {e}");
-                    Error::Network(format!("Failed to send NIP-17 message: {e}"))
-                })?
-        } else {
-            self.client().await?.send_event(&event).await.map_err(|e| {
-                error!("Error sending NIP-17 message: {e}");
-                Error::Network(format!("Failed to send NIP-17 message: {e}"))
-            })?
-        };
-        check_send_output(output, "send_nip17_message")?;
-
-        Ok(())
+        let prepared = self
+            .prepare_nip17_message(sender_node_id, recipient, envelope)
+            .await?;
+        let output = self
+            .client()
+            .await?
+            .send_event(&prepared.event)
+            .to(to_relay_urls(&prepared.target_relays)?)
+            .await
+            .map_err(|e| Error::Network(format!("Failed to send NIP-17 message: {e}")))?;
+        check_send_output(output, "send_nip17_message")
     }
 
     fn is_connected(&self) -> bool {
@@ -535,6 +514,52 @@ impl NostrClient {
             .values()
             .any(|relay| relay.status() == RelayStatus::Connected)
     }
+
+    async fn prepare_nip17_message(
+        &self,
+        sender_node_id: &NodeId,
+        recipient: &BillParticipant,
+        envelope: EventEnvelope,
+    ) -> Result<PreparedPrivateNostrEvent> {
+        // resolve local signer
+        let sender_keys = self.get_signer(sender_node_id)?;
+        let receiver_pubkey = recipient.node_id().npub();
+        let message = base58::encode(&borsh::to_vec(&envelope)?);
+        // build and sign the NIP-17 GiftWrap
+        let event = PrivateDirectMessageBuilder::new(receiver_pubkey, message)
+            .finalize(sender_keys.as_ref())
+            .map_err(|e| Error::Message(format!("Failed to prepare NIP-17 event: {e}")))?;
+
+        let mut target_relays = recipient.nostr_relays();
+        if target_relays.is_empty() {
+            target_relays = self
+                .client
+                .relays()
+                .await
+                .into_values()
+                .filter(|relay| relay.capabilities().has_write())
+                .map(|relay| {
+                    url::Url::parse(relay.url().as_str())
+                        .map_err(|e| Error::Message(format!("Invalid Nostr relay URL: {e}")))
+                })
+                .collect::<Result<Vec<_>>>()?;
+        }
+        // ensure a deterministic, unique relay list
+        target_relays.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+        target_relays.dedup();
+        // at least one relay
+        if target_relays.is_empty() {
+            return Err(Error::Network(
+                "No writable relays available for NIP-17 event".to_owned(),
+            ));
+        }
+        to_relay_urls(&target_relays)?;
+
+        Ok(PreparedPrivateNostrEvent {
+            event,
+            target_relays,
+        })
+    }
 }
 
 impl ServiceTraitBounds for NostrClient {}
@@ -588,6 +613,16 @@ fn to_relay_urls(urls: &[url::Url]) -> Result<Vec<RelayUrl>> {
 
 #[async_trait]
 impl TransportClientApi for NostrClient {
+    async fn prepare_private_event(
+        &self,
+        sender_node_id: &NodeId,
+        recipient: &BillParticipant,
+        event: EventEnvelope,
+    ) -> Result<PreparedPrivateNostrEvent> {
+        self.prepare_nip17_message(sender_node_id, recipient, event)
+            .await
+    }
+
     async fn send_private_event(
         &self,
         sender_node_id: &NodeId,
@@ -1555,12 +1590,14 @@ async fn handle_event(
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::HashMap,
-        sync::{Arc, Mutex},
-        time::{Duration, Instant},
+    use super::super::test_utils::get_mock_relay;
+    use super::{NostrClient, NostrConfig, NostrConsumer, prioritized_signers_for_event};
+    use crate::test_utils::{
+        MockContactService, MockFileMetadataProcessor, MockNostrEventOffsetStore, TestEventPayload,
+        create_test_event, get_identity_public_data,
     };
-
+    use crate::transport::unwrap_direct_message;
+    use crate::{handler::MockNotificationHandlerApi, test_utils::MockChainKeyService};
     use bcr_common::core::NodeId;
     use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
     use bcr_ebill_core::protocol::Email;
@@ -1569,22 +1606,22 @@ mod tests {
     use bcr_ebill_core::protocol::crypto::BcrKeys;
     use bcr_ebill_core::protocol::event::BillEventType;
     use bcr_ebill_core::protocol::event::{Event, EventType};
+    use bcr_ebill_core::protocol::{
+        blockchain::bill::participant::BillAnonParticipant, event::EventEnvelope,
+    };
     use bcr_ebill_persistence::NostrEventOffset;
     use mockall::predicate;
+    use nostr::event::Kind;
     use nostr::{
         event::{EventBuilder, FinalizeEvent, FinalizeUnsignedEvent},
         nips::nip59::GiftWrapBuilder,
     };
-    use tokio::time;
-
-    use crate::test_utils::{
-        MockContactService, MockFileMetadataProcessor, MockNostrEventOffsetStore, TestEventPayload,
-        create_test_event, get_identity_public_data,
+    use std::{
+        collections::HashMap,
+        sync::{Arc, Mutex},
+        time::{Duration, Instant},
     };
-    use crate::{handler::MockNotificationHandlerApi, test_utils::MockChainKeyService};
-
-    use super::super::test_utils::get_mock_relay;
-    use super::{NostrClient, NostrConfig, NostrConsumer, prioritized_signers_for_event};
+    use tokio::time;
 
     #[tokio::test]
     async fn test_connect() {
@@ -2129,6 +2166,91 @@ mod tests {
 
         // Clean up tasks
         tasks.abort_all();
+    }
+
+    #[tokio::test]
+    async fn prepare_private_event_creates_signed_giftwrap_without_sending() {
+        let sender_keys = BcrKeys::new();
+        let recipient_keys = BcrKeys::new();
+        let sender_id = NodeId::new(sender_keys.pub_key(), bitcoin::Network::Testnet);
+        let recipient_id = NodeId::new(recipient_keys.pub_key(), bitcoin::Network::Testnet);
+        let relay_a = url::Url::parse("wss://relay-a.example").unwrap();
+        let relay_b = url::Url::parse("wss://relay-b.example").unwrap();
+        let client = NostrClient::new(
+            vec![(sender_id.clone(), sender_keys.clone())],
+            vec![relay_a.clone(), relay_b.clone()],
+            vec![],
+            Duration::from_secs(2),
+            None,
+            1,
+            None,
+        )
+        .await
+        .unwrap();
+        let recipient = BillParticipant::Anon(BillAnonParticipant {
+            node_id: recipient_id,
+            nostr_relays: vec![relay_b.clone(), relay_a.clone(), relay_b.clone()],
+        });
+        let envelope = EventEnvelope {
+            event_type: EventType::BillChainInvite,
+            version: "1.0".to_owned(),
+            data: vec![1, 2, 3, 4],
+        };
+        assert!(!client.is_connected());
+        let prepared = client
+            .prepare_private_event(&sender_id, &recipient, envelope.clone())
+            .await
+            .unwrap();
+
+        // preparing must not initiate a connection
+        assert!(!client.is_connected());
+        // signed NIP-17 GiftWrap was created
+        assert_eq!(prepared.event.kind, Kind::GiftWrap);
+        // relays are sorted and deduplicated
+        assert_eq!(prepared.target_relays, vec![relay_a, relay_b],);
+        // recipient can decrypt the event
+        let recipient_nostr_keys = recipient_keys.get_nostr_keys();
+        let (decoded, sender, _, _) = unwrap_direct_message(&prepared.event, &recipient_nostr_keys)
+            .await
+            .expect("recipient must be able to decrypt the GiftWrap");
+        assert_eq!(decoded.event_type, envelope.event_type);
+        assert_eq!(decoded.version, envelope.version);
+        assert_eq!(decoded.data, envelope.data);
+        assert_eq!(sender, sender_keys.get_nostr_keys().public_key(),);
+    }
+
+    #[tokio::test]
+    async fn prepare_private_event_uses_pool_relays_as_fallback() {
+        let sender_keys = BcrKeys::new();
+        let recipient_keys = BcrKeys::new();
+        let sender_id = NodeId::new(sender_keys.pub_key(), bitcoin::Network::Testnet);
+        let recipient = BillParticipant::Anon(BillAnonParticipant {
+            node_id: NodeId::new(recipient_keys.pub_key(), bitcoin::Network::Testnet),
+            nostr_relays: vec![],
+        });
+        let relay = url::Url::parse("wss://relay.example.com").unwrap();
+        let client = NostrClient::new(
+            vec![(sender_id.clone(), sender_keys)],
+            vec![relay.clone()],
+            vec![],
+            Duration::from_secs(2),
+            None,
+            1,
+            None,
+        )
+        .await
+        .unwrap();
+        let envelope = EventEnvelope {
+            event_type: EventType::Bill,
+            version: "1.0".to_owned(),
+            data: vec![1, 2, 3],
+        };
+        let prepared = client
+            .prepare_private_event(&sender_id, &recipient, envelope)
+            .await
+            .unwrap();
+        assert_eq!(prepared.target_relays, vec![relay]);
+        assert!(!client.is_connected());
     }
 }
 

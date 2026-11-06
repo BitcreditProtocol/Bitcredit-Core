@@ -16,9 +16,24 @@ use super::{NostrContactData, Result};
 #[cfg(test)]
 impl ServiceTraitBounds for MockTransportClientApi {}
 
+#[derive(Debug, Clone)]
+pub struct PreparedPrivateNostrEvent {
+    /// signed NIP-17 GiftWrap event
+    pub event: Event,
+    /// snapshot of the relays this event should be sent to
+    pub target_relays: Vec<url::Url>,
+}
+
 #[cfg_attr(test, automock)]
 #[async_trait]
 pub trait TransportClientApi: ServiceTraitBounds {
+    /// prepares a signed NIP-17 event without publishing it
+    async fn prepare_private_event(
+        &self,
+        sender_node_id: &NodeId,
+        recipient: &BillParticipant,
+        event: EventEnvelope,
+    ) -> Result<PreparedPrivateNostrEvent>;
     /// Sends a private json event to the given recipient.
     async fn send_private_event(
         &self,

@@ -9,7 +9,9 @@ use bcr_ebill_core::{
         event::{BillChainEvent, CompanyChainEvent, IdentityChainEvent},
     },
 };
-use bcr_ebill_persistence::traits::nostr::NostrChainEvent;
+use bcr_ebill_persistence::traits::{
+    nostr::NostrChainEvent, propagation::PreparedPropagationMessage,
+};
 
 #[cfg(test)]
 use mockall::automock;
@@ -62,6 +64,16 @@ pub trait BlockTransportServiceApi: ServiceTraitBounds {
         &self,
         events: &BillChainEvent,
     ) -> Result<Option<NostrChainEvent>>;
+    /// creates signed NIP-17 bill chain invites - does not publish, or persist
+    async fn prepare_bill_chain_invites(
+        &self,
+        events: &BillChainEvent,
+    ) -> Result<Vec<PreparedPropagationMessage>>;
+    /// creates signed NIP-17 company chain invites - does not publish, or persist
+    async fn prepare_company_chain_invites(
+        &self,
+        events: &CompanyChainEvent,
+    ) -> Result<Vec<PreparedPropagationMessage>>;
 }
 
 #[cfg(test)]

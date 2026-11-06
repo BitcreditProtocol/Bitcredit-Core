@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use bcr_ebill_persistence::traits::propagation::PreparedPropagationMessage;
 use std::collections::HashMap;
 
 use bcr_common::core::NodeId;
@@ -441,6 +442,16 @@ impl TransportServiceApi for TransportService {
             .query_file_metadata_events(file_hash, nostr_hash)
             .await
     }
+
+    async fn prepare_bill_private_messages(
+        &self,
+        sender: &NodeId,
+        events: &HashMap<NodeId, Event<BillChainEventPayload>>,
+    ) -> Result<Vec<PreparedPropagationMessage>> {
+        self.nostr_transport
+            .prepare_bill_private_messages(sender, events)
+            .await
+    }
 }
 
 #[cfg(test)]
@@ -449,6 +460,12 @@ mod tests {
     use crate::test_utils::{
         MockBlockTransportService, MockContactTransportService, MockNotificationTransportService,
         get_nostr_transport, signed_identity_proof_test, test_cfg,
+    };
+    use crate::test_utils::{
+        MockContactStore, MockNostrChainEventStore, MockNostrContactStore,
+        MockNostrQueuedMessageStore, MockNotificationJsonTransport, bill_id_test, empty_address,
+        get_baseline_identity, get_genesis_chain, node_id_test, node_id_test_other,
+        node_id_test_other2, private_key_test, valid_payment_address_testnet,
     };
     use bcr_ebill_core::application::contact::Contact;
     use bcr_ebill_core::protocol::Timestamp;
@@ -471,13 +488,6 @@ mod tests {
     use mockall::predicate::eq;
     use nostr::event::FinalizeEvent;
     use std::sync::Arc;
-
-    use crate::test_utils::{
-        MockContactStore, MockNostrChainEventStore, MockNostrContactStore,
-        MockNostrQueuedMessageStore, MockNotificationJsonTransport, bill_id_test, empty_address,
-        get_baseline_identity, get_genesis_chain, node_id_test, node_id_test_other,
-        node_id_test_other2, private_key_test, valid_payment_address_testnet,
-    };
 
     use super::super::test_utils::{
         MockNotificationHandler, get_identity_public_data, get_test_bitcredit_bill,
