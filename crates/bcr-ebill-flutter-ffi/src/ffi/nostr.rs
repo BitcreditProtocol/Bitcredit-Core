@@ -175,8 +175,12 @@ async fn ensure_transport_contact_data_published(
         }
     }
 
-    ctx.transport_service
-        .contact_transport()
-        .ensure_nostr_contact(default_mint_node_id)
-        .await;
+    for mint_node_id in std::iter::once(default_mint_node_id)
+        .chain(ctx.cfg.mint_config.mints.iter().map(|mint| &mint.node_id))
+    {
+        ctx.transport_service
+            .contact_transport()
+            .ensure_nostr_contact(mint_node_id)
+            .await;
+    }
 }

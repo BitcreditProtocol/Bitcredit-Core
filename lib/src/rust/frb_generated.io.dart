@@ -631,6 +631,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  ConfiguredMint dco_decode_configured_mint(dynamic raw);
+
+  @protected
   ConfirmEmailPayload dco_decode_confirm_email_payload(dynamic raw);
 
   @protected
@@ -815,6 +818,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<CompanySignatoryFfi> dco_decode_list_company_signatory_ffi(dynamic raw);
+
+  @protected
+  List<ConfiguredMint> dco_decode_list_configured_mint(dynamic raw);
 
   @protected
   List<ContactFfi> dco_decode_list_contact_ffi(dynamic raw);
@@ -1016,6 +1022,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<String>? dco_decode_opt_list_String(dynamic raw);
+
+  @protected
+  List<ConfiguredMint>? dco_decode_opt_list_configured_mint(dynamic raw);
 
   @protected
   OptionalPostalAddressFfi dco_decode_optional_postal_address_ffi(dynamic raw);
@@ -1926,6 +1935,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  ConfiguredMint sse_decode_configured_mint(SseDeserializer deserializer);
+
+  @protected
   ConfirmEmailPayload sse_decode_confirm_email_payload(
     SseDeserializer deserializer,
   );
@@ -2156,6 +2168,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<CompanySignatoryFfi> sse_decode_list_company_signatory_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<ConfiguredMint> sse_decode_list_configured_mint(
     SseDeserializer deserializer,
   );
 
@@ -2415,6 +2432,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<String>? sse_decode_opt_list_String(SseDeserializer deserializer);
+
+  @protected
+  List<ConfiguredMint>? sse_decode_opt_list_configured_mint(
+    SseDeserializer deserializer,
+  );
 
   @protected
   OptionalPostalAddressFfi sse_decode_optional_postal_address_ffi(
@@ -3517,6 +3539,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_configured_mint(
+    ConfiguredMint self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_confirm_email_payload(
     ConfirmEmailPayload self,
     SseSerializer serializer,
@@ -3801,6 +3829,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_company_signatory_ffi(
     List<CompanySignatoryFfi> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_configured_mint(
+    List<ConfiguredMint> self,
     SseSerializer serializer,
   );
 
@@ -4121,6 +4155,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_opt_list_String(List<String>? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_list_configured_mint(
+    List<ConfiguredMint>? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_optional_postal_address_ffi(

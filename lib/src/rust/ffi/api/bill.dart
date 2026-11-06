@@ -13,7 +13,7 @@ import '../error.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `endorse`, `get_attachment`, `get_signer_public_data_and_keys`, `issue_bill`, `offer_to_sell_bill`, `parse_mint_target`, `request_recourse`
+// These functions are ignored because they are not marked as `pub`: `endorse`, `get_attachment`, `get_signer_public_data_and_keys`, `issue_bill`, `offer_to_sell_bill`, `parse_mint_request`, `parse_mint_target`, `request_recourse`
 
 Future<EndorsementsResponse> endorsements({required String id}) =>
     RustLib.instance.api.crateFfiApiBillEndorsements(id: id);
@@ -136,20 +136,53 @@ Future<MintRequestStateResponse> mintState({required String id}) =>
 Future<void> checkMintState({required String id}) =>
     RustLib.instance.api.crateFfiApiBillCheckMintState(id: id);
 
+/// Cancels a pending quote at the default Mint. Use `cancel_request_to_mint_for_mint` for
+/// a quote at another configured Mint.
 Future<void> cancelRequestToMint({required String mintRequestId}) => RustLib
     .instance
     .api
     .crateFfiApiBillCancelRequestToMint(mintRequestId: mintRequestId);
 
+/// Cancels a pending quote at the named configured Mint; quote ids are scoped by Mint.
+Future<void> cancelRequestToMintForMint({
+  required String mintNodeId,
+  required String mintRequestId,
+}) => RustLib.instance.api.crateFfiApiBillCancelRequestToMintForMint(
+  mintNodeId: mintNodeId,
+  mintRequestId: mintRequestId,
+);
+
+/// Accepts an offer from the default Mint. Use `accept_mint_offer_for_mint` for an offer from
+/// another configured Mint.
 Future<void> acceptMintOffer({required String mintRequestId}) => RustLib
     .instance
     .api
     .crateFfiApiBillAcceptMintOffer(mintRequestId: mintRequestId);
 
+/// Accepts an offer from the named configured Mint; quote ids are scoped by Mint.
+Future<void> acceptMintOfferForMint({
+  required String mintNodeId,
+  required String mintRequestId,
+}) => RustLib.instance.api.crateFfiApiBillAcceptMintOfferForMint(
+  mintNodeId: mintNodeId,
+  mintRequestId: mintRequestId,
+);
+
+/// Rejects an offer from the default Mint. Use `reject_mint_offer_for_mint` for an offer from
+/// another configured Mint.
 Future<void> rejectMintOffer({required String mintRequestId}) => RustLib
     .instance
     .api
     .crateFfiApiBillRejectMintOffer(mintRequestId: mintRequestId);
+
+/// Rejects an offer from the named configured Mint; quote ids are scoped by Mint.
+Future<void> rejectMintOfferForMint({
+  required String mintNodeId,
+  required String mintRequestId,
+}) => RustLib.instance.api.crateFfiApiBillRejectMintOfferForMint(
+  mintNodeId: mintNodeId,
+  mintRequestId: mintRequestId,
+);
 
 Future<void> rejectToAccept({required RejectActionBillPayload rejectPayload}) =>
     RustLib.instance.api.crateFfiApiBillRejectToAccept(

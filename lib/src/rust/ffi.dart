@@ -8,9 +8,9 @@ import 'frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `build_api_config`, `create_runtime`, `get_active_ctx`, `get_active_instance_snapshot`, `get_last_contact_publish_check`, `init_crypto_provider`, `init_logging`, `init_panic_hook`, `initialize_process_globals`, `instance_accepts_network`, `is_transport_connected`, `join_or_abort_task`, `new`, `new`, `set_last_contact_publish_check`, `set_transport_connected`, `shutdown_runtime`, `validate_instance_network`
+// These functions are ignored because they are not marked as `pub`: `build_api_config`, `configured_mints`, `create_runtime`, `get_active_ctx`, `get_active_instance_snapshot`, `get_last_contact_publish_check`, `init_crypto_provider`, `init_logging`, `init_panic_hook`, `initialize_process_globals`, `instance_accepts_network`, `is_transport_connected`, `join_or_abort_task`, `new`, `new`, `set_last_contact_publish_check`, `set_transport_connected`, `shutdown_runtime`, `validate_instance_network`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `EbillRuntime`, `InstanceManager`, `InstanceRuntimeState`, `InstanceSnapshot`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `clone`, `clone`, `eq`, `fmt`, `fmt`, `hash`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `clone`, `clone`, `clone`, `eq`, `fmt`, `fmt`, `fmt`, `hash`
 
 /// Sets the active instance (e.g. testnet, or mainnet)
 Future<void> setActiveInstance({required InstanceId instanceId}) =>
@@ -31,6 +31,31 @@ Future<void> initEbillInstance({
 Future<void> resetEbillInstance({required InstanceId instanceId}) =>
     RustLib.instance.api.crateFfiResetEbillInstance(instanceId: instanceId);
 
+/// A Mint that bill quotes may target besides the default Mint.
+class ConfiguredMint {
+  final String name;
+  final String nodeId;
+  final String url;
+
+  const ConfiguredMint({
+    required this.name,
+    required this.nodeId,
+    required this.url,
+  });
+
+  @override
+  int get hashCode => name.hashCode ^ nodeId.hashCode ^ url.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ConfiguredMint &&
+          runtimeType == other.runtimeType &&
+          name == other.name &&
+          nodeId == other.nodeId &&
+          url == other.url;
+}
+
 class EbillConfig {
   final String sqliteDbPath;
   final String tempFilesPath;
@@ -47,6 +72,10 @@ class EbillConfig {
   final int? transportInitialSubscriptionDelaySeconds;
   final String defaultMintUrl;
   final String defaultMintNodeId;
+
+  /// Optional additional Mints that bill quotes may target. The default Mint stays the
+  /// service Mint; leaving this unset keeps the single-Mint behaviour.
+  final List<ConfiguredMint>? mints;
   final BigInt numConfirmationsForPayment;
   final bool devMode;
   final bool mandatoryEmailConfirmations;
@@ -69,6 +98,7 @@ class EbillConfig {
     this.transportInitialSubscriptionDelaySeconds,
     required this.defaultMintUrl,
     required this.defaultMintNodeId,
+    this.mints,
     required this.numConfirmationsForPayment,
     required this.devMode,
     required this.mandatoryEmailConfirmations,
@@ -93,6 +123,7 @@ class EbillConfig {
       transportInitialSubscriptionDelaySeconds.hashCode ^
       defaultMintUrl.hashCode ^
       defaultMintNodeId.hashCode ^
+      mints.hashCode ^
       numConfirmationsForPayment.hashCode ^
       devMode.hashCode ^
       mandatoryEmailConfirmations.hashCode ^
@@ -121,6 +152,7 @@ class EbillConfig {
               other.transportInitialSubscriptionDelaySeconds &&
           defaultMintUrl == other.defaultMintUrl &&
           defaultMintNodeId == other.defaultMintNodeId &&
+          mints == other.mints &&
           numConfirmationsForPayment == other.numConfirmationsForPayment &&
           devMode == other.devMode &&
           mandatoryEmailConfirmations == other.mandatoryEmailConfirmations &&

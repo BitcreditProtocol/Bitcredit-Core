@@ -297,12 +297,40 @@ pub struct EbillConfig {
     pub transport_initial_subscription_delay_seconds: Option<u32>,
     pub default_mint_url: String,
     pub default_mint_node_id: String,
+    /// Optional additional Mints that bill quotes may target. The default Mint stays the
+    /// service Mint; leaving this unset keeps the single-Mint behaviour.
+    pub mints: Option<Vec<ConfiguredMint>>,
     pub num_confirmations_for_payment: usize,
     pub dev_mode: bool,
     pub mandatory_email_confirmations: bool,
     pub default_court_url: String,
     // The mnemonic for the main identity, used for persistence encryption
     pub mnemonic: String,
+}
+
+/// A Mint that bill quotes may target besides the default Mint.
+#[derive(Debug, Clone)]
+pub struct ConfiguredMint {
+    pub name: String,
+    pub node_id: String,
+    pub url: String,
+}
+
+fn configured_mints(
+    conf: &EbillConfig,
+) -> Result<Vec<bcr_ebill_api::ConfiguredMint>, EbillFfiError> {
+    conf.mints
+        .iter()
+        .flatten()
+        .map(|mint| {
+            Ok(bcr_ebill_api::ConfiguredMint {
+                name: mint.name.to_owned(),
+                node_id: NodeId::from_str(&mint.node_id)
+                    .map_err(|e| err_init(format!("is a valid mint id: {e}")))?,
+                url: url::Url::parse(&mint.url).map_err(err_init)?,
+            })
+        })
+        .collect()
 }
 
 fn build_api_config(conf: &EbillConfig) -> Result<ApiConfig, EbillFfiError> {
@@ -341,7 +369,8 @@ fn build_api_config(conf: &EbillConfig) -> Result<ApiConfig, EbillFfiError> {
             max_relays: conf.nostr_max_relays.or(Some(50)),
             relay_ack_threshold: conf.nostr_relay_ack_threshold.unwrap_or(1),
         },
-        mint_config: MintConfig::new(conf.default_mint_url.to_owned(), mint_node_id)?,
+        mint_config: MintConfig::new(conf.default_mint_url.to_owned(), mint_node_id)?
+            .with_mints(configured_mints(conf)?)?,
         payment_config: PaymentConfig {
             num_confirmations_for_payment: conf.num_confirmations_for_payment,
         },
@@ -358,7 +387,10 @@ fn build_api_config(conf: &EbillConfig) -> Result<ApiConfig, EbillFfiError> {
             "esplora_base_urls must contain at least one URL"
         )));
     }
-    api_config.try_bitcoin_network()?;
+    let network = api_config.try_bitcoin_network()?;
+    for mint in &api_config.mint_config.mints {
+        validate_node_id_network(&mint.node_id, network)?;
+    }
     debug!("Config: {api_config:?}");
     Ok(api_config)
 }
@@ -532,5 +564,100 @@ mod instance_network_tests {
             assert!(instance_accepts_network(InstanceId::Mainnet, network));
             assert!(!instance_accepts_network(InstanceId::Testnet, network));
         }
+    }
+}
+
+#[cfg(test)]
+mod configured_mint_tests {
+    use super::*;
+    use bitcoin::{Network, secp256k1::SecretKey};
+
+    fn node(n: u8, network: Network) -> String {
+        let keys = BcrKeys::from_private_key(&SecretKey::from_slice(&[n; 32]).unwrap());
+        NodeId::new(keys.pub_key(), network).to_string()
+    }
+
+    fn config(mints: Option<Vec<ConfiguredMint>>) -> EbillConfig {
+        EbillConfig {
+            sqlite_db_path: "sqlite::memory:".into(),
+            temp_files_path: "/tmp".into(),
+            log_level: None,
+            bitcoin_network: "regtest".into(),
+            esplora_base_urls: vec!["http://localhost:8094/regtest/api/".into()],
+            nostr_relays: vec!["ws://localhost:8080".into()],
+            blossom_servers: None,
+            nostr_only_known_contacts: None,
+            nostr_max_relays: None,
+            nostr_relay_ack_threshold: None,
+            job_runner_initial_delay_seconds: 1,
+            job_runner_check_interval_seconds: 1,
+            transport_initial_subscription_delay_seconds: None,
+            default_mint_url: "http://localhost:4343".into(),
+            default_mint_node_id: node(1, Network::Regtest),
+            mints,
+            num_confirmations_for_payment: 6,
+            dev_mode: false,
+            mandatory_email_confirmations: false,
+            default_court_url: "http://localhost:8000".into(),
+            mnemonic: String::new(),
+        }
+    }
+
+    fn mint_b(network: Network, url: &str) -> ConfiguredMint {
+        ConfiguredMint {
+            name: "Mint B".into(),
+            node_id: node(2, network),
+            url: url.into(),
+        }
+    }
+
+    #[test]
+    fn unset_mints_keep_the_single_default_mint() {
+        let api = build_api_config(&config(None)).unwrap();
+        assert!(api.mint_config.mints.is_empty());
+        let default = NodeId::from_str(&node(1, Network::Regtest)).unwrap();
+        assert_eq!(
+            api.mint_config.url_for(&default).unwrap().as_str(),
+            "http://localhost:4343/"
+        );
+        let b = NodeId::from_str(&node(2, Network::Regtest)).unwrap();
+        assert!(api.mint_config.url_for(&b).is_none());
+    }
+
+    #[test]
+    fn configured_mint_routes_quotes_to_its_own_url() {
+        let api = build_api_config(&config(Some(vec![mint_b(
+            Network::Regtest,
+            "http://localhost:6343",
+        )])))
+        .unwrap();
+        let b = NodeId::from_str(&node(2, Network::Regtest)).unwrap();
+        assert_eq!(
+            api.mint_config.url_for(&b).unwrap().as_str(),
+            "http://localhost:6343/"
+        );
+        assert_eq!(
+            api.mint_config.default_mint_node_id.to_string(),
+            node(1, Network::Regtest)
+        );
+    }
+
+    #[test]
+    fn configured_mint_must_match_network_and_not_reuse_another_mints_url() {
+        assert!(
+            build_api_config(&config(Some(vec![mint_b(
+                Network::Testnet,
+                "http://localhost:6343"
+            )])))
+            .is_err()
+        );
+        assert!(
+            build_api_config(&config(Some(vec![mint_b(
+                Network::Regtest,
+                "http://localhost:4343"
+            )])))
+            .is_err()
+        );
+        assert!(build_api_config(&config(Some(vec![mint_b(Network::Regtest, "mint-b")]))).is_err());
     }
 }

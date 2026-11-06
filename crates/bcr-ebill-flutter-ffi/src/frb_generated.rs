@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 304548352;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 2064485383;
 
 // Section: executor
 
@@ -153,6 +153,47 @@ fn wire__crate__ffi__api__bill__accept_mint_offer_impl(
                     (move || async move {
                         let output_ok =
                             crate::ffi::api::bill::accept_mint_offer(&api_mint_request_id).await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__ffi__api__bill__accept_mint_offer_for_mint_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "accept_mint_offer_for_mint",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_mint_node_id = <String>::sse_decode(&mut deserializer);
+            let api_mint_request_id = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, crate::ffi::error::EbillFfiError>(
+                    (move || async move {
+                        let output_ok = crate::ffi::api::bill::accept_mint_offer_for_mint(
+                            &api_mint_node_id,
+                            &api_mint_request_id,
+                        )
+                        .await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -456,6 +497,47 @@ fn wire__crate__ffi__api__bill__cancel_request_to_mint_impl(
                         let output_ok =
                             crate::ffi::api::bill::cancel_request_to_mint(&api_mint_request_id)
                                 .await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__ffi__api__bill__cancel_request_to_mint_for_mint_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "cancel_request_to_mint_for_mint",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_mint_node_id = <String>::sse_decode(&mut deserializer);
+            let api_mint_request_id = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, crate::ffi::error::EbillFfiError>(
+                    (move || async move {
+                        let output_ok = crate::ffi::api::bill::cancel_request_to_mint_for_mint(
+                            &api_mint_node_id,
+                            &api_mint_request_id,
+                        )
+                        .await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -3269,6 +3351,47 @@ fn wire__crate__ffi__api__bill__reject_mint_offer_impl(
         },
     )
 }
+fn wire__crate__ffi__api__bill__reject_mint_offer_for_mint_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "reject_mint_offer_for_mint",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_mint_node_id = <String>::sse_decode(&mut deserializer);
+            let api_mint_request_id = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, crate::ffi::error::EbillFfiError>(
+                    (move || async move {
+                        let output_ok = crate::ffi::api::bill::reject_mint_offer_for_mint(
+                            &api_mint_node_id,
+                            &api_mint_request_id,
+                        )
+                        .await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
 fn wire__crate__ffi__api__bill__reject_to_accept_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -5974,6 +6097,20 @@ impl SseDecode for crate::ffi::data::company::CompanyVerifyEmailPayload {
     }
 }
 
+impl SseDecode for crate::ffi::ConfiguredMint {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_name = <String>::sse_decode(deserializer);
+        let mut var_nodeId = <String>::sse_decode(deserializer);
+        let mut var_url = <String>::sse_decode(deserializer);
+        return crate::ffi::ConfiguredMint {
+            name: var_name,
+            node_id: var_nodeId,
+            url: var_url,
+        };
+    }
+}
+
 impl SseDecode for crate::ffi::data::identity::ConfirmEmailPayload {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -6155,6 +6292,7 @@ impl SseDecode for crate::ffi::EbillConfig {
             <Option<u32>>::sse_decode(deserializer);
         let mut var_defaultMintUrl = <String>::sse_decode(deserializer);
         let mut var_defaultMintNodeId = <String>::sse_decode(deserializer);
+        let mut var_mints = <Option<Vec<crate::ffi::ConfiguredMint>>>::sse_decode(deserializer);
         let mut var_numConfirmationsForPayment = <usize>::sse_decode(deserializer);
         let mut var_devMode = <bool>::sse_decode(deserializer);
         let mut var_mandatoryEmailConfirmations = <bool>::sse_decode(deserializer);
@@ -6177,6 +6315,7 @@ impl SseDecode for crate::ffi::EbillConfig {
                 var_transportInitialSubscriptionDelaySeconds,
             default_mint_url: var_defaultMintUrl,
             default_mint_node_id: var_defaultMintNodeId,
+            mints: var_mints,
             num_confirmations_for_payment: var_numConfirmationsForPayment,
             dev_mode: var_devMode,
             mandatory_email_confirmations: var_mandatoryEmailConfirmations,
@@ -6979,6 +7118,18 @@ impl SseDecode for Vec<crate::ffi::data::company::CompanySignatoryFfi> {
         let mut ans_ = Vec::with_capacity(len_ as usize);
         for idx_ in 0..len_ {
             ans_.push(<crate::ffi::data::company::CompanySignatoryFfi>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::ffi::ConfiguredMint> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::ffi::ConfiguredMint>::sse_decode(deserializer));
         }
         return ans_;
     }
@@ -7837,6 +7988,17 @@ impl SseDecode for Option<Vec<String>> {
     }
 }
 
+impl SseDecode for Option<Vec<crate::ffi::ConfiguredMint>> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<Vec<crate::ffi::ConfiguredMint>>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
 impl SseDecode for crate::ffi::data::OptionalPostalAddressFfi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -8531,314 +8693,332 @@ fn pde_ffi_dispatcher_primary_impl(
         1 => wire__crate__ffi__api__bill__accept_impl(port, ptr, rust_vec_len, data_len),
         2 => wire__crate__ffi__api__company__accept_invite_impl(port, ptr, rust_vec_len, data_len),
         3 => wire__crate__ffi__api__bill__accept_mint_offer_impl(port, ptr, rust_vec_len, data_len),
-        4 => wire__crate__ffi__api__identity__active_impl(port, ptr, rust_vec_len, data_len),
-        5 => wire__crate__ffi__api__notification__active_notifications_for_node_ids_impl(
+        4 => wire__crate__ffi__api__bill__accept_mint_offer_for_mint_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        6 => wire__crate__ffi__api__contact__approve_contact_share_impl(
+        5 => wire__crate__ffi__api__identity__active_impl(port, ptr, rust_vec_len, data_len),
+        6 => wire__crate__ffi__api__notification__active_notifications_for_node_ids_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        7 => wire__crate__ffi__api__bill__attachment_impl(port, ptr, rust_vec_len, data_len),
-        8 => wire__crate__ffi__api__bill__attachment_base64_impl(port, ptr, rust_vec_len, data_len),
-        9 => wire__crate__ffi__api__bill__bill_history_impl(port, ptr, rust_vec_len, data_len),
-        10 => wire__crate__ffi__api__bill__bitcoin_keys_impl(port, ptr, rust_vec_len, data_len),
-        11 => wire__crate__ffi__api__bill__cancel_request_to_mint_impl(
+        7 => wire__crate__ffi__api__contact__approve_contact_share_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        12 => wire__crate__ffi__api__identity__change_impl(port, ptr, rust_vec_len, data_len),
-        13 => wire__crate__ffi__api__identity__change_email_impl(port, ptr, rust_vec_len, data_len),
-        14 => wire__crate__ffi__api__company__change_signatory_email_impl(
+        8 => wire__crate__ffi__api__bill__attachment_impl(port, ptr, rust_vec_len, data_len),
+        9 => wire__crate__ffi__api__bill__attachment_base64_impl(port, ptr, rust_vec_len, data_len),
+        10 => wire__crate__ffi__api__bill__bill_history_impl(port, ptr, rust_vec_len, data_len),
+        11 => wire__crate__ffi__api__bill__bitcoin_keys_impl(port, ptr, rust_vec_len, data_len),
+        12 => wire__crate__ffi__api__bill__cancel_request_to_mint_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        15 => wire__crate__ffi__api__bill__check_and_estimate_btc_sweep_impl(
+        13 => wire__crate__ffi__api__bill__cancel_request_to_mint_for_mint_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        16 => wire__crate__ffi__api__bill__check_mint_state_impl(port, ptr, rust_vec_len, data_len),
-        17 => wire__crate__ffi__api__bill__check_payment_impl(port, ptr, rust_vec_len, data_len),
-        18 => wire__crate__ffi__api__bill__check_payment_for_bill_impl(
+        14 => wire__crate__ffi__api__identity__change_impl(port, ptr, rust_vec_len, data_len),
+        15 => wire__crate__ffi__api__identity__change_email_impl(port, ptr, rust_vec_len, data_len),
+        16 => wire__crate__ffi__api__company__change_signatory_email_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        19 => wire__crate__ffi__api__bill__clear_bill_cache_impl(port, ptr, rust_vec_len, data_len),
-        20 => wire__crate__ffi__api__company__confirm_email_impl(port, ptr, rust_vec_len, data_len),
-        21 => {
+        17 => wire__crate__ffi__api__bill__check_and_estimate_btc_sweep_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        18 => wire__crate__ffi__api__bill__check_mint_state_impl(port, ptr, rust_vec_len, data_len),
+        19 => wire__crate__ffi__api__bill__check_payment_impl(port, ptr, rust_vec_len, data_len),
+        20 => wire__crate__ffi__api__bill__check_payment_for_bill_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        21 => wire__crate__ffi__api__bill__clear_bill_cache_impl(port, ptr, rust_vec_len, data_len),
+        22 => wire__crate__ffi__api__company__confirm_email_impl(port, ptr, rust_vec_len, data_len),
+        23 => {
             wire__crate__ffi__api__identity__confirm_email_impl(port, ptr, rust_vec_len, data_len)
         }
-        22 => wire__crate__ffi__api__company__create_impl(port, ptr, rust_vec_len, data_len),
-        23 => wire__crate__ffi__api__contact__create_impl(port, ptr, rust_vec_len, data_len),
-        24 => wire__crate__ffi__api__identity__create_impl(port, ptr, rust_vec_len, data_len),
-        25 => wire__crate__ffi__api__company__create_keys_impl(port, ptr, rust_vec_len, data_len),
-        26 => wire__crate__ffi__data__create_optional_postal_address_ffi_is_none_impl(
+        24 => wire__crate__ffi__api__company__create_impl(port, ptr, rust_vec_len, data_len),
+        25 => wire__crate__ffi__api__contact__create_impl(port, ptr, rust_vec_len, data_len),
+        26 => wire__crate__ffi__api__identity__create_impl(port, ptr, rust_vec_len, data_len),
+        27 => wire__crate__ffi__api__company__create_keys_impl(port, ptr, rust_vec_len, data_len),
+        28 => wire__crate__ffi__data__create_optional_postal_address_ffi_is_none_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        27 => wire__crate__ffi__api__general__currencies_impl(port, ptr, rust_vec_len, data_len),
-        28 => wire__crate__ffi__api__contact__deanonymize_impl(port, ptr, rust_vec_len, data_len),
-        29 => wire__crate__ffi__api__identity__deanonymize_impl(port, ptr, rust_vec_len, data_len),
-        30 => wire__crate__ffi__api__bill__detail_impl(port, ptr, rust_vec_len, data_len),
-        31 => wire__crate__ffi__api__company__detail_impl(port, ptr, rust_vec_len, data_len),
-        32 => wire__crate__ffi__api__contact__detail_impl(port, ptr, rust_vec_len, data_len),
-        33 => wire__crate__ffi__api__identity__detail_impl(port, ptr, rust_vec_len, data_len),
-        34 => wire__crate__ffi__api__bill__dev_mode_get_full_bill_chain_impl(
+        29 => wire__crate__ffi__api__general__currencies_impl(port, ptr, rust_vec_len, data_len),
+        30 => wire__crate__ffi__api__contact__deanonymize_impl(port, ptr, rust_vec_len, data_len),
+        31 => wire__crate__ffi__api__identity__deanonymize_impl(port, ptr, rust_vec_len, data_len),
+        32 => wire__crate__ffi__api__bill__detail_impl(port, ptr, rust_vec_len, data_len),
+        33 => wire__crate__ffi__api__company__detail_impl(port, ptr, rust_vec_len, data_len),
+        34 => wire__crate__ffi__api__contact__detail_impl(port, ptr, rust_vec_len, data_len),
+        35 => wire__crate__ffi__api__identity__detail_impl(port, ptr, rust_vec_len, data_len),
+        36 => wire__crate__ffi__api__bill__dev_mode_get_full_bill_chain_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        35 => wire__crate__ffi__api__company__dev_mode_get_full_company_chain_impl(
+        37 => wire__crate__ffi__api__company__dev_mode_get_full_company_chain_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        36 => wire__crate__ffi__api__identity__dev_mode_get_full_identity_chain_impl(
+        38 => wire__crate__ffi__api__identity__dev_mode_get_full_identity_chain_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        37 => wire__crate__ffi__api__bill__dev_mode_override_bill_chain_from_nostr_impl(
+        39 => wire__crate__ffi__api__bill__dev_mode_override_bill_chain_from_nostr_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        38 => wire__crate__ffi__api__company__dev_mode_override_company_chain_from_nostr_impl(
+        40 => wire__crate__ffi__api__company__dev_mode_override_company_chain_from_nostr_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        39 => wire__crate__ffi__api__identity__dev_mode_override_identity_chain_from_nostr_impl(
+        41 => wire__crate__ffi__api__identity__dev_mode_override_identity_chain_from_nostr_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        40 => wire__crate__ffi__api__bill__dev_mode_reset_bill_mint_quote_state_impl(
+        42 => wire__crate__ffi__api__bill__dev_mode_reset_bill_mint_quote_state_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        41 => wire__crate__ffi__api__company__edit_impl(port, ptr, rust_vec_len, data_len),
-        42 => wire__crate__ffi__api__contact__edit_impl(port, ptr, rust_vec_len, data_len),
-        43 => wire__crate__ffi__api__bill__endorse_bill_impl(port, ptr, rust_vec_len, data_len),
-        44 => {
+        43 => wire__crate__ffi__api__company__edit_impl(port, ptr, rust_vec_len, data_len),
+        44 => wire__crate__ffi__api__contact__edit_impl(port, ptr, rust_vec_len, data_len),
+        45 => wire__crate__ffi__api__bill__endorse_bill_impl(port, ptr, rust_vec_len, data_len),
+        46 => {
             wire__crate__ffi__api__bill__endorse_bill_blank_impl(port, ptr, rust_vec_len, data_len)
         }
-        45 => wire__crate__ffi__api__bill__endorsements_impl(port, ptr, rust_vec_len, data_len),
-        46 => wire__crate__ffi__api__general__fetch_resend_queue_entries_impl(
+        47 => wire__crate__ffi__api__bill__endorsements_impl(port, ptr, rust_vec_len, data_len),
+        48 => wire__crate__ffi__api__general__fetch_resend_queue_entries_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        47 => wire__crate__ffi__api__company__file_impl(port, ptr, rust_vec_len, data_len),
-        48 => wire__crate__ffi__api__contact__file_impl(port, ptr, rust_vec_len, data_len),
-        49 => wire__crate__ffi__api__identity__file_impl(port, ptr, rust_vec_len, data_len),
-        50 => wire__crate__ffi__api__company__file_base64_impl(port, ptr, rust_vec_len, data_len),
-        51 => wire__crate__ffi__api__contact__file_base64_impl(port, ptr, rust_vec_len, data_len),
-        52 => wire__crate__ffi__api__identity__file_base64_impl(port, ptr, rust_vec_len, data_len),
-        53 => wire__crate__ffi__api__general__generate_random_mnemonic_impl(
+        49 => wire__crate__ffi__api__company__file_impl(port, ptr, rust_vec_len, data_len),
+        50 => wire__crate__ffi__api__contact__file_impl(port, ptr, rust_vec_len, data_len),
+        51 => wire__crate__ffi__api__identity__file_impl(port, ptr, rust_vec_len, data_len),
+        52 => wire__crate__ffi__api__company__file_base64_impl(port, ptr, rust_vec_len, data_len),
+        53 => wire__crate__ffi__api__contact__file_base64_impl(port, ptr, rust_vec_len, data_len),
+        54 => wire__crate__ffi__api__identity__file_base64_impl(port, ptr, rust_vec_len, data_len),
+        55 => wire__crate__ffi__api__general__generate_random_mnemonic_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        54 => wire__crate__ffi__get_active_instance_impl(port, ptr, rust_vec_len, data_len),
-        55 => wire__crate__ffi__api__company__get_email_confirmations_impl(
+        56 => wire__crate__ffi__get_active_instance_impl(port, ptr, rust_vec_len, data_len),
+        57 => wire__crate__ffi__api__company__get_email_confirmations_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        56 => wire__crate__ffi__api__identity__get_email_confirmations_impl(
+        58 => wire__crate__ffi__api__identity__get_email_confirmations_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        57 => wire__crate__ffi__api__notification__get_email_notifications_preferences_link_impl(
+        59 => wire__crate__ffi__api__notification__get_email_notifications_preferences_link_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        58 => wire__crate__ffi__api__contact__get_pending_contact_share_impl(
+        60 => wire__crate__ffi__api__contact__get_pending_contact_share_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        59 => wire__crate__ffi__api__general__get_status_impl(port, ptr, rust_vec_len, data_len),
-        60 => wire__crate__ffi__init_app_impl(port, ptr, rust_vec_len, data_len),
-        61 => wire__crate__ffi__init_ebill_instance_impl(port, ptr, rust_vec_len, data_len),
-        62 => {
+        61 => wire__crate__ffi__api__general__get_status_impl(port, ptr, rust_vec_len, data_len),
+        62 => wire__crate__ffi__init_app_impl(port, ptr, rust_vec_len, data_len),
+        63 => wire__crate__ffi__init_ebill_instance_impl(port, ptr, rust_vec_len, data_len),
+        64 => {
             wire__crate__ffi__api__company__invite_signatory_impl(port, ptr, rust_vec_len, data_len)
         }
-        63 => wire__crate__ffi__api__bill__issue_impl(port, ptr, rust_vec_len, data_len),
-        64 => wire__crate__ffi__api__bill__issue_blank_impl(port, ptr, rust_vec_len, data_len),
-        65 => wire__crate__ffi__api__general__link_to_pay_impl(port, ptr, rust_vec_len, data_len),
-        66 => wire__crate__ffi__api__bill__list_impl(port, ptr, rust_vec_len, data_len),
-        67 => wire__crate__ffi__api__company__list_impl(port, ptr, rust_vec_len, data_len),
-        68 => wire__crate__ffi__api__contact__list_impl(port, ptr, rust_vec_len, data_len),
-        69 => wire__crate__ffi__api__notification__list_impl(port, ptr, rust_vec_len, data_len),
-        70 => wire__crate__ffi__api__company__list_invites_impl(port, ptr, rust_vec_len, data_len),
-        71 => wire__crate__ffi__api__bill__list_light_impl(port, ptr, rust_vec_len, data_len),
-        72 => wire__crate__ffi__api__contact__list_pending_contact_shares_impl(
+        65 => wire__crate__ffi__api__bill__issue_impl(port, ptr, rust_vec_len, data_len),
+        66 => wire__crate__ffi__api__bill__issue_blank_impl(port, ptr, rust_vec_len, data_len),
+        67 => wire__crate__ffi__api__general__link_to_pay_impl(port, ptr, rust_vec_len, data_len),
+        68 => wire__crate__ffi__api__bill__list_impl(port, ptr, rust_vec_len, data_len),
+        69 => wire__crate__ffi__api__company__list_impl(port, ptr, rust_vec_len, data_len),
+        70 => wire__crate__ffi__api__contact__list_impl(port, ptr, rust_vec_len, data_len),
+        71 => wire__crate__ffi__api__notification__list_impl(port, ptr, rust_vec_len, data_len),
+        72 => wire__crate__ffi__api__company__list_invites_impl(port, ptr, rust_vec_len, data_len),
+        73 => wire__crate__ffi__api__bill__list_light_impl(port, ptr, rust_vec_len, data_len),
+        74 => wire__crate__ffi__api__contact__list_pending_contact_shares_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        73 => {
+        75 => {
             wire__crate__ffi__api__company__list_signatories_impl(port, ptr, rust_vec_len, data_len)
         }
-        74 => wire__crate__ffi__api__company__locally_hide_signatory_impl(
+        76 => wire__crate__ffi__api__company__locally_hide_signatory_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        75 => wire__crate__ffi__api__notification__mark_as_done_impl(
+        77 => wire__crate__ffi__api__notification__mark_as_done_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        76 => wire__crate__ffi__api__general__mempool_link_impl(port, ptr, rust_vec_len, data_len),
-        77 => wire__crate__ffi__api__bill__mint_state_impl(port, ptr, rust_vec_len, data_len),
-        78 => wire__crate__ffi__data__notification_filters_ffi_default_impl(
+        78 => wire__crate__ffi__api__general__mempool_link_impl(port, ptr, rust_vec_len, data_len),
+        79 => wire__crate__ffi__api__bill__mint_state_impl(port, ptr, rust_vec_len, data_len),
+        80 => wire__crate__ffi__data__notification_filters_ffi_default_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        79 => wire__crate__ffi__api__bill__offer_to_sell_impl(port, ptr, rust_vec_len, data_len),
-        80 => {
+        81 => wire__crate__ffi__api__bill__offer_to_sell_impl(port, ptr, rust_vec_len, data_len),
+        82 => {
             wire__crate__ffi__api__bill__offer_to_sell_blank_impl(port, ptr, rust_vec_len, data_len)
         }
-        81 => wire__crate__ffi__data__optional_postal_address_ffi_is_none_impl(
+        83 => wire__crate__ffi__data__optional_postal_address_ffi_is_none_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        82 => wire__crate__ffi__api__general__overview_impl(port, ptr, rust_vec_len, data_len),
-        83 => wire__crate__ffi__api__bill__past_endorsees_impl(port, ptr, rust_vec_len, data_len),
-        84 => wire__crate__ffi__api__bill__past_payments_impl(port, ptr, rust_vec_len, data_len),
-        85 => wire__crate__ffi__api__contact__reject_contact_share_impl(
+        84 => wire__crate__ffi__api__general__overview_impl(port, ptr, rust_vec_len, data_len),
+        85 => wire__crate__ffi__api__bill__past_endorsees_impl(port, ptr, rust_vec_len, data_len),
+        86 => wire__crate__ffi__api__bill__past_payments_impl(port, ptr, rust_vec_len, data_len),
+        87 => wire__crate__ffi__api__contact__reject_contact_share_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        86 => wire__crate__ffi__api__company__reject_invite_impl(port, ptr, rust_vec_len, data_len),
-        87 => {
+        88 => wire__crate__ffi__api__company__reject_invite_impl(port, ptr, rust_vec_len, data_len),
+        89 => {
             wire__crate__ffi__api__bill__reject_mint_offer_impl(port, ptr, rust_vec_len, data_len)
         }
-        88 => wire__crate__ffi__api__bill__reject_to_accept_impl(port, ptr, rust_vec_len, data_len),
-        89 => wire__crate__ffi__api__bill__reject_to_buy_impl(port, ptr, rust_vec_len, data_len),
-        90 => wire__crate__ffi__api__bill__reject_to_pay_impl(port, ptr, rust_vec_len, data_len),
-        91 => wire__crate__ffi__api__bill__reject_to_pay_recourse_impl(
+        90 => wire__crate__ffi__api__bill__reject_mint_offer_for_mint_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        92 => wire__crate__ffi__api__contact__remove_impl(port, ptr, rust_vec_len, data_len),
-        93 => {
+        91 => wire__crate__ffi__api__bill__reject_to_accept_impl(port, ptr, rust_vec_len, data_len),
+        92 => wire__crate__ffi__api__bill__reject_to_buy_impl(port, ptr, rust_vec_len, data_len),
+        93 => wire__crate__ffi__api__bill__reject_to_pay_impl(port, ptr, rust_vec_len, data_len),
+        94 => wire__crate__ffi__api__bill__reject_to_pay_recourse_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        95 => wire__crate__ffi__api__contact__remove_impl(port, ptr, rust_vec_len, data_len),
+        96 => {
             wire__crate__ffi__api__company__remove_signatory_impl(port, ptr, rust_vec_len, data_len)
         }
-        94 => {
+        97 => {
             wire__crate__ffi__api__bill__request_to_accept_impl(port, ptr, rust_vec_len, data_len)
         }
-        95 => wire__crate__ffi__api__bill__request_to_mint_impl(port, ptr, rust_vec_len, data_len),
-        96 => wire__crate__ffi__api__bill__request_to_mint_reissue_impl(
+        98 => wire__crate__ffi__api__bill__request_to_mint_impl(port, ptr, rust_vec_len, data_len),
+        99 => wire__crate__ffi__api__bill__request_to_mint_reissue_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        97 => wire__crate__ffi__api__bill__request_to_pay_impl(port, ptr, rust_vec_len, data_len),
-        98 => wire__crate__ffi__api__bill__request_to_pay_as_mint_impl(
+        100 => wire__crate__ffi__api__bill__request_to_pay_impl(port, ptr, rust_vec_len, data_len),
+        101 => wire__crate__ffi__api__bill__request_to_pay_as_mint_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        99 => wire__crate__ffi__api__bill__request_to_recourse_bill_acceptance_impl(
+        102 => wire__crate__ffi__api__bill__request_to_recourse_bill_acceptance_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        100 => wire__crate__ffi__api__bill__request_to_recourse_bill_payment_impl(
+        103 => wire__crate__ffi__api__bill__request_to_recourse_bill_payment_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        101 => wire__crate__ffi__api__general__requeue_failed_resend_queue_entry_impl(
+        104 => wire__crate__ffi__api__general__requeue_failed_resend_queue_entry_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        102 => wire__crate__ffi__reset_ebill_instance_impl(port, ptr, rust_vec_len, data_len),
-        103 => wire__crate__ffi__api__bill__search_impl(port, ptr, rust_vec_len, data_len),
-        104 => wire__crate__ffi__api__contact__search_impl(port, ptr, rust_vec_len, data_len),
-        105 => wire__crate__ffi__api__general__search_impl(port, ptr, rust_vec_len, data_len),
-        106 => wire__crate__ffi__api__identity__seed_backup_impl(port, ptr, rust_vec_len, data_len),
-        107 => {
+        105 => wire__crate__ffi__reset_ebill_instance_impl(port, ptr, rust_vec_len, data_len),
+        106 => wire__crate__ffi__api__bill__search_impl(port, ptr, rust_vec_len, data_len),
+        107 => wire__crate__ffi__api__contact__search_impl(port, ptr, rust_vec_len, data_len),
+        108 => wire__crate__ffi__api__general__search_impl(port, ptr, rust_vec_len, data_len),
+        109 => wire__crate__ffi__api__identity__seed_backup_impl(port, ptr, rust_vec_len, data_len),
+        110 => {
             wire__crate__ffi__api__identity__seed_recover_impl(port, ptr, rust_vec_len, data_len)
         }
-        108 => wire__crate__ffi__set_active_instance_impl(port, ptr, rust_vec_len, data_len),
-        109 => wire__crate__ffi__api__bill__share_bill_with_court_impl(
+        111 => wire__crate__ffi__set_active_instance_impl(port, ptr, rust_vec_len, data_len),
+        112 => wire__crate__ffi__api__bill__share_bill_with_court_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        110 => wire__crate__ffi__api__company__share_contact_details_impl(
+        113 => wire__crate__ffi__api__company__share_contact_details_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        111 => wire__crate__ffi__api__identity__share_contact_details_impl(
+        114 => wire__crate__ffi__api__identity__share_contact_details_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        112 => wire__crate__ffi__api__facility__sign_facility_application_admission_impl(
+        115 => wire__crate__ffi__api__facility__sign_facility_application_admission_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        113 => {
+        116 => {
             wire__crate__ffi__api__mint_application_admission__sign_mint_application_admission_impl(
                 port,
                 ptr,
@@ -8846,31 +9026,31 @@ fn pde_ffi_dispatcher_primary_impl(
                 data_len,
             )
         }
-        114 => {
+        117 => {
             wire__crate__ffi__api__notification__subscribe_impl(port, ptr, rust_vec_len, data_len)
         }
-        115 => wire__crate__ffi__api__bill__sweep_btc_funds_impl(port, ptr, rust_vec_len, data_len),
-        116 => wire__crate__ffi__api__identity__switch_impl(port, ptr, rust_vec_len, data_len),
-        117 => wire__crate__ffi__api__bill__sync_bill_chain_impl(port, ptr, rust_vec_len, data_len),
-        118 => wire__crate__ffi__api__company__sync_company_chain_impl(
+        118 => wire__crate__ffi__api__bill__sweep_btc_funds_impl(port, ptr, rust_vec_len, data_len),
+        119 => wire__crate__ffi__api__identity__switch_impl(port, ptr, rust_vec_len, data_len),
+        120 => wire__crate__ffi__api__bill__sync_bill_chain_impl(port, ptr, rust_vec_len, data_len),
+        121 => wire__crate__ffi__api__company__sync_company_chain_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        119 => wire__crate__ffi__api__identity__sync_identity_chain_impl(
+        122 => wire__crate__ffi__api__identity__sync_identity_chain_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        120 => wire__crate__ffi__api__general__temp_file_impl(port, ptr, rust_vec_len, data_len),
-        121 => wire__crate__ffi__api__bill__upload_impl(port, ptr, rust_vec_len, data_len),
-        122 => wire__crate__ffi__api__company__upload_impl(port, ptr, rust_vec_len, data_len),
-        123 => wire__crate__ffi__api__contact__upload_impl(port, ptr, rust_vec_len, data_len),
-        124 => wire__crate__ffi__api__identity__upload_impl(port, ptr, rust_vec_len, data_len),
-        125 => wire__crate__ffi__api__company__verify_email_impl(port, ptr, rust_vec_len, data_len),
-        126 => {
+        123 => wire__crate__ffi__api__general__temp_file_impl(port, ptr, rust_vec_len, data_len),
+        124 => wire__crate__ffi__api__bill__upload_impl(port, ptr, rust_vec_len, data_len),
+        125 => wire__crate__ffi__api__company__upload_impl(port, ptr, rust_vec_len, data_len),
+        126 => wire__crate__ffi__api__contact__upload_impl(port, ptr, rust_vec_len, data_len),
+        127 => wire__crate__ffi__api__identity__upload_impl(port, ptr, rust_vec_len, data_len),
+        128 => wire__crate__ffi__api__company__verify_email_impl(port, ptr, rust_vec_len, data_len),
+        129 => {
             wire__crate__ffi__api__identity__verify_email_impl(port, ptr, rust_vec_len, data_len)
         }
         _ => unreachable!(),
@@ -10396,6 +10576,23 @@ impl flutter_rust_bridge::IntoIntoDart<crate::ffi::data::company::CompanyVerifyE
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::ffi::ConfiguredMint {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.name.into_into_dart().into_dart(),
+            self.node_id.into_into_dart().into_dart(),
+            self.url.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::ffi::ConfiguredMint {}
+impl flutter_rust_bridge::IntoIntoDart<crate::ffi::ConfiguredMint> for crate::ffi::ConfiguredMint {
+    fn into_into_dart(self) -> crate::ffi::ConfiguredMint {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::ffi::data::identity::ConfirmEmailPayload {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [self.email.into_into_dart().into_dart()].into_dart()
@@ -10647,6 +10844,7 @@ impl flutter_rust_bridge::IntoDart for crate::ffi::EbillConfig {
                 .into_dart(),
             self.default_mint_url.into_into_dart().into_dart(),
             self.default_mint_node_id.into_into_dart().into_dart(),
+            self.mints.into_into_dart().into_dart(),
             self.num_confirmations_for_payment
                 .into_into_dart()
                 .into_dart(),
@@ -13847,6 +14045,15 @@ impl SseEncode for crate::ffi::data::company::CompanyVerifyEmailPayload {
     }
 }
 
+impl SseEncode for crate::ffi::ConfiguredMint {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.name, serializer);
+        <String>::sse_encode(self.node_id, serializer);
+        <String>::sse_encode(self.url, serializer);
+    }
+}
+
 impl SseEncode for crate::ffi::data::identity::ConfirmEmailPayload {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -13977,6 +14184,7 @@ impl SseEncode for crate::ffi::EbillConfig {
         );
         <String>::sse_encode(self.default_mint_url, serializer);
         <String>::sse_encode(self.default_mint_node_id, serializer);
+        <Option<Vec<crate::ffi::ConfiguredMint>>>::sse_encode(self.mints, serializer);
         <usize>::sse_encode(self.num_confirmations_for_payment, serializer);
         <bool>::sse_encode(self.dev_mode, serializer);
         <bool>::sse_encode(self.mandatory_email_confirmations, serializer);
@@ -14642,6 +14850,16 @@ impl SseEncode for Vec<crate::ffi::data::company::CompanySignatoryFfi> {
     }
 }
 
+impl SseEncode for Vec<crate::ffi::ConfiguredMint> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::ffi::ConfiguredMint>::sse_encode(item, serializer);
+        }
+    }
+}
+
 impl SseEncode for Vec<crate::ffi::data::contact::ContactFfi> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -15281,6 +15499,16 @@ impl SseEncode for Option<Vec<String>> {
         <bool>::sse_encode(self.is_some(), serializer);
         if let Some(value) = self {
             <Vec<String>>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<Vec<crate::ffi::ConfiguredMint>> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <Vec<crate::ffi::ConfiguredMint>>::sse_encode(value, serializer);
         }
     }
 }

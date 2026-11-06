@@ -749,15 +749,26 @@ pub async fn check_mint_state(id: &str) -> Result<(), EbillFfiError> {
     Ok(())
 }
 
+/// Cancels a pending quote at the default Mint. Use `cancel_request_to_mint_for_mint` for
+/// a quote at another configured Mint.
 #[frb]
 pub async fn cancel_request_to_mint(mint_request_id: &str) -> Result<(), EbillFfiError> {
-    let parsed_id = Uuid::from_str(mint_request_id)
-        .map_err(|_| ProtocolValidationError::InvalidMintRequestId)?;
     let ctx = get_active_ctx().await?;
-    // The FFI config has no additional Mints, so every FFI quote belongs to the default Mint.
+    let mint_node_id = ctx.cfg.mint_config.default_mint_node_id.to_string();
+    cancel_request_to_mint_for_mint(&mint_node_id, mint_request_id).await
+}
+
+/// Cancels a pending quote at the named configured Mint; quote ids are scoped by Mint.
+#[frb]
+pub async fn cancel_request_to_mint_for_mint(
+    mint_node_id: &str,
+    mint_request_id: &str,
+) -> Result<(), EbillFfiError> {
+    let (mint_node_id, parsed_id) = parse_mint_request(mint_node_id, mint_request_id)?;
+    let ctx = get_active_ctx().await?;
     ctx.bill_service
         .cancel_request_to_mint(
-            &ctx.cfg.mint_config.default_mint_node_id,
+            &mint_node_id,
             &parsed_id,
             &get_current_identity_node_id(ctx.clone()).await?,
         )
@@ -765,17 +776,28 @@ pub async fn cancel_request_to_mint(mint_request_id: &str) -> Result<(), EbillFf
     Ok(())
 }
 
+/// Accepts an offer from the default Mint. Use `accept_mint_offer_for_mint` for an offer from
+/// another configured Mint.
 #[frb]
 pub async fn accept_mint_offer(mint_request_id: &str) -> Result<(), EbillFfiError> {
+    let ctx = get_active_ctx().await?;
+    let mint_node_id = ctx.cfg.mint_config.default_mint_node_id.to_string();
+    accept_mint_offer_for_mint(&mint_node_id, mint_request_id).await
+}
+
+/// Accepts an offer from the named configured Mint; quote ids are scoped by Mint.
+#[frb]
+pub async fn accept_mint_offer_for_mint(
+    mint_node_id: &str,
+    mint_request_id: &str,
+) -> Result<(), EbillFfiError> {
     let timestamp = Timestamp::now();
+    let (mint_node_id, parsed_id) = parse_mint_request(mint_node_id, mint_request_id)?;
     let ctx = get_active_ctx().await?;
     let (signer_public_data, signer_keys) = get_signer_public_data_and_keys(ctx.clone()).await?;
-    let parsed_id = Uuid::from_str(mint_request_id)
-        .map_err(|_| ProtocolValidationError::InvalidMintRequestId)?;
-    // The FFI config has no additional Mints, so every FFI quote belongs to the default Mint.
     ctx.bill_service
         .accept_mint_offer(
-            &ctx.cfg.mint_config.default_mint_node_id,
+            &mint_node_id,
             &parsed_id,
             &signer_public_data,
             &signer_keys,
@@ -785,20 +807,42 @@ pub async fn accept_mint_offer(mint_request_id: &str) -> Result<(), EbillFfiErro
     Ok(())
 }
 
+/// Rejects an offer from the default Mint. Use `reject_mint_offer_for_mint` for an offer from
+/// another configured Mint.
 #[frb]
 pub async fn reject_mint_offer(mint_request_id: &str) -> Result<(), EbillFfiError> {
-    let parsed_id = Uuid::from_str(mint_request_id)
-        .map_err(|_| ProtocolValidationError::InvalidMintRequestId)?;
     let ctx = get_active_ctx().await?;
-    // The FFI config has no additional Mints, so every FFI quote belongs to the default Mint.
+    let mint_node_id = ctx.cfg.mint_config.default_mint_node_id.to_string();
+    reject_mint_offer_for_mint(&mint_node_id, mint_request_id).await
+}
+
+/// Rejects an offer from the named configured Mint; quote ids are scoped by Mint.
+#[frb]
+pub async fn reject_mint_offer_for_mint(
+    mint_node_id: &str,
+    mint_request_id: &str,
+) -> Result<(), EbillFfiError> {
+    let (mint_node_id, parsed_id) = parse_mint_request(mint_node_id, mint_request_id)?;
+    let ctx = get_active_ctx().await?;
     ctx.bill_service
         .reject_mint_offer(
-            &ctx.cfg.mint_config.default_mint_node_id,
+            &mint_node_id,
             &parsed_id,
             &get_current_identity_node_id(ctx.clone()).await?,
         )
         .await?;
     Ok(())
+}
+
+fn parse_mint_request(
+    mint_node_id: &str,
+    mint_request_id: &str,
+) -> Result<(NodeId, Uuid), EbillFfiError> {
+    Ok((
+        NodeId::from_str(mint_node_id).map_err(ProtocolValidationError::from)?,
+        Uuid::from_str(mint_request_id)
+            .map_err(|_| ProtocolValidationError::InvalidMintRequestId)?,
+    ))
 }
 
 #[frb]
@@ -1209,5 +1253,17 @@ mod tests {
         assert_eq!((parsed_bill, parsed_mint), (bill.clone(), mint.clone()));
         assert!(parse_mint_target("bill", &mint.to_string()).is_err());
         assert!(parse_mint_target(&bill.to_string(), "mint").is_err());
+    }
+
+    #[test]
+    fn mint_request_is_scoped_by_mint_node() {
+        let keys = BcrKeys::from_private_key(&SecretKey::from_slice(&[8; 32]).unwrap());
+        let mint = NodeId::new(keys.pub_key(), Network::Regtest);
+        let id = "11111111-1111-4111-8111-111111111111";
+        let (parsed_mint, parsed_id) = parse_mint_request(&mint.to_string(), id).unwrap();
+        assert_eq!(parsed_mint, mint);
+        assert_eq!(parsed_id.to_string(), id);
+        assert!(parse_mint_request("mint", id).is_err());
+        assert!(parse_mint_request(&mint.to_string(), "quote").is_err());
     }
 }
