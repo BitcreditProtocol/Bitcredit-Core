@@ -162,6 +162,7 @@ pub struct PendingDelivery {
     pub propagation_id: String,
     pub relay_url: url::Url,
     pub event: nostr::event::Event,
+    pub attempts: u32,
 }
 
 #[async_trait]

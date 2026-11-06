@@ -44,6 +44,9 @@ use bcr_ebill_persistence::traits::nostr::{
     NostrContactStoreApi, NostrQueuedMessageStoreApi, RelaySyncStatus, SyncStatus,
 };
 use bcr_ebill_persistence::traits::notification::NotificationFilter;
+use bcr_ebill_persistence::traits::propagation::{
+    NostrPropagationStoreApi, PendingDelivery, PropagationStatus, PropagationSubjectType,
+};
 use bcr_ebill_persistence::{
     ContactStoreApi, DbConfig, FileReferenceStoreApi, NostrChainEventStoreApi,
     NostrEventOffsetStoreApi, NotificationStoreApi, PendingContactShare, ShareDirection,
@@ -659,6 +662,8 @@ mockall::mock! {
             recipient: &BillParticipant,
             event: EventEnvelope,
         ) -> Result<bcr_ebill_api::service::transport_service::transport_client::PreparedPrivateNostrEvent>;
+        async fn send_signed_event_to_relay(&self, event: &nostr::event::Event, relay: &url::Url) -> Result<()>;
+        async fn writable_relay_urls(&self) -> Result<Vec<url::Url>>;
     }
 }
 
@@ -1007,5 +1012,44 @@ mockall::mock! {
         async fn get_pending_relay_retries(&self, relay: &url::Url, limit: usize) -> bcr_ebill_persistence::Result<Vec<nostr::event::Event>>;
         async fn mark_relay_retry_success(&self, relay: &url::Url, event_id: &str) -> bcr_ebill_persistence::Result<()>;
         async fn mark_relay_retry_failed(&self, relay: &url::Url, event_id: &str, max_retries: usize) -> bcr_ebill_persistence::Result<()>;
+    }
+}
+
+mockall::mock! {
+    pub NostrPropagationStoreApiMock {}
+
+    impl ServiceTraitBounds for NostrPropagationStoreApiMock {}
+
+    #[async_trait]
+    impl NostrPropagationStoreApi for NostrPropagationStoreApiMock {
+        async fn get_propagation(&self, propagation_id: &str) -> bcr_ebill_persistence::Result<Option<PropagationStatus>>;
+        async fn list_propagation_ids(
+            &self,
+            subject_type: PropagationSubjectType,
+            subject_id: &str,
+        ) -> bcr_ebill_persistence::Result<Vec<String>>;
+        async fn get_pending_deliveries(
+            &self,
+            now: Timestamp,
+            limit: u64,
+        ) -> bcr_ebill_persistence::Result<Vec<PendingDelivery>>;
+        async fn get_pending_deliveries_for_propagation(
+            &self,
+            propagation_id: &str,
+            now: Timestamp,
+        ) -> bcr_ebill_persistence::Result<Vec<PendingDelivery>>;
+        async fn mark_relay_accepted(
+            &self,
+            message_id: &str,
+            relay: &url::Url,
+            accepted_at: Timestamp,
+        ) -> bcr_ebill_persistence::Result<()>;
+        async fn mark_relay_failed(
+            &self,
+            message_id: &str,
+            relay: &url::Url,
+            next_try_at: Timestamp,
+            error: &str,
+        ) -> bcr_ebill_persistence::Result<()>;
     }
 }

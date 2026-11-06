@@ -27,6 +27,9 @@ pub struct PreparedPrivateNostrEvent {
 #[cfg_attr(test, automock)]
 #[async_trait]
 pub trait TransportClientApi: ServiceTraitBounds {
+    /// publish a signed Nostr event to one relay
+    /// succeeds only if the relay ack's the event, or already has it
+    async fn send_signed_event_to_relay(&self, event: &Event, relay: &url::Url) -> Result<()>;
     /// prepares a signed NIP-17 event without publishing it
     async fn prepare_private_event(
         &self,
@@ -143,4 +146,7 @@ pub trait TransportClientApi: ServiceTraitBounds {
         file_hash: &str,
         nostr_hash: &str,
     ) -> Result<Vec<Event>>;
+
+    /// Return writable relay urls
+    async fn writable_relay_urls(&self) -> Result<Vec<url::Url>>;
 }

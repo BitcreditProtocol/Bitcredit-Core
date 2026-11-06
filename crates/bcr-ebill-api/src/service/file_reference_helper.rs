@@ -343,7 +343,9 @@ mod tests {
     use std::collections::HashMap;
     use std::str::FromStr;
 
-    use bcr_ebill_persistence::traits::propagation::PreparedPropagationMessage;
+    use bcr_ebill_persistence::traits::propagation::{
+        PreparedPropagationMessage, PropagationStatus, PropagationSubjectType,
+    };
 
     mockall::mock! {
         TransportService {}
@@ -374,6 +376,10 @@ mod tests {
             async fn publish_file_metadata(&self, node_id: &bcr_common::core::NodeId, plaintext_hash: &str, encrypted_hash: &str, server_urls: Vec<url::Url>, mime_type: Option<String>) -> crate::service::transport_service::Result<()>;
             async fn query_file_metadata_events(&self, file_hash: &str, nostr_hash: &str) -> crate::service::transport_service::Result<Vec<nostr::event::Event>>;
             async fn prepare_bill_private_messages(&self, sender: &NodeId, events: &HashMap<NodeId, Event<BillChainEventPayload>>) -> crate::service::transport_service::Result<Vec<PreparedPropagationMessage>>;
+            async fn writable_relay_urls(&self) -> crate::service::transport_service::Result<Vec<url::Url>>;
+            async fn attempt_propagation(&self, propagation_id: &str) -> crate::service::transport_service::Result<()>;
+            async fn get_propagation_status(&self, propagation_id: &str) -> crate::service::transport_service::Result<Option<PropagationStatus>>;
+            async fn get_latest_propagation(&self, subject_type: PropagationSubjectType, subject_id: &str) -> crate::service::transport_service::Result<Option<PropagationStatus>>;
         }
     }
 

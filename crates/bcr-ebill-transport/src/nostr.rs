@@ -613,6 +613,57 @@ fn to_relay_urls(urls: &[url::Url]) -> Result<Vec<RelayUrl>> {
 
 #[async_trait]
 impl TransportClientApi for NostrClient {
+    async fn send_signed_event_to_relay(&self, event: &Event, relay: &url::Url) -> Result<()> {
+        let relay_url = to_relay_url(relay)?;
+        let client = self.client().await?;
+        // if a relay was removed after the event was enqueued, add it back to retry the event
+        if client
+            .relay(relay_url.clone())
+            .await
+            .map_err(|e| Error::Network(e.to_string()))?
+            .is_none()
+        {
+            client
+                .add_relay(relay_url.clone())
+                .await
+                .map_err(|e| Error::Network(e.to_string()))?;
+            // adding a relay does not automatically connect it
+            client
+                .connect_relay(relay_url.clone())
+                .await
+                .map_err(|e| Error::Network(e.to_string()))?;
+        }
+
+        // send only to this one relay
+        let output = tokio::time::timeout(
+            self.default_timeout,
+            client.send_event(event).to([relay_url.clone()]),
+        )
+        .await
+        .map_err(|_| Error::Network(format!("Timed out sending event {} to {relay}", event.id)))?
+        .map_err(|e| {
+            Error::Network(format!("Could not send event {} to {relay}: {e}", event.id))
+        })?;
+        // ack = success
+        if output.success.contains_key(&relay_url) {
+            return Ok(());
+        }
+        if let Some(reason) = output.failed.get(&relay_url) {
+            // duplicate is a success - the relay has our event
+            if is_duplicate_response(reason) {
+                return Ok(());
+            }
+            return Err(Error::Network(format!(
+                "Relay {relay} rejected event {}: {reason}",
+                event.id
+            )));
+        }
+        Err(Error::Network(format!(
+            "Relay {relay} did not acknowledge event {}",
+            event.id
+        )))
+    }
+
     async fn prepare_private_event(
         &self,
         sender_node_id: &NodeId,
@@ -1150,6 +1201,23 @@ impl TransportClientApi for NostrClient {
             relay.status() == RelayStatus::Connected && relay.capabilities().has_write()
         })
     }
+
+    async fn writable_relay_urls(&self) -> Result<Vec<url::Url>> {
+        let relays = self.client.relays().await;
+        let mut urls = relays
+            .into_values()
+            .filter(|relay| relay.capabilities().has_write())
+            .map(|relay| {
+                url::Url::parse(relay.url().as_str()).map_err(|e| Error::Network(e.to_string()))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        urls.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+        urls.dedup();
+        if urls.is_empty() {
+            return Err(Error::Network("No writable Nostr relays configured".into()));
+        }
+        Ok(urls)
+    }
 }
 
 #[derive(Clone)]
@@ -1588,10 +1656,19 @@ async fn handle_event(
     Ok(())
 }
 
+// nip-01 defines duplicate: as the way to report an event has already been received
+fn is_duplicate_response(reason: &str) -> bool {
+    reason
+        .trim_start()
+        .to_ascii_lowercase()
+        .starts_with("duplicate:")
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::test_utils::get_mock_relay;
     use super::{NostrClient, NostrConfig, NostrConsumer, prioritized_signers_for_event};
+    use crate::nostr::is_duplicate_response;
     use crate::test_utils::{
         MockContactService, MockFileMetadataProcessor, MockNostrEventOffsetStore, TestEventPayload,
         create_test_event, get_identity_public_data,
@@ -2251,6 +2328,42 @@ mod tests {
             .unwrap();
         assert_eq!(prepared.target_relays, vec![relay]);
         assert!(!client.is_connected());
+    }
+
+    #[test]
+    fn recognize_explicit_duplicate_responses() {
+        assert!(is_duplicate_response("duplicate: already have this event"));
+        assert!(is_duplicate_response("  DUPLICATE: already stored"));
+        assert!(!is_duplicate_response("invalid: bad signature"));
+        assert!(!is_duplicate_response("rate-limited: slow down"));
+        assert!(!is_duplicate_response("error: relay unavailable"));
+    }
+
+    #[tokio::test]
+    async fn signed_event_can_be_sent_to_one_relay() {
+        let relay = get_mock_relay().await;
+        let relay_url = url::Url::parse(&relay.url().await.to_string()).unwrap();
+        let keys = BcrKeys::new();
+        let node_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
+        let client = NostrClient::new(
+            vec![(node_id, keys.clone())],
+            vec![relay_url.clone()],
+            vec![],
+            Duration::from_secs(5),
+            None,
+            1,
+            None,
+        )
+        .await
+        .unwrap();
+        client.connect().await.unwrap();
+        let event = EventBuilder::new(Kind::TextNote, "single-relay propagation test")
+            .finalize(&keys.get_nostr_keys())
+            .unwrap();
+        client
+            .send_signed_event_to_relay(&event, &relay_url)
+            .await
+            .unwrap();
     }
 }
 

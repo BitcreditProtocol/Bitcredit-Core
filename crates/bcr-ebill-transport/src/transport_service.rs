@@ -2,25 +2,28 @@ use async_trait::async_trait;
 use bcr_ebill_persistence::traits::propagation::PreparedPropagationMessage;
 use std::collections::HashMap;
 
+use super::handler::NotificationHandlerApi;
+use super::nostr_transport::NostrTransportService;
+use crate::propagation::NostrPropagationService;
 use bcr_common::core::NodeId;
+use bcr_ebill_api::service::transport_service::Result;
 use bcr_ebill_api::service::transport_service::{
     BlockTransportServiceApi, ContactTransportServiceApi, NotificationTransportServiceApi,
     TransportServiceApi,
 };
+use bcr_ebill_core::application::ServiceTraitBounds;
 use bcr_ebill_core::protocol::blockchain::bill::BitcreditBill;
 use bcr_ebill_core::protocol::blockchain::bill::participant::{
     BillIdentParticipant, BillParticipant,
 };
 use bcr_ebill_core::protocol::crypto::BcrKeys;
-use bcr_ebill_core::protocol::event::{BillChainEvent, BillChainEventPayload, Event};
-
-use super::handler::NotificationHandlerApi;
-use super::nostr_transport::NostrTransportService;
-use bcr_ebill_api::service::transport_service::Result;
-use bcr_ebill_core::application::ServiceTraitBounds;
 use bcr_ebill_core::protocol::event::{ActionType, BillEventType, EventType};
+use bcr_ebill_core::protocol::event::{BillChainEvent, BillChainEventPayload, Event};
+use bcr_ebill_persistence::traits::propagation::{PropagationStatus, PropagationSubjectType};
 use log::{debug, error, info, warn};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use tokio::sync::watch;
 
 pub struct TransportService {
     nostr_transport: Arc<NostrTransportService>,
@@ -28,6 +31,9 @@ pub struct TransportService {
     contact_transport_service: Arc<dyn ContactTransportServiceApi>,
     block_transport_service: Arc<dyn BlockTransportServiceApi>,
     bill_invite_handler: Arc<dyn NotificationHandlerApi>,
+    propagation_service: Arc<NostrPropagationService>,
+    retry_loop_started: AtomicBool,
+    retry_shutdown: watch::Sender<bool>,
 }
 
 impl TransportService {
@@ -37,13 +43,18 @@ impl TransportService {
         contact_transport_service: Arc<dyn ContactTransportServiceApi>,
         block_transport_service: Arc<dyn BlockTransportServiceApi>,
         bill_invite_handler: Arc<dyn NotificationHandlerApi>,
+        propagation_service: Arc<NostrPropagationService>,
     ) -> Self {
+        let (retry_shutdown, _) = watch::channel(false);
         Self {
             nostr_transport,
             notification_transport_service,
             contact_transport_service,
             block_transport_service,
             bill_invite_handler,
+            propagation_service,
+            retry_loop_started: AtomicBool::new(false),
+            retry_shutdown,
         }
     }
 }
@@ -67,6 +78,13 @@ impl TransportServiceApi for TransportService {
 
     async fn connect(&self) {
         self.nostr_transport.connect().await;
+        if !self.retry_loop_started.swap(true, Ordering::AcqRel) {
+            let propagation = self.propagation_service.clone();
+            let shutdown = self.retry_shutdown.subscribe();
+            tokio::spawn(async move {
+                propagation.run_retry_loop(shutdown).await;
+            });
+        }
     }
 
     async fn ensure_publish_ready(&self) -> Result<()> {
@@ -452,14 +470,54 @@ impl TransportServiceApi for TransportService {
             .prepare_bill_private_messages(sender, events)
             .await
     }
+
+    async fn writable_relay_urls(&self) -> Result<Vec<url::Url>> {
+        self.nostr_transport
+            .get_first_transport()
+            .writable_relay_urls()
+            .await
+    }
+
+    async fn attempt_propagation(&self, propagation_id: &str) -> Result<()> {
+        self.propagation_service
+            .attempt_propagation(propagation_id)
+            .await?;
+        Ok(())
+    }
+
+    async fn get_propagation_status(
+        &self,
+        propagation_id: &str,
+    ) -> Result<Option<PropagationStatus>> {
+        self.propagation_service
+            .get_propagation_status(propagation_id)
+            .await
+    }
+
+    async fn get_latest_propagation(
+        &self,
+        subject_type: PropagationSubjectType,
+        subject_id: &str,
+    ) -> Result<Option<PropagationStatus>> {
+        self.propagation_service
+            .get_latest_propagation(subject_type, subject_id)
+            .await
+    }
+}
+
+impl Drop for TransportService {
+    fn drop(&mut self) {
+        let _ = self.retry_shutdown.send(true);
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::Error;
     use crate::test_utils::{
-        MockBlockTransportService, MockContactTransportService, MockNotificationTransportService,
-        get_nostr_transport, signed_identity_proof_test, test_cfg,
+        MockBlockTransportService, MockContactTransportService, MockNostrPropagationStoreApiMock,
+        MockNotificationTransportService, get_nostr_transport, signed_identity_proof_test,
+        test_cfg,
     };
     use crate::test_utils::{
         MockContactStore, MockNostrChainEventStore, MockNostrContactStore,
@@ -584,6 +642,10 @@ mod tests {
             Arc::new(mock_contact_transport),
             Arc::new(mock_block_transport),
             handler,
+            Arc::new(NostrPropagationService::new(
+                Arc::new(MockNostrPropagationStoreApiMock::new()),
+                Arc::new(MockNotificationJsonTransport::new()),
+            )),
         )
     }
 

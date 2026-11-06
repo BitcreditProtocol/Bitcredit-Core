@@ -467,6 +467,7 @@ impl NostrTransportService {
             .await
     }
 
+    /// failure to prepare a notification for one recipient doesn't affect other recipients - we just log an error
     pub(crate) async fn prepare_bill_private_messages(
         &self,
         sender: &NodeId,
@@ -476,11 +477,24 @@ impl NostrTransportService {
         recipients.sort_by_key(|(a, _)| a.to_string());
         let mut prepared = Vec::with_capacity(recipients.len());
         for (recipient_id, event) in recipients {
-            let envelope: EventEnvelope = event.clone().try_into()?;
-            let message = self
+            let envelope: EventEnvelope = match event.clone().try_into() {
+                Ok(envelope) => envelope,
+                Err(e) => {
+                    warn!(
+                        "Could not serialize bill notification for recipient {recipient_id}: {e}"
+                    );
+                    continue;
+                }
+            };
+            match self
                 .prepare_private_propagation_message(sender, recipient_id, envelope)
-                .await?;
-            prepared.push(message);
+                .await
+            {
+                Ok(message) => prepared.push(message),
+                Err(e) => {
+                    warn!("Could not prepare bill notification for recipient {recipient_id}: {e}");
+                }
+            }
         }
         Ok(prepared)
     }

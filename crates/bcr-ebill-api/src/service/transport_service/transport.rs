@@ -15,7 +15,9 @@ use bcr_ebill_core::{
     protocol::event::ActionType,
     protocol::event::BillChainEvent,
 };
-use bcr_ebill_persistence::traits::propagation::PreparedPropagationMessage;
+use bcr_ebill_persistence::traits::propagation::{
+    PreparedPropagationMessage, PropagationStatus, PropagationSubjectType,
+};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -166,6 +168,25 @@ pub trait TransportServiceApi: ServiceTraitBounds {
         sender: &NodeId,
         events: &HashMap<NodeId, Event<BillChainEventPayload>>,
     ) -> Result<Vec<PreparedPropagationMessage>>;
+
+    /// Returns the writable relay targets used for preparing public Nostr chain events
+    async fn writable_relay_urls(&self) -> Result<Vec<url::Url>>;
+
+    /// Attemt the first sending for a propagation, waiting for its results to be recorded
+    async fn attempt_propagation(&self, propagation_id: &str) -> Result<()>;
+
+    /// Return the stored propagation status
+    async fn get_propagation_status(
+        &self,
+        propagation_id: &str,
+    ) -> Result<Option<PropagationStatus>>;
+
+    /// Retrieve the most recent propagation for a subject
+    async fn get_latest_propagation(
+        &self,
+        subject_type: PropagationSubjectType,
+        subject_id: &str,
+    ) -> Result<Option<PropagationStatus>>;
 }
 
 #[cfg(test)]

@@ -85,7 +85,8 @@ pub(crate) const SELECT_PENDING_DELIVERIES: &str = r#"
         m.propagation_id,
         m.nostr_event_id,
         m.payload,
-        r.relay_url
+        r.relay_url,
+        r.attempts
     FROM nostr_propagation_relays r
     JOIN nostr_propagation_messages m
         ON m.id = r.message_id
@@ -101,7 +102,8 @@ pub(crate) const SELECT_PENDING_FOR_PROPAGATION: &str = r#"
         m.propagation_id,
         m.nostr_event_id,
         m.payload,
-        r.relay_url
+        r.relay_url,
+        r.attempts
     FROM nostr_propagation_messages m
     JOIN nostr_propagation_relays r
         ON r.message_id = m.id
@@ -171,6 +173,7 @@ pub(crate) struct PendingDeliveryRow {
     pub nostr_event_id: String,
     pub payload: Vec<u8>,
     pub relay_url: String,
+    pub attempts: i32,
 }
 
 fn subject_type_from_db(value: &str) -> Result<PropagationSubjectType> {
@@ -247,11 +250,14 @@ impl PendingDeliveryRow {
         }
         let relay_url = url::Url::parse(&self.relay_url)
             .map_err(|e| Error::InvalidData(format!("Invalid persisted relay URL: {e}")))?;
+        let attempts = u32::try_from(self.attempts)
+            .map_err(|_| Error::InvalidData("Negative relay attempt count".into()))?;
         Ok(PendingDelivery {
             message_id: self.message_id,
             propagation_id: self.propagation_id,
             relay_url,
             event,
+            attempts,
         })
     }
 }

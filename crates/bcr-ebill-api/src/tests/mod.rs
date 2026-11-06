@@ -45,7 +45,9 @@ pub mod tests {
     };
     use bcr_ebill_persistence::DbConfig;
     use bcr_ebill_persistence::traits::notification::EmailNotificationStoreApi;
-    use bcr_ebill_persistence::traits::propagation::PreparedPropagation;
+    use bcr_ebill_persistence::traits::propagation::{
+        NostrPropagationStoreApi, PreparedPropagation,
+    };
     use bcr_ebill_persistence::traits::transaction::{
         BillTransactionApi, CompanyTransactionApi, IdentityTransactionApi,
         NostrChainEventTransactionApi, NostrPropagationTransactionApi, PersistenceTransactionApi,
@@ -64,6 +66,7 @@ pub mod tests {
             NostrQueuedMessageStoreApi, RelaySyncStatus, SyncStatus,
         },
         traits::notification::NotificationFilter,
+        traits::propagation::{PendingDelivery, PropagationStatus, PropagationSubjectType},
     };
     use std::path::PathBuf;
     use std::sync::Arc;
@@ -505,6 +508,45 @@ pub mod tests {
     }
 
     mockall::mock! {
+        pub NostrPropagationStoreApiMock {}
+
+        impl ServiceTraitBounds for NostrPropagationStoreApiMock {}
+
+        #[async_trait]
+        impl NostrPropagationStoreApi for NostrPropagationStoreApiMock {
+            async fn get_propagation(&self, propagation_id: &str) -> Result<Option<PropagationStatus>>;
+            async fn list_propagation_ids(
+                &self,
+                subject_type: PropagationSubjectType,
+                subject_id: &str,
+            ) -> Result<Vec<String>>;
+            async fn get_pending_deliveries(
+                &self,
+                now: Timestamp,
+                limit: u64,
+            ) -> Result<Vec<PendingDelivery>>;
+            async fn get_pending_deliveries_for_propagation(
+                &self,
+                propagation_id: &str,
+                now: Timestamp,
+            ) -> Result<Vec<PendingDelivery>>;
+            async fn mark_relay_accepted(
+                &self,
+                message_id: &str,
+                relay: &url::Url,
+                accepted_at: Timestamp,
+            ) -> Result<()>;
+            async fn mark_relay_failed(
+                &self,
+                message_id: &str,
+                relay: &url::Url,
+                next_try_at: Timestamp,
+                error: &str,
+            ) -> Result<()>;
+        }
+    }
+
+    mockall::mock! {
         pub TransactionManagerApiMock {}
 
         impl ServiceTraitBounds for TransactionManagerApiMock{}
@@ -785,6 +827,7 @@ pub mod tests {
             mint_store: Arc::new(MockMintStore::new()),
             nostr_chain_event_store: Arc::new(MockNostrChainEventStore::new()),
             transaction_mgr: Arc::new(MockTransactionManagerApiMock::new()),
+            nostr_propagation_store: Arc::new(MockNostrPropagationStoreApiMock::new()),
         }
     }
 
