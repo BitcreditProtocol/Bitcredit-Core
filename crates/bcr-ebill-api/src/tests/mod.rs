@@ -622,13 +622,13 @@ pub mod tests {
                 identity_node_id: &NodeId,
                 bill: &BitcreditBillResult,
             ) -> Result<()>;
-            async fn add_chain_event(&mut self, event: &NostrChainEvent) -> Result<()>;
-            async fn remove_chain_events(
+            pub async fn add_chain_event(&mut self, event: &NostrChainEvent) -> Result<()>;
+            pub async fn remove_chain_events(
                 &mut self,
                 chain_id: &str,
                 chain_type: BlockchainType,
             ) -> Result<()>;
-            async fn enqueue_propagation(&mut self, propagation: &PreparedPropagation) -> Result<()>;
+            pub async fn enqueue_propagation(&mut self, propagation: &PreparedPropagation) -> Result<()>;
         }
 
         impl ServiceTraitBounds for PersistenceTransactionApiMock {}

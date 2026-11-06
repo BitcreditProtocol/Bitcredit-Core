@@ -4,6 +4,9 @@ use crate::external::bitcoin::BitcoinClientApi;
 use crate::external::court::CourtClientApi;
 use crate::external::file_storage::{self, FileStorageClientApi};
 use crate::external::mint::{MintClientApi, QuoteStatusReply, ResolveMintOffer};
+use crate::service::bill_service::propagation::{
+    action_email_recipients, notifications_for_bill_action,
+};
 use crate::service::file_server_service::{
     configured_blossom_servers, download_file_with_fallback, upload_to_blossom_servers_with_server,
 };
@@ -35,7 +38,7 @@ use bcr_ebill_core::protocol::blockchain::bill::{
 };
 use bcr_ebill_core::protocol::blockchain::{Blockchain, identity::IdentityType};
 use bcr_ebill_core::protocol::crypto::{self, BcrKeys};
-use bcr_ebill_core::protocol::event::{ActionType, BillEventType};
+use bcr_ebill_core::protocol::event::{ActionType, BillChainEvent, BillEventType};
 use bcr_ebill_core::protocol::mint::{MintRequest, MintRequestState, MintRequestStatus};
 use bcr_ebill_core::protocol::{BitcoinAddress, Email};
 use bcr_ebill_core::protocol::{BlockId, PublicKey};
@@ -1294,6 +1297,39 @@ impl BillServiceApi for BillService {
 
         self.transport_service.ensure_publish_ready().await?;
 
+        // prepare propagation
+
+        // calculate bill after the action
+        let updated_bill = self
+            .get_last_version_bill(&blockchain, &bill_keys, &identity.identity, &contacts)
+            .await?;
+        let bill_event = BillChainEvent::new(
+            &updated_bill,
+            &blockchain,
+            &bill_keys,
+            true,
+            &signer_public_data.node_id(),
+        )?;
+
+        // One bill block and one signer-block set.
+        // The same shared method also supports issuing with two.
+        let mut prepared = self
+            .prepare_bill_propagation(
+                bill_id,
+                &identity,
+                &[&signer_blocks],
+                std::slice::from_ref(&bill_event),
+            )
+            .await?;
+
+        // Nostr and email notifications
+        let notifications = notifications_for_bill_action(&bill_event, &bill_action);
+        let email_recipients = action_email_recipients(&bill_event, &bill_action);
+        self.add_bill_notifications(&mut prepared, &bill_event, notifications, &email_recipients)
+            .await;
+
+        let propagation_id = prepared.propagation.id.clone();
+
         // persist atomically
         let mut tx = self.transaction_mgr.begin().await?;
 
@@ -1329,6 +1365,15 @@ impl BillServiceApi for BillService {
         tx.save_bill_to_cache(bill_id, &signer_public_data.node_id(), &calculated_bill)
             .await?;
 
+        // add chain events for the blocks
+        for event in &prepared.chain_events {
+            tx.add_chain_event(event).await?;
+        }
+
+        // add propagation for this action to the queue
+        // includes chain events, chain invites and notifications
+        tx.enqueue_propagation(&prepared.propagation).await?;
+
         tx.commit().await?;
 
         // effects & propagation
@@ -1347,18 +1392,23 @@ impl BillServiceApi for BillService {
             );
         }
 
-        self.propagate_prepared_signer_blocks(&signer_blocks, &identity)
-            .await?;
+        if let Err(e) = self
+            .transport_service
+            .attempt_propagation(&propagation_id)
+            .await
+        {
+            error!(
+                "Bill action committed, but propagation {propagation_id} encountered an error: {e}"
+            );
+        }
 
-        self.notify_for_block_action(
-            &blockchain,
-            &bill_keys,
-            &bill_action,
-            &identity.identity,
-            &contacts,
-            &signer_public_data.node_id(),
-        )
-        .await?;
+        // email is best-effort
+        for (sender, recipient, message) in &prepared.email_notifications {
+            self.transport_service
+                .notification_transport()
+                .send_email_notification(sender, recipient, message)
+                .await;
+        }
 
         debug!("Executed bill action {:?} for bill {bill_id}", bill_action);
 

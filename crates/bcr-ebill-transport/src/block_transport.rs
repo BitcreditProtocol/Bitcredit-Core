@@ -1,6 +1,3 @@
-use std::str::FromStr;
-use std::sync::Arc;
-
 use crate::handler::public_chain_helpers::{BlockData, resolve_event_chains};
 use crate::handler::{
     BillChainEventProcessorApi, CompanyChainEventProcessorApi, IdentityChainEventProcessorApi,
@@ -10,6 +7,7 @@ use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_api::Config;
 use bcr_ebill_api::service::transport_service::{BlockTransportServiceApi, ResyncMode};
+use bcr_ebill_api::service::transport_service::{Error, Result};
 use bcr_ebill_core::application::nostr::ResendQueueEntry;
 use bcr_ebill_core::application::{ServiceTraitBounds, ValidationError};
 use bcr_ebill_core::protocol::blockchain::BlockchainType;
@@ -22,8 +20,8 @@ use bcr_ebill_persistence::traits::nostr::NostrChainEvent;
 use bcr_ebill_persistence::traits::propagation::PreparedPropagationMessage;
 use bitcoin::base58;
 use log::{debug, error};
-
-use bcr_ebill_api::service::transport_service::{Error, Result};
+use std::str::FromStr;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct BlockTransportService {
@@ -200,54 +198,6 @@ impl BlockTransportService {
         Ok(())
     }
 
-    async fn prepare_public_chain_event(
-        &self,
-        sender: &NodeId,
-        chain_id: &str,
-        chain_type: BlockchainType,
-        block_height: usize,
-        block_hash: &Sha256Hash,
-        previous_hash: &Sha256Hash,
-        block_time: Timestamp,
-        envelope: EventEnvelope,
-    ) -> Result<NostrChainEvent> {
-        // preflight validation, including optional metadata resync
-        let (previous, root) = self
-            .validate_previous_event_exists(previous_hash, chain_id, chain_type, block_height)
-            .await?;
-        let node = self.nostr_transport.get_node_transport(sender);
-        // sign event, but do not publish
-        let signed_event = node
-            .build_public_chain_event(
-                sender,
-                chain_id,
-                chain_type,
-                block_time,
-                envelope,
-                previous.as_ref().map(|e| e.payload.clone()),
-                root.as_ref().map(|e| e.payload.clone()),
-            )
-            .await?;
-
-        let event_id = signed_event.id.to_string();
-        let time: Timestamp = signed_event.created_at.into();
-        Ok(NostrChainEvent {
-            event_id: event_id.clone(),
-            root_id: root
-                .as_ref()
-                .map(|e| e.event_id.clone())
-                .unwrap_or_else(|| event_id.clone()),
-            reply_id: previous.as_ref().map(|e| e.event_id.clone()),
-            author: signed_event.pubkey.to_string(),
-            chain_id: chain_id.to_owned(),
-            chain_type,
-            block_height,
-            block_hash: block_hash.clone(),
-            received: time,
-            time,
-            payload: signed_event,
-        })
-    }
     async fn send_prepared_public_chain_event(
         &self,
         sender: &NodeId,
@@ -271,99 +221,227 @@ impl BlockTransportService {
         self.nostr_transport.add_chain_event(prepared).await?;
         Ok(())
     }
+
+    /// prepare a batch of chain events, for when we publish multiple consecutive blocks
+    /// and at preparation time don't have the chain events in persistent storage yet
+    async fn prepare_chain_event_batch(
+        &self,
+        inputs: Vec<ChainEventToPrepare>,
+    ) -> Result<Vec<NostrChainEvent>> {
+        let mut prepared: Vec<NostrChainEvent> = Vec::with_capacity(inputs.len());
+        let mut batch_root: Option<NostrChainEvent> = None;
+        for input in inputs {
+            let (previous, root) = if let Some(last) = prepared.last() {
+                if input.block_height <= 1 {
+                    return Err(Error::Blockchain(
+                        "Invalid block order in Nostr preparation batch".into(),
+                    ));
+                }
+                let root = batch_root.as_ref().ok_or_else(|| {
+                    Error::Blockchain("Missing root in Nostr preparation batch".into())
+                })?;
+                Self::validate_predecessor_metadata(
+                    &input.previous_hash,
+                    &input.chain_id,
+                    input.chain_type,
+                    input.block_height,
+                    &Some(last.clone()),
+                    &Some(root.clone()),
+                )?;
+                (Some(last.clone()), Some(root.clone()))
+            } else {
+                // Only the first block needs a DB lookup and potentially a metadata resync
+                // the others are only in-memory for now
+                self.validate_previous_event_exists(
+                    &input.previous_hash,
+                    &input.chain_id,
+                    input.chain_type,
+                    input.block_height,
+                )
+                .await?
+            };
+
+            let node = self.nostr_transport.get_node_transport(&input.sender);
+            let signed = node
+                .build_public_chain_event(
+                    &input.sender,
+                    &input.chain_id,
+                    input.chain_type,
+                    input.block_time,
+                    input.envelope,
+                    previous.as_ref().map(|e| e.payload.clone()),
+                    root.as_ref().map(|e| e.payload.clone()),
+                )
+                .await?;
+
+            let event_id = signed.id.to_string();
+            let time: Timestamp = signed.created_at.into();
+            let chain_event = NostrChainEvent {
+                event_id: event_id.clone(),
+                root_id: root
+                    .as_ref()
+                    .map(|e| e.event_id.clone())
+                    .unwrap_or_else(|| event_id.clone()),
+                reply_id: previous.as_ref().map(|e| e.event_id.clone()),
+                author: signed.pubkey.to_string(),
+                chain_id: input.chain_id,
+                chain_type: input.chain_type,
+                block_height: input.block_height,
+                block_hash: input.block_hash,
+                received: time,
+                time,
+                payload: signed,
+            };
+            if batch_root.is_none() {
+                // Existing chain: retain the DB-resolved root
+                // Genesis: the first signed event is the root
+                batch_root = Some(root.unwrap_or_else(|| chain_event.clone()));
+            }
+            prepared.push(chain_event);
+        }
+        Ok(prepared)
+    }
+}
+
+#[derive(Clone, Debug)]
+struct ChainEventToPrepare {
+    sender: NodeId,
+    chain_id: String,
+    chain_type: BlockchainType,
+    block_height: usize,
+    block_hash: Sha256Hash,
+    previous_hash: Sha256Hash,
+    block_time: Timestamp,
+    envelope: EventEnvelope,
+}
+
+impl ChainEventToPrepare {
+    fn identity(events: &IdentityChainEvent) -> Result<Self> {
+        let event = events
+            .generate_blockchain_message()
+            .ok_or_else(|| Error::Message("Identity chain event has no new block".into()))?;
+        Ok(Self {
+            sender: events.sender(),
+            chain_id: event.data.node_id.to_string(),
+            chain_type: BlockchainType::Identity,
+            block_height: event.data.block.id.inner() as usize,
+            block_hash: event.data.block.hash.clone(),
+            previous_hash: event.data.block.previous_hash.clone(),
+            block_time: event.data.block.timestamp,
+            envelope: event.try_into()?,
+        })
+    }
+
+    fn company(events: &CompanyChainEvent) -> Result<Self> {
+        let event = events
+            .generate_blockchain_message()
+            .ok_or_else(|| Error::Message("Company chain event has no new block".into()))?;
+        Ok(Self {
+            sender: events.sender(),
+            chain_id: event.data.node_id.to_string(),
+            chain_type: BlockchainType::Company,
+            block_height: event.data.block.id.inner() as usize,
+            block_hash: event.data.block.hash.clone(),
+            previous_hash: event.data.block.previous_hash.clone(),
+            block_time: event.data.block.timestamp,
+            envelope: event.try_into()?,
+        })
+    }
+
+    fn bill(events: &BillChainEvent) -> Result<Self> {
+        let event = events
+            .generate_blockchain_message()
+            .ok_or_else(|| Error::Message("Bill chain event has no new block".into()))?;
+        Ok(Self {
+            sender: events.sender(),
+            chain_id: event.data.bill_id.to_string(),
+            chain_type: BlockchainType::Bill,
+            block_height: event.data.block.id.inner() as usize,
+            block_hash: event.data.block.hash.clone(),
+            previous_hash: event.data.block.previous_hash.clone(),
+            block_time: event.data.block.timestamp,
+            envelope: event.try_into()?,
+        })
+    }
 }
 
 #[async_trait]
 impl BlockTransportServiceApi for BlockTransportService {
+    async fn prepare_identity_chain_events(
+        &self,
+        events: &[IdentityChainEvent],
+    ) -> Result<Vec<NostrChainEvent>> {
+        let inputs = events
+            .iter()
+            .map(ChainEventToPrepare::identity)
+            .collect::<Result<Vec<_>>>()?;
+        self.prepare_chain_event_batch(inputs).await
+    }
+
+    async fn prepare_company_chain_events(
+        &self,
+        events: &[CompanyChainEvent],
+    ) -> Result<Vec<NostrChainEvent>> {
+        let inputs = events
+            .iter()
+            .map(ChainEventToPrepare::company)
+            .collect::<Result<Vec<_>>>()?;
+        self.prepare_chain_event_batch(inputs).await
+    }
+
+    async fn prepare_bill_chain_events(
+        &self,
+        events: &[BillChainEvent],
+    ) -> Result<Vec<NostrChainEvent>> {
+        let inputs = events
+            .iter()
+            .map(ChainEventToPrepare::bill)
+            .collect::<Result<Vec<_>>>()?;
+        self.prepare_chain_event_batch(inputs).await
+    }
+
     async fn prepare_identity_chain_event(
         &self,
-        events: &IdentityChainEvent,
+        event: &IdentityChainEvent,
     ) -> Result<Option<NostrChainEvent>> {
-        let Some(event) = events.generate_blockchain_message() else {
+        if event.generate_blockchain_message().is_none() {
             return Ok(None);
-        };
-        let sender = events.sender();
-        let chain_id = event.data.node_id.to_string();
-        let block = &event.data.block;
-        let block_height = block.id.inner() as usize;
-        let block_hash = block.hash.clone();
-        let previous_hash = block.previous_hash.clone();
-        let block_time = block.timestamp;
-        let envelope: EventEnvelope = event.try_into()?;
-        let prepared = self
-            .prepare_public_chain_event(
-                &sender,
-                &chain_id,
-                BlockchainType::Identity,
-                block_height,
-                &block_hash,
-                &previous_hash,
-                block_time,
-                envelope,
-            )
-            .await?;
-        Ok(Some(prepared))
+        }
+        Ok(self
+            .prepare_identity_chain_events(std::slice::from_ref(event))
+            .await?
+            .into_iter()
+            .next())
     }
 
     async fn prepare_company_chain_event(
         &self,
-        events: &CompanyChainEvent,
+        event: &CompanyChainEvent,
     ) -> Result<Option<NostrChainEvent>> {
-        let Some(event) = events.generate_blockchain_message() else {
+        if event.generate_blockchain_message().is_none() {
             return Ok(None);
-        };
-        let sender = events.sender();
-        let chain_id = event.data.node_id.to_string();
-        let block = &event.data.block;
-        let block_height = block.id.inner() as usize;
-        let block_hash = block.hash.clone();
-        let previous_hash = block.previous_hash.clone();
-        let block_time = block.timestamp;
-        let envelope: EventEnvelope = event.try_into()?;
-        let prepared = self
-            .prepare_public_chain_event(
-                &sender,
-                &chain_id,
-                BlockchainType::Company,
-                block_height,
-                &block_hash,
-                &previous_hash,
-                block_time,
-                envelope,
-            )
-            .await?;
-        Ok(Some(prepared))
+        }
+        Ok(self
+            .prepare_company_chain_events(std::slice::from_ref(event))
+            .await?
+            .into_iter()
+            .next())
     }
 
     async fn prepare_bill_chain_event(
         &self,
-        events: &BillChainEvent,
+        event: &BillChainEvent,
     ) -> Result<Option<NostrChainEvent>> {
-        let Some(event) = events.generate_blockchain_message() else {
+        if event.generate_blockchain_message().is_none() {
             return Ok(None);
-        };
-        let sender = events.sender();
-        let chain_id = event.data.bill_id.to_string();
-        let block = &event.data.block;
-        let block_height = block.id.inner() as usize;
-        let block_hash = block.hash.clone();
-        let previous_hash = block.previous_hash.clone();
-        let block_time = block.timestamp;
-        let envelope: EventEnvelope = event.try_into()?;
-        let prepared = self
-            .prepare_public_chain_event(
-                &sender,
-                &chain_id,
-                BlockchainType::Bill,
-                block_height,
-                &block_hash,
-                &previous_hash,
-                block_time,
-                envelope,
-            )
-            .await?;
-        Ok(Some(prepared))
+        }
+        Ok(self
+            .prepare_bill_chain_events(std::slice::from_ref(event))
+            .await?
+            .into_iter()
+            .next())
     }
+
     /// Sent when an identity chain is created or updated
     async fn send_identity_chain_events(&self, events: IdentityChainEvent) -> Result<()> {
         debug!(

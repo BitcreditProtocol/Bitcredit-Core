@@ -18,6 +18,7 @@ use crate::{
         signed_identity_proof_test, test_cfg, test_ts, valid_payment_address_testnet,
     },
 };
+use bcr_ebill_core::protocol::{Sha256Hash, blockchain::BlockchainType, event::EventType};
 use bcr_ebill_core::{
     application::bill::{
         BillAcceptState, BillAcceptanceStatus, BillCallerActions, BillData, BillMintState,
@@ -45,7 +46,12 @@ use bcr_ebill_core::{
     },
 };
 use bcr_ebill_persistence::traits::transaction::PersistenceTransactionApi;
+use bcr_ebill_persistence::traits::{nostr::NostrChainEvent, propagation::PropagationSubjectType};
 use external::{bitcoin::MockBitcoinClientApi, mint::MockMintClientApi};
+use nostr::{
+    event::{EventBuilder, FinalizeEvent, Kind},
+    key::Keys,
+};
 use service::BillService;
 use std::{collections::HashMap, sync::Arc};
 
@@ -209,58 +215,79 @@ pub fn expect_successful_bill_issue_transaction(ctx: &mut MockBillContext, with_
         .return_once(move || Ok(successful_bill_issue_transaction(with_company)));
 }
 
-pub fn successful_bill_action_transaction(
+fn successful_bill_transaction(
     with_company: bool,
+    steps: usize,
+    issuing: bool,
 ) -> Box<dyn PersistenceTransactionApi> {
     let mut tx = MockPersistenceTransactionApiMock::new();
     tx.expect_append_identity_blocks()
-        .withf(|expected_latest, blocks| expected_latest.is_some() && blocks.len() == 1)
+        .withf(move |expected, blocks| expected.is_some() && blocks.len() == steps)
         .returning(|_, _| Ok(()))
         .once();
     if with_company {
         tx.expect_append_company_blocks()
-            .withf(|_, expected_latest, blocks| expected_latest.is_some() && blocks.len() == 1)
+            .withf(move |_, expected, blocks| expected.is_some() && blocks.len() == steps)
             .returning(|_, _, _| Ok(()))
             .once();
     } else {
         tx.expect_append_company_blocks().never();
     }
     tx.expect_append_bill_blocks()
-        .withf(|_, expected_latest, blocks| expected_latest.is_some() && blocks.len() == 1)
+        .withf(move |_, expected, blocks| expected.is_none() == issuing && blocks.len() == steps)
         .returning(|_, _, _| Ok(()))
         .once();
-    tx.expect_save_bill_keys().never();
+
+    if issuing {
+        tx.expect_save_bill_keys().returning(|_, _| Ok(())).once();
+    } else {
+        tx.expect_save_bill_keys().never();
+    }
     tx.expect_save_bill_to_cache()
         .returning(|_, _, _| Ok(()))
+        .once();
+    let expected_public_events = steps * (2 + usize::from(with_company));
+    tx.expect_add_chain_event()
+        .times(expected_public_events)
+        .returning(|_| Ok(()));
+    tx.expect_enqueue_propagation()
+        .withf(move |propagation| {
+            let count = |event_type: EventType| {
+                propagation
+                    .messages
+                    .iter()
+                    .filter(|message| message.event_type == event_type)
+                    .count()
+            };
+
+            propagation.subject_type == PropagationSubjectType::Bill
+                && !propagation.subject_id.is_empty()
+                && count(EventType::BillChain) == steps
+                && count(EventType::IdentityChain) == steps
+                && count(EventType::CompanyChain) == if with_company { steps } else { 0 }
+                && propagation.validate().is_ok()
+        })
+        .returning(|_| Ok(()))
         .once();
     tx.expect_commit().return_once(|| Ok(()));
     Box::new(tx)
 }
 
+pub fn successful_bill_action_transaction(
+    with_company: bool,
+) -> Box<dyn PersistenceTransactionApi> {
+    successful_bill_transaction(with_company, 1, false)
+}
+
 pub fn successful_bill_issue_transaction(with_company: bool) -> Box<dyn PersistenceTransactionApi> {
-    let mut tx = MockPersistenceTransactionApiMock::new();
-    tx.expect_append_identity_blocks()
-        .withf(|expected_latest, blocks| expected_latest.is_some() && !blocks.is_empty())
-        .returning(|_, _| Ok(()))
-        .once();
-    if with_company {
-        tx.expect_append_company_blocks()
-            .withf(|_, expected_latest, blocks| expected_latest.is_some() && !blocks.is_empty())
-            .returning(|_, _, _| Ok(()))
-            .once();
-    } else {
-        tx.expect_append_company_blocks().never();
-    }
-    tx.expect_append_bill_blocks()
-        .withf(|_, expected_latest, blocks| expected_latest.is_none() && !blocks.is_empty())
-        .returning(|_, _, _| Ok(()))
-        .once();
-    tx.expect_save_bill_keys().returning(|_, _| Ok(())).once();
-    tx.expect_save_bill_to_cache()
-        .returning(|_, _, _| Ok(()))
-        .once();
-    tx.expect_commit().return_once(|| Ok(()));
-    Box::new(tx)
+    successful_bill_transaction(with_company, 1, true)
+}
+
+pub fn successful_bill_issue_transaction_steps(
+    with_company: bool,
+    steps: usize,
+) -> Box<dyn PersistenceTransactionApi> {
+    successful_bill_transaction(with_company, steps, true)
 }
 
 pub fn get_service(mut ctx: MockBillContext) -> BillService {
@@ -279,6 +306,18 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
     ctx.transport_service
         .expect_ensure_publish_ready()
         .returning(|| Ok(()));
+    ctx.transport_service
+        .expect_writable_relay_urls()
+        .times(0..)
+        .returning(|| Ok(vec![url::Url::parse("wss://relay.example").unwrap()]));
+    ctx.transport_service
+        .expect_prepare_bill_private_messages()
+        .times(0..)
+        .returning(|_, _| Ok(Vec::new()));
+    ctx.transport_service
+        .expect_attempt_propagation()
+        .times(0..)
+        .returning(|_| Ok(()));
     ctx.nostr_contact_store
         .expect_by_node_id()
         .returning(|_| Ok(None));
@@ -370,6 +409,10 @@ pub fn get_service(mut ctx: MockBillContext) -> BillService {
     default_notification
         .expect_create_general_notification()
         .returning(|_, _, _, _| Ok(()));
+    default_notification
+        .expect_send_email_notification()
+        .times(0..)
+        .returning(|_, _, _| ());
     ctx.transport_service
         .expect_notification_transport()
         .times(0..)
@@ -693,4 +736,129 @@ pub fn bill_keys() -> BcrKeys {
 
 pub fn safe_deadline_ts(min_deadline: u64) -> Timestamp {
     Timestamp::now() + 2 * min_deadline
+}
+
+fn mock_chain_events(
+    blocks: Vec<(String, BlockchainType, usize, Sha256Hash)>,
+) -> Vec<NostrChainEvent> {
+    let mut result: Vec<NostrChainEvent> = Vec::new();
+    for (chain_id, chain_type, height, hash) in blocks {
+        let signed = EventBuilder::new(Kind::TextNote, "mock prepared chain event")
+            .finalize(&Keys::generate())
+            .unwrap();
+        let event_id = signed.id.to_string();
+        let time: Timestamp = signed.created_at.into();
+        let root_id = result
+            .first()
+            .map(|event| event.root_id.clone())
+            .unwrap_or_else(|| {
+                if height == 1 {
+                    event_id.clone()
+                } else {
+                    "mock-existing-root".to_owned()
+                }
+            });
+        let reply_id = result
+            .last()
+            .map(|event| event.event_id.clone())
+            .or_else(|| (height > 1).then(|| "mock-existing-predecessor".to_owned()));
+        result.push(NostrChainEvent {
+            event_id,
+            root_id,
+            reply_id,
+            author: signed.pubkey.to_string(),
+            chain_id,
+            chain_type,
+            block_height: height,
+            block_hash: hash,
+            received: time,
+            time,
+            payload: signed,
+        });
+    }
+    result
+}
+
+pub fn expect_prepared_bill_public_events(
+    ctx: &mut MockBillContext,
+    with_company: bool,
+    steps: usize,
+) {
+    ctx.transport_service
+        .expect_on_block_transport(move |transport| {
+            transport
+                .expect_prepare_identity_chain_events()
+                .once()
+                .returning(|events| {
+                    let blocks = events
+                        .iter()
+                        .map(|item| {
+                            let event = item
+                                .generate_blockchain_message()
+                                .expect("identity block event");
+                            (
+                                event.data.node_id.to_string(),
+                                BlockchainType::Identity,
+                                event.data.block.id.inner() as usize,
+                                event.data.block.hash.clone(),
+                            )
+                        })
+                        .collect();
+
+                    Ok(mock_chain_events(blocks))
+                });
+            transport
+                .expect_prepare_company_chain_events()
+                .once()
+                .returning(|events| {
+                    let blocks = events
+                        .iter()
+                        .map(|item| {
+                            let event = item
+                                .generate_blockchain_message()
+                                .expect("company block event");
+                            (
+                                event.data.node_id.to_string(),
+                                BlockchainType::Company,
+                                event.data.block.id.inner() as usize,
+                                event.data.block.hash.clone(),
+                            )
+                        })
+                        .collect();
+                    Ok(mock_chain_events(blocks))
+                });
+            transport
+                .expect_prepare_bill_chain_events()
+                .once()
+                .returning(|events| {
+                    let blocks = events
+                        .iter()
+                        .map(|item| {
+                            let event = item
+                                .generate_blockchain_message()
+                                .expect("bill block event");
+                            (
+                                event.data.bill_id.to_string(),
+                                BlockchainType::Bill,
+                                event.data.block.id.inner() as usize,
+                                event.data.block.hash.clone(),
+                            )
+                        })
+                        .collect();
+                    Ok(mock_chain_events(blocks))
+                });
+            transport
+                .expect_prepare_bill_chain_invites()
+                .times(steps)
+                .returning(|_| Ok(Vec::new()));
+
+            if with_company {
+                transport
+                    .expect_prepare_company_chain_invites()
+                    .times(steps)
+                    .returning(|_| Ok(Vec::new()));
+            } else {
+                transport.expect_prepare_company_chain_invites().never();
+            }
+        });
 }

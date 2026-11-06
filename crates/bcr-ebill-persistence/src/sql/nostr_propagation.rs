@@ -79,6 +79,8 @@ pub(crate) const SELECT_PROPAGATION_RELAYS: &str = r#"
     ORDER BY r.message_id, r.relay_url
 "#;
 
+// select pending deliveries, but make sure we propagate in order if there are multiple unpropagated blocks
+// for the same subject
 pub(crate) const SELECT_PENDING_DELIVERIES: &str = r#"
     SELECT
         m.id AS message_id,
@@ -92,10 +94,23 @@ pub(crate) const SELECT_PENDING_DELIVERIES: &str = r#"
         ON m.id = r.message_id
     WHERE r.accepted_at IS NULL
       AND r.next_try_at <= $1
+      AND NOT EXISTS (
+          SELECT 1
+          FROM nostr_chain_event child
+          JOIN nostr_propagation_messages parent_message
+              ON parent_message.nostr_event_id = child.reply_id
+          JOIN nostr_propagation_relays parent_relay
+              ON parent_relay.message_id = parent_message.id
+             AND parent_relay.relay_url = r.relay_url
+          WHERE child.event_id = m.nostr_event_id
+            AND parent_relay.accepted_at IS NULL
+      )
     ORDER BY r.next_try_at, m.id, r.relay_url
     LIMIT $2
 "#;
 
+// select pending to propagate, but make sure we propagate in order if there are multiple unpropagated blocks
+// for the same subject
 pub(crate) const SELECT_PENDING_FOR_PROPAGATION: &str = r#"
     SELECT
         m.id AS message_id,
@@ -110,6 +125,17 @@ pub(crate) const SELECT_PENDING_FOR_PROPAGATION: &str = r#"
     WHERE m.propagation_id = $1
       AND r.accepted_at IS NULL
       AND r.next_try_at <= $2
+      AND NOT EXISTS (
+          SELECT 1
+          FROM nostr_chain_event child
+          JOIN nostr_propagation_messages parent_message
+              ON parent_message.nostr_event_id = child.reply_id
+          JOIN nostr_propagation_relays parent_relay
+              ON parent_relay.message_id = parent_message.id
+             AND parent_relay.relay_url = r.relay_url
+          WHERE child.event_id = m.nostr_event_id
+            AND parent_relay.accepted_at IS NULL
+      )
     ORDER BY r.next_try_at, m.id, r.relay_url
 "#;
 

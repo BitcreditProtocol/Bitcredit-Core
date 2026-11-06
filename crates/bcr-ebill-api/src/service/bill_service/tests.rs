@@ -3,8 +3,9 @@ use crate::{
     external::mint::QuoteStatusReply,
     service::{
         bill_service::test_utils::{
-            MockBillContext, expect_successful_bill_action_transaction,
-            expect_successful_bill_issue_transaction, safe_deadline_ts,
+            MockBillContext, expect_prepared_bill_public_events,
+            expect_successful_bill_action_transaction, expect_successful_bill_issue_transaction,
+            safe_deadline_ts,
         },
         company_service::tests::{
             get_baseline_company, get_baseline_company_data, get_valid_company_chain,
@@ -2417,10 +2418,6 @@ async fn accept_bill_baseline() {
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
 
-    // Should send bill accepted event
-    ctx.transport_service
-        .expect_send_bill_is_accepted_event()
-        .returning(|_| Ok(()));
     expect_successful_bill_action_transaction(&mut ctx, false);
     // Populate identity block
     expect_populates_identity_block(&mut ctx);
@@ -2475,11 +2472,7 @@ async fn accept_bill_fails_for_anon() {
 }
 
 fn expect_populates_identity_block(ctx: &mut MockBillContext) {
-    ctx.transport_service.expect_on_block_transport(|t| {
-        t.expect_send_identity_chain_events()
-            .returning(|_| Ok(()))
-            .once();
-    });
+    expect_prepared_bill_public_events(ctx, false, 1);
 }
 
 fn expect_populates_company_and_identity_block(ctx: &mut MockBillContext) {
@@ -2489,14 +2482,7 @@ fn expect_populates_company_and_identity_block(ctx: &mut MockBillContext) {
     ctx.company_store
         .expect_get()
         .returning(|_| Ok(get_baseline_company()));
-    ctx.transport_service.expect_on_block_transport(|t| {
-        t.expect_send_company_chain_events()
-            .returning(|_| Ok(()))
-            .once();
-        t.expect_send_identity_chain_events()
-            .returning(|_| Ok(()))
-            .once();
-    });
+    expect_prepared_bill_public_events(ctx, true, 1);
 }
 
 fn expect_populates_company_and_identity_block_with_sync(
@@ -2509,20 +2495,16 @@ fn expect_populates_company_and_identity_block_with_sync(
     ctx.company_store
         .expect_get()
         .returning(|_| Ok(get_baseline_company()));
-    ctx.transport_service.expect_on_block_transport(move |t| {
-        t.expect_send_company_chain_events()
-            .returning(|_| Ok(()))
-            .once();
-        let tx = Arc::clone(&tx);
-        t.expect_send_identity_chain_events()
-            .returning(move |_| {
-                if let Some(tx) = tx.lock().unwrap().take() {
-                    let _ = tx.send(());
-                }
-                Ok(())
-            })
-            .once();
-    });
+    expect_prepared_bill_public_events(ctx, true, 1);
+    ctx.transport_service
+        .expect_attempt_propagation()
+        .once()
+        .returning(move |_| {
+            if let Some(sender) = tx.lock().unwrap().take() {
+                let _ = sender.send(());
+            }
+            Ok(())
+        });
 }
 
 #[tokio::test]
@@ -2538,11 +2520,6 @@ async fn accept_bill_as_company() {
     ctx.company_store
         .expect_get_email_confirmations()
         .returning(|_| Ok(vec![signed_other_identity_proof_test()]));
-
-    // Should send bill accepted event
-    ctx.transport_service
-        .expect_send_bill_is_accepted_event()
-        .returning(|_| Ok(()));
 
     expect_successful_bill_action_transaction(&mut ctx, true);
     // Populate company and identity block via transport
@@ -2652,10 +2629,6 @@ async fn request_pay_baseline() {
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
-    // Request to pay event should be sent
-    ctx.transport_service
-        .expect_send_request_to_pay_event()
-        .returning(|_| Ok(()));
     ctx.identity_store
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
@@ -2697,10 +2670,6 @@ async fn request_pay_anon_baseline() {
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
-    // Request to pay event should be sent
-    ctx.transport_service
-        .expect_send_request_to_pay_event()
-        .returning(|_| Ok(()));
 
     expect_successful_bill_action_transaction(&mut ctx, false);
     // Populates identity block
@@ -2767,10 +2736,6 @@ async fn request_acceptance_baseline() {
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
-    // Request to accept event should be sent
-    ctx.transport_service
-        .expect_send_request_to_accept_event()
-        .returning(|_| Ok(()));
     ctx.identity_store
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
@@ -2806,10 +2771,6 @@ async fn request_acceptance_anon_baseline() {
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
-    // Request to accept event should be sent
-    ctx.transport_service
-        .expect_send_request_to_accept_event()
-        .returning(|_| Ok(()));
 
     expect_successful_bill_action_transaction(&mut ctx, false);
     // Populates identity block
@@ -2872,10 +2833,6 @@ async fn mint_bitcredit_bill_baseline() {
             chain.try_add_block(accept_block(&bill.id, chain.get_latest_block()));
             Ok(chain)
         });
-    // Asset request to mint event is sent
-    ctx.transport_service
-        .expect_send_bill_is_endorsed_event()
-        .returning(|_| Ok(()));
     ctx.identity_store
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
@@ -2921,10 +2878,6 @@ async fn mint_bitcredit_bill_anon_baseline() {
             chain.try_add_block(accept_block(&bill.id, chain.get_latest_block()));
             Ok(chain)
         });
-    // Asset request to mint event is sent
-    ctx.transport_service
-        .expect_send_bill_is_endorsed_event()
-        .returning(|_| Ok(()));
     ctx.identity_store
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
@@ -2968,11 +2921,6 @@ async fn mint_bitcredit_bill_fails_if_not_accepted() {
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
-    // Asset request to mint event is sent
-    ctx.transport_service
-        .expect_send_bill_is_endorsed_event()
-        .returning(|_| Ok(()));
-
     let service = get_service(ctx);
 
     let res = service
@@ -3033,10 +2981,6 @@ async fn offer_to_sell_bitcredit_bill_baseline() {
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
-    // Request to sell event should be sent
-    ctx.transport_service
-        .expect_send_offer_to_sell_event()
-        .returning(|_, _| Ok(()));
     ctx.identity_store
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
@@ -3079,10 +3023,6 @@ async fn offer_to_sell_bitcredit_bill_anon_baseline() {
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
-    // Request to sell event should be sent
-    ctx.transport_service
-        .expect_send_offer_to_sell_event()
-        .returning(|_, _| Ok(()));
     ctx.identity_store
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
@@ -3191,12 +3131,12 @@ async fn sell_bitcredit_bill_baseline() {
             chain.try_add_block(offer_to_sell);
             Ok(chain)
         });
-    ctx.transport_service
-        .expect_send_bill_is_sold_event()
-        .returning(|_, _| Ok(()));
     ctx.transport_service.expect_on_notification_transport(|t| {
         t.expect_create_local_bill_notification()
             .returning(|_, _, _, _, _| Ok(()));
+        t.expect_send_email_notification()
+            .times(0..)
+            .returning(|_, _, _| ());
     });
     ctx.identity_store
         .expect_get_email_confirmations()
@@ -3265,13 +3205,12 @@ async fn sell_bitcredit_bill_anon_baseline() {
             chain.try_add_block(offer_to_sell);
             Ok(chain)
         });
-    // Request to sell event should be sent
-    ctx.transport_service
-        .expect_send_bill_is_sold_event()
-        .returning(|_, _| Ok(()));
     ctx.transport_service.expect_on_notification_transport(|t| {
         t.expect_create_local_bill_notification()
             .returning(|_, _, _, _, _| Ok(()));
+        t.expect_send_email_notification()
+            .times(0..)
+            .returning(|_, _, _| ());
     });
     ctx.identity_store
         .expect_get_email_confirmations()
@@ -3339,11 +3278,6 @@ async fn sell_bitcredit_bill_fails_if_sell_data_is_invalid() {
             chain.try_add_block(offer_to_sell);
             Ok(chain)
         });
-    // Sold event should be sent
-    ctx.transport_service
-        .expect_send_bill_is_sold_event()
-        .returning(|_, _| Ok(()));
-
     let service = get_service(ctx);
 
     let res = service
@@ -3369,10 +3303,6 @@ async fn sell_bitcredit_bill_fails_if_not_offer_to_sell_waiting_for_payment() {
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
-    // Request to sell event should be sent
-    ctx.transport_service
-        .expect_send_bill_is_sold_event()
-        .returning(|_, _| Ok(()));
     let service = get_service(ctx);
 
     let res = service
@@ -3434,10 +3364,6 @@ async fn endorse_bitcredit_bill_baseline() {
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
-    // Bill is endorsed event should be sent
-    ctx.transport_service
-        .expect_send_bill_is_endorsed_event()
-        .returning(|_| Ok(()));
     expect_successful_bill_action_transaction(&mut ctx, false);
     // Populates identity block
     expect_populates_identity_block(&mut ctx);
@@ -3492,9 +3418,6 @@ async fn endorse_bitcredit_bill_multiple_back_and_forth() {
             .expect_get_chain()
             .returning(move |_| Ok(chain_for_ctx.clone()));
 
-        ctx.transport_service
-            .expect_send_bill_is_endorsed_event()
-            .returning(|_| Ok(()));
         ctx.identity_store
             .expect_get_email_confirmations()
             .returning(|| Ok(vec![signed_identity_proof_test()]));
@@ -3643,10 +3566,6 @@ async fn endorse_bitcredit_bill_anon_baseline() {
     ctx.bill_blockchain_store
         .expect_get_chain()
         .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
-    // Bill is endorsed event should be sent
-    ctx.transport_service
-        .expect_send_bill_is_endorsed_event()
-        .returning(|_| Ok(()));
     ctx.identity_store
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
@@ -3721,10 +3640,6 @@ async fn endorse_bitcredit_bill_anon_company_and_back() {
             assert!(chain.try_add_block(endorse_block));
             Ok(chain)
         });
-    // Bill is endorsed event should be sent
-    ctx.transport_service
-        .expect_send_bill_is_endorsed_event()
-        .returning(|_| Ok(()));
     ctx.company_store
         .expect_get_email_confirmations()
         .returning(|_| Ok(vec![signed_identity_proof_test()]))
@@ -3970,20 +3885,18 @@ async fn check_bill_offer_to_sell_payment_baseline() {
 
             Ok(chain)
         });
-    ctx.transport_service
-        .expect_send_bill_is_sold_event()
-        .returning(|_, _| Ok(()));
     ctx.transport_service.expect_on_notification_transport(|t| {
         t.expect_create_local_bill_notification()
             .returning(|_, _, _, _, _| Ok(()));
+        t.expect_send_email_notification()
+            .times(0..)
+            .returning(|_, _, _| ());
     });
     ctx.identity_store
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
 
-    ctx.transport_service.expect_on_block_transport(|t| {
-        t.expect_send_identity_chain_events().returning(|_| Ok(()));
-    });
+    expect_populates_identity_block(&mut ctx);
     expect_successful_bill_action_transaction(&mut ctx, false);
     let service = get_service(ctx);
     let res = service
@@ -4040,12 +3953,12 @@ async fn check_bills_offer_to_sell_payment_company_is_seller() {
             )));
             Ok(chain)
         });
-    ctx.transport_service
-        .expect_send_bill_is_sold_event()
-        .returning(|_, _| Ok(()));
     ctx.transport_service.expect_on_notification_transport(|t| {
         t.expect_create_local_bill_notification()
             .returning(|_, _, _, _, _| Ok(()));
+        t.expect_send_email_notification()
+            .times(0..)
+            .returning(|_, _, _| ());
     });
     ctx.identity_store
         .expect_get_email_confirmations()
@@ -4065,7 +3978,7 @@ async fn check_bills_offer_to_sell_payment_company_is_seller() {
 
     tokio::time::timeout(Duration::from_secs(2), rx)
         .await
-        .expect("send_identity_chain_events was not called")
+        .expect("attempt_propagation was not called")
         .expect("notification channel dropped");
 }
 
@@ -5431,10 +5344,6 @@ async fn reject_acceptance_baseline() {
 
             Ok(chain)
         });
-    ctx.transport_service
-        .expect_send_request_to_action_rejected_event()
-        .with(always(), eq(ActionType::AcceptBill))
-        .returning(|_, _| Ok(()));
     ctx.identity_store
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
@@ -5498,10 +5407,6 @@ async fn reject_acceptance_fails_for_anon() {
 
             Ok(chain)
         });
-    ctx.transport_service
-        .expect_send_request_to_action_rejected_event()
-        .with(always(), eq(ActionType::AcceptBill))
-        .returning(|_, _| Ok(()));
 
     let service = get_service(ctx);
     let res = service
@@ -5545,10 +5450,6 @@ async fn reject_buying_baseline() {
             Ok(chain)
         });
 
-    ctx.transport_service
-        .expect_send_request_to_action_rejected_event()
-        .with(always(), eq(ActionType::BuyBill))
-        .returning(|_, _| Ok(()));
     ctx.identity_store
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
@@ -5597,11 +5498,6 @@ async fn reject_buying_anon_baseline() {
 
             Ok(chain)
         });
-
-    ctx.transport_service
-        .expect_send_request_to_action_rejected_event()
-        .with(always(), eq(ActionType::BuyBill))
-        .returning(|_, _| Ok(()));
 
     expect_successful_bill_action_transaction(&mut ctx, false);
     // Populates identity block
@@ -5665,10 +5561,6 @@ async fn reject_payment() {
 
             Ok(chain)
         });
-    ctx.transport_service
-        .expect_send_request_to_action_rejected_event()
-        .with(always(), eq(ActionType::PayBill))
-        .returning(|_, _| Ok(()));
     ctx.identity_store
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
@@ -5735,10 +5627,6 @@ async fn reject_payment_fails_for_anon() {
 
             Ok(chain)
         });
-    ctx.transport_service
-        .expect_send_request_to_action_rejected_event()
-        .with(always(), eq(ActionType::PayBill))
-        .returning(|_, _| Ok(()));
     let service = get_service(ctx);
 
     let res = service
@@ -5805,10 +5693,6 @@ async fn reject_recourse() {
 
             Ok(chain)
         });
-    ctx.transport_service
-        .expect_send_request_to_action_rejected_event()
-        .with(always(), eq(ActionType::RecourseBill))
-        .returning(|_, _| Ok(()));
     ctx.identity_store
         .expect_get_email_confirmations()
         .returning(|| Ok(vec![signed_identity_proof_test()]));
@@ -5881,10 +5765,6 @@ async fn reject_recourse_fails_for_anon() {
 
             Ok(chain)
         });
-    ctx.transport_service
-        .expect_send_request_to_action_rejected_event()
-        .with(always(), eq(ActionType::RecourseBill))
-        .returning(|_, _| Ok(()));
 
     let service = get_service(ctx);
 

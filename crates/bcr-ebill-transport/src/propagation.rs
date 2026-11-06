@@ -7,7 +7,7 @@ use bcr_ebill_persistence::traits::propagation::{
 };
 use futures::{StreamExt, stream};
 use log::{error, warn};
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 use tokio::{sync::watch, time::MissedTickBehavior};
 
 const MAX_PARALLEL_DELIVERIES: usize = 8;
@@ -30,13 +30,35 @@ impl NostrPropagationService {
     }
 
     /// attempt delivery for all pending relays in a propagation - should be run directly after transaction commitment
+    /// this takes care of dependent events, e.g. if both Issue & Accept (promissory note) are to be propagated
+    /// it first tries issue and if a relay accepted issue, will attempt Accept afterwards
     pub async fn attempt_propagation(&self, propagation_id: &str) -> Result<usize> {
-        let deliveries = self
-            .store
-            .get_pending_deliveries_for_propagation(propagation_id, Timestamp::now())
-            .await
-            .map_err(persistence_error)?;
-        self.send_deliveries(deliveries).await
+        let mut attempted = HashSet::new();
+        let mut total = 0;
+
+        loop {
+            let mut deliveries = self
+                .store
+                .get_pending_deliveries_for_propagation(propagation_id, Timestamp::now())
+                .await
+                .map_err(persistence_error)?;
+
+            // One immediate attempt per message/relay pair
+            // A failure scheduled for later must not be retried repeatedly during this call
+            deliveries.retain(|delivery| {
+                attempted.insert((delivery.message_id.clone(), delivery.relay_url.to_string()))
+            });
+
+            if deliveries.is_empty() {
+                break;
+            }
+            total += deliveries.len();
+
+            // Persist all acknowledgments from this stage before querying for newly eligible children
+            self.send_deliveries(deliveries).await?;
+        }
+
+        Ok(total)
     }
 
     /// attempt pending deliveries

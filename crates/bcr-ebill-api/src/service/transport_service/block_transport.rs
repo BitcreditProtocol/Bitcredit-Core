@@ -21,6 +21,24 @@ use mockall::automock;
 #[cfg_attr(test, automock)]
 #[async_trait]
 pub trait BlockTransportServiceApi: ServiceTraitBounds {
+    /// batch-prepare identity chain events if we're propagating multiple at the same time
+    /// e.g. when creating an identity and adding an identity proof
+    async fn prepare_identity_chain_events(
+        &self,
+        events: &[IdentityChainEvent],
+    ) -> Result<Vec<NostrChainEvent>>;
+    /// batch-prepare company chain events if we're propagating multiple at the same time
+    /// e.g. when creating a company and adding an identity proof
+    async fn prepare_company_chain_events(
+        &self,
+        events: &[CompanyChainEvent],
+    ) -> Result<Vec<NostrChainEvent>>;
+    /// batch-prepare bill chain events if we're propagating multiple at the same time
+    /// e.g. when issuing a bill and accepting it immediately
+    async fn prepare_bill_chain_events(
+        &self,
+        events: &[BillChainEvent],
+    ) -> Result<Vec<NostrChainEvent>>;
     /// Sent when an identity chain is created or updated
     async fn send_identity_chain_events(&self, events: IdentityChainEvent) -> Result<()>;
     /// Sent when a company chain is created or updated

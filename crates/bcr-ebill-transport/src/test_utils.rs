@@ -501,6 +501,18 @@ mockall::mock! {
 
     #[async_trait]
     impl BlockTransportServiceApi for BlockTransportService {
+        async fn prepare_identity_chain_events(
+            &self,
+            events: &[IdentityChainEvent],
+        ) -> Result<Vec<NostrChainEvent>>;
+        async fn prepare_company_chain_events(
+            &self,
+            events: &[CompanyChainEvent],
+        ) -> Result<Vec<NostrChainEvent>>;
+        async fn prepare_bill_chain_events(
+            &self,
+            events: &[BillChainEvent],
+        ) -> Result<Vec<NostrChainEvent>>;
         async fn send_identity_chain_events(&self, events: IdentityChainEvent) -> Result<()>;
         async fn send_company_chain_events(&self, events: CompanyChainEvent) -> Result<()>;
         async fn send_bill_chain_events(&self, events: BillChainEvent) -> Result<()>;
