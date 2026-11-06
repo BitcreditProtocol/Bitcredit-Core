@@ -215,6 +215,17 @@ pub fn expect_successful_bill_issue_transaction(ctx: &mut MockBillContext, with_
         .return_once(move || Ok(successful_bill_issue_transaction(with_company)));
 }
 
+pub fn expect_successful_bill_issue_transaction_steps(
+    ctx: &mut MockBillContext,
+    with_company: bool,
+    steps: usize,
+) {
+    ctx.transaction_mgr
+        .expect_begin()
+        .once()
+        .return_once(move || Ok(successful_bill_issue_transaction_steps(with_company, steps)));
+}
+
 fn successful_bill_transaction(
     with_company: bool,
     steps: usize,
@@ -784,6 +795,15 @@ pub fn expect_prepared_bill_public_events(
     with_company: bool,
     steps: usize,
 ) {
+    expect_prepared_bill_public_events_with_options(ctx, with_company, steps, false);
+}
+
+pub fn expect_prepared_bill_public_events_with_options(
+    ctx: &mut MockBillContext,
+    with_company: bool,
+    steps: usize,
+    fail_bill_invite: bool,
+) {
     ctx.transport_service
         .expect_on_block_transport(move |transport| {
             transport
@@ -847,10 +867,22 @@ pub fn expect_prepared_bill_public_events(
                         .collect();
                     Ok(mock_chain_events(blocks))
                 });
-            transport
-                .expect_prepare_bill_chain_invites()
-                .times(steps)
-                .returning(|_| Ok(Vec::new()));
+
+            if fail_bill_invite {
+                transport
+                    .expect_prepare_bill_chain_invites()
+                    .once()
+                    .returning(|_| {
+                        Err(crate::service::transport_service::Error::Message(
+                            "simulated mandatory invite preparation failure".into(),
+                        ))
+                    });
+            } else {
+                transport
+                    .expect_prepare_bill_chain_invites()
+                    .times(steps)
+                    .returning(|_| Ok(Vec::new()));
+            }
 
             if with_company {
                 transport

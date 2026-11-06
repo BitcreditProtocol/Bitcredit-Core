@@ -4,8 +4,9 @@ use crate::{
     service::{
         bill_service::test_utils::{
             MockBillContext, expect_prepared_bill_public_events,
+            expect_prepared_bill_public_events_with_options,
             expect_successful_bill_action_transaction, expect_successful_bill_issue_transaction,
-            safe_deadline_ts,
+            expect_successful_bill_issue_transaction_steps, safe_deadline_ts,
         },
         company_service::tests::{
             get_baseline_company, get_baseline_company_data, get_valid_company_chain,
@@ -508,6 +509,46 @@ async fn issue_bill_baseline_anon() {
 
     assert_eq!(bill.files.first().unwrap().name, expected_file_name);
     assert!(matches!(bill.payee, BillParticipant::Anon(_))); // payee is anon
+}
+
+#[tokio::test]
+async fn issue_bill_with_auto_accept_queues_both_blocks() {
+    let mut ctx = get_ctx();
+    ctx.identity_store
+        .expect_get_email_confirmations()
+        .returning(|| Ok(vec![signed_identity_proof_test()]));
+
+    // identity: Issue, Accept
+    // bill: Issue, Accept
+    expect_successful_bill_issue_transaction_steps(&mut ctx, false, 2);
+    expect_prepared_bill_public_events(&mut ctx, false, 2);
+    let service = get_service(ctx);
+    let drawer = get_baseline_identity();
+
+    // A promissory note has the drawer as drawee, which triggers the auto-accept path
+    let bill = service
+        .issue_new_bill(BillIssueData {
+            t: 0,
+            country_of_issuing: Country::GB,
+            city_of_issuing: City::new("London").unwrap(),
+            issue_date: Date::new("2030-01-01").unwrap(),
+            maturity_date: Date::new("2030-04-01").unwrap(),
+            drawee: drawer.identity.node_id.clone(),
+            payee: NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet),
+            sum: Sum::new_sat(100).unwrap(),
+            country_of_payment: Country::AT,
+            city_of_payment: City::new("Vienna").unwrap(),
+            file_upload_ids: vec![],
+            drawer_public_data: BillParticipant::Ident(
+                BillIdentParticipant::new(drawer.identity).unwrap(),
+            ),
+            drawer_keys: drawer.key_pair,
+            timestamp: test_ts(),
+            blank_issue: false,
+        })
+        .await
+        .unwrap();
+    assert_eq!(bill.id.to_string().is_empty(), false);
 }
 
 #[tokio::test]
@@ -2469,6 +2510,120 @@ async fn accept_bill_fails_for_anon() {
             ProtocolValidationError::SignerCantBeAnon
         ))
     ));
+}
+
+#[tokio::test]
+async fn accept_bill_fails_before_commit_if_invite_cannot_be_prepared() {
+    let mut ctx = get_ctx();
+    let identity = get_baseline_identity();
+
+    let mut bill = get_baseline_bill(&bill_id_test());
+    bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
+    ctx.bill_blockchain_store
+        .expect_get_chain()
+        .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
+    ctx.identity_store
+        .expect_get_email_confirmations()
+        .returning(|| Ok(vec![signed_identity_proof_test()]));
+    expect_prepared_bill_public_events_with_options(&mut ctx, false, 1, true);
+
+    // transaction is never started, we fail in preparation
+    ctx.transaction_mgr.expect_begin().never();
+    let service = get_service(ctx);
+    let result = service
+        .execute_bill_action(
+            &bill_id_test(),
+            BillAction::Accept,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity).unwrap()),
+            &identity.key_pair,
+            test_ts(),
+        )
+        .await;
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn accept_bill_succeeds_when_immediate_propagation_fails() {
+    let mut ctx = get_ctx();
+    let identity = get_baseline_identity();
+
+    let mut bill = get_baseline_bill(&bill_id_test());
+    bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
+    ctx.bill_blockchain_store
+        .expect_get_chain()
+        .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
+    ctx.identity_store
+        .expect_get_email_confirmations()
+        .returning(|| Ok(vec![signed_identity_proof_test()]));
+
+    expect_successful_bill_action_transaction(&mut ctx, false);
+    expect_populates_identity_block(&mut ctx);
+
+    ctx.transport_service
+        .expect_attempt_propagation()
+        .once()
+        .returning(|propagation_id| {
+            assert!(!propagation_id.is_empty());
+
+            Err(crate::service::transport_service::Error::Network(
+                "simulated delivery failure".into(),
+            ))
+        });
+
+    let service = get_service(ctx);
+    let result = service
+        .execute_bill_action(
+            &bill_id_test(),
+            BillAction::Accept,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity).unwrap()),
+            &identity.key_pair,
+            test_ts(),
+        )
+        .await;
+    assert!(
+        result.is_ok(),
+        "Post-commit propagation failure must not fail the action"
+    );
+    assert_eq!(
+        result.unwrap().get_latest_block().op_code,
+        BillOpCode::Accept,
+    );
+}
+
+#[tokio::test]
+async fn accept_bill_succeeds_when_notification_preparation_fails() {
+    let mut ctx = get_ctx();
+    let identity = get_baseline_identity();
+    let mut bill = get_baseline_bill(&bill_id_test());
+    bill.drawee = bill_identified_participant_only_node_id(identity.identity.node_id.clone());
+    ctx.bill_blockchain_store
+        .expect_get_chain()
+        .returning(move |_| Ok(get_genesis_chain(Some(bill.clone()))));
+    ctx.identity_store
+        .expect_get_email_confirmations()
+        .returning(|| Ok(vec![signed_identity_proof_test()]));
+    expect_successful_bill_action_transaction(&mut ctx, false);
+    expect_populates_identity_block(&mut ctx);
+    ctx.transport_service
+        .expect_prepare_bill_private_messages()
+        .once()
+        .returning(|_, _| {
+            Err(crate::service::transport_service::Error::Message(
+                "simulated optional notification failure".into(),
+            ))
+        });
+
+    let service = get_service(ctx);
+    let result = service
+        .execute_bill_action(
+            &bill_id_test(),
+            BillAction::Accept,
+            &BillParticipant::Ident(BillIdentParticipant::new(identity.identity).unwrap()),
+            &identity.key_pair,
+            test_ts(),
+        )
+        .await;
+    assert!(result.is_ok());
 }
 
 fn expect_populates_identity_block(ctx: &mut MockBillContext) {

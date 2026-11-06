@@ -136,11 +136,14 @@ impl NostrPropagationStoreApi for SqliteNostrPropagationStore {
 #[cfg(test)]
 mod tests {
     use super::SqliteNostrPropagationStore;
+    use crate::sql::nostr_propagation::SELECT_PENDING_FOR_PROPAGATION;
     use crate::{
         EncryptionContext, sqlite::transaction::SqliteTransactionManager, tests::nostr_propagation,
     };
     use bcr_ebill_core::protocol::crypto::BcrKeys;
+    use sqlx::Row;
     use sqlx::SqlitePool;
+    use std::collections::HashSet;
     use std::sync::Arc;
 
     #[sqlx::test(migrations = "migrations/sqlite")]
@@ -149,5 +152,119 @@ mod tests {
         let manager = SqliteTransactionManager::new(pool.clone(), encryption_ctx.clone());
         let store = SqliteNostrPropagationStore::new(pool, encryption_ctx);
         nostr_propagation::test_propagation_store(&store, &manager).await;
+    }
+
+    #[sqlx::test(migrations = "migrations/sqlite")]
+    async fn child_event_waits_for_parent_ack_on_each_relay(pool: sqlx::SqlitePool) {
+        sqlx::query(
+            "INSERT INTO nostr_propagations (id, subject_type, subject_id, created_at) VALUES ('p1', 'bill', 'bill1', 1)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        for (message, event) in [("issue-msg", "issue-event"), ("accept-msg", "accept-event")] {
+            sqlx::query(
+                "INSERT INTO nostr_propagation_messages (id, propagation_id, event_type, nostr_event_id, payload) VALUES ($1, 'p1', 'BillChain', $2, X'00')",
+            )
+            .bind(message)
+            .bind(event)
+            .execute(&pool)
+            .await
+            .unwrap();
+            for relay in ["wss://r1.example", "wss://r2.example", "wss://r3.example"] {
+                sqlx::query(
+                    "INSERT INTO nostr_propagation_relays (message_id, relay_url) VALUES ($1, $2)",
+                )
+                .bind(message)
+                .bind(relay)
+                .execute(&pool)
+                .await
+                .unwrap();
+            }
+        }
+
+        // Persist the child's Nostr predecessor relationship
+        sqlx::query(
+            r#"
+        INSERT INTO nostr_chain_event (
+            event_id, root_id, reply_id,
+            author, chain_id, chain_type,
+            block_height, block_hash,
+            received, time, payload
+        )
+        VALUES (
+            'accept-event', 'issue-event', 'issue-event',
+            'author', 'bill1', 'bill',
+            2, 'accept-hash',
+            1, 1, '{}'
+        )
+        "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Issue succeeds on r1 and r2, but not on r3
+        sqlx::query(
+            "UPDATE nostr_propagation_relays SET accepted_at = 1 WHERE message_id = 'issue-msg' AND relay_url IN ('wss://r1.example', 'wss://r2.example')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let rows = sqlx::query(SELECT_PENDING_FOR_PROPAGATION)
+            .bind("p1")
+            .bind(2_i64)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+
+        let due: HashSet<(String, String)> = rows
+            .iter()
+            .map(|row| {
+                (
+                    row.get::<String, _>("message_id"),
+                    row.get::<String, _>("relay_url"),
+                )
+            })
+            .collect();
+
+        assert_eq!(
+            due,
+            HashSet::from([
+                ("issue-msg".to_owned(), "wss://r3.example".to_owned(),),
+                ("accept-msg".to_owned(), "wss://r1.example".to_owned(),),
+                ("accept-msg".to_owned(), "wss://r2.example".to_owned(),),
+            ])
+        );
+
+        // When Issue is accepted on r3,
+        // Accept becomes eligible there as well
+        sqlx::query(
+            "UPDATE nostr_propagation_relays SET accepted_at = 2 WHERE message_id = 'issue-msg' AND relay_url = 'wss://r3.example'",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let rows = sqlx::query(SELECT_PENDING_FOR_PROPAGATION)
+            .bind("p1")
+            .bind(3_i64)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+
+        let due_after: HashSet<(String, String)> = rows
+            .iter()
+            .map(|row| {
+                (
+                    row.get::<String, _>("message_id"),
+                    row.get::<String, _>("relay_url"),
+                )
+            })
+            .collect();
+
+        assert!(due_after.contains(&("accept-msg".to_owned(), "wss://r3.example".to_owned(),)));
+        assert!(due_after.iter().all(|(id, _)| { id == "accept-msg" }));
     }
 }
