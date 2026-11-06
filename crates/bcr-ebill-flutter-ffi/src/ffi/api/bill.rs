@@ -44,8 +44,9 @@ use crate::ffi::{
             OfferToSellBitcreditBillPayload, OverrideBillFromNostrPayload, PastEndorseesResponse,
             PastPaymentsResponse, RejectActionBillPayload, RequestRecourseForAcceptancePayload,
             RequestRecourseForPaymentPayload, RequestToAcceptBitcreditBillPayload,
-            RequestToMintBitcreditBillPayload, RequestToPayAsMintBitcreditBillPayload,
-            RequestToPayBitcreditBillPayload, ResyncBillPayload, ShareBillWithCourtPayload,
+            RequestToMintBitcreditBillPayload, RequestToMintBitcreditBillReissuePayload,
+            RequestToPayAsMintBitcreditBillPayload, RequestToPayBitcreditBillPayload,
+            ResyncBillPayload, ShareBillWithCourtPayload,
         },
         mint::MintRequestStateResponse,
         parse_deadline_string,
@@ -696,6 +697,35 @@ pub async fn request_to_mint(
     Ok(())
 }
 
+fn parse_mint_target(bill_id: &str, mint_node: &str) -> Result<(BillId, NodeId), EbillFfiError> {
+    Ok((
+        BillId::from_str(bill_id).map_err(ProtocolValidationError::from)?,
+        NodeId::from_str(mint_node).map_err(ProtocolValidationError::from)?,
+    ))
+}
+
+/// Requests a replacement quote after AI Credit permitted a reviewed correction of a terminal one.
+#[frb]
+pub async fn request_to_mint_reissue(
+    payload: RequestToMintBitcreditBillReissuePayload,
+) -> Result<(), EbillFfiError> {
+    let timestamp = Timestamp::now();
+    let ctx = get_active_ctx().await?;
+    let (signer_public_data, signer_keys) = get_signer_public_data_and_keys(ctx.clone()).await?;
+    let (bill_id, mint_node) = parse_mint_target(&payload.bill_id, &payload.mint_node)?;
+    ctx.bill_service
+        .request_to_mint_reissue(
+            &bill_id,
+            &mint_node,
+            &signer_public_data,
+            &signer_keys,
+            timestamp,
+            &payload.signed_reissue_permit_json,
+        )
+        .await?;
+    Ok(())
+}
+
 #[frb]
 pub async fn mint_state(id: &str) -> Result<MintRequestStateResponse, EbillFfiError> {
     let bill_id = BillId::from_str(id).map_err(ProtocolValidationError::from)?;
@@ -1162,4 +1192,22 @@ async fn request_recourse(
         .await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bitcoin::{Network, secp256k1::SecretKey};
+
+    #[test]
+    fn reissue_target_parses_bill_and_mint_or_rejects_malformed_ids() {
+        let keys = BcrKeys::from_private_key(&SecretKey::from_slice(&[7; 32]).unwrap());
+        let bill = BillId::new(keys.pub_key(), Network::Regtest);
+        let mint = NodeId::new(keys.pub_key(), Network::Regtest);
+        let (parsed_bill, parsed_mint) =
+            parse_mint_target(&bill.to_string(), &mint.to_string()).unwrap();
+        assert_eq!((parsed_bill, parsed_mint), (bill.clone(), mint.clone()));
+        assert!(parse_mint_target("bill", &mint.to_string()).is_err());
+        assert!(parse_mint_target(&bill.to_string(), "mint").is_err());
+    }
 }

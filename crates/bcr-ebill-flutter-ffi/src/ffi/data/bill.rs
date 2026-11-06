@@ -62,6 +62,15 @@ pub struct RequestToMintBitcreditBillPayload {
     pub bill_id: String,
 }
 
+/// Replaces a terminal quote only with AI Credit's signed reviewed-correction permit.
+#[derive(Debug, Clone)]
+pub struct RequestToMintBitcreditBillReissuePayload {
+    pub mint_node: String,
+    pub bill_id: String,
+    /// The permit exactly as AI Credit returned it; Core verifies these bytes.
+    pub signed_reissue_permit_json: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct OfferToSellBitcreditBillPayload {
     pub buyer: String,

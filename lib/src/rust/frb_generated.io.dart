@@ -511,6 +511,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   dco_decode_box_autoadd_request_to_mint_bitcredit_bill_payload(dynamic raw);
 
   @protected
+  RequestToMintBitcreditBillReissuePayload
+  dco_decode_box_autoadd_request_to_mint_bitcredit_bill_reissue_payload(
+    dynamic raw,
+  );
+
+  @protected
   RequestToPayAsMintBitcreditBillPayload
   dco_decode_box_autoadd_request_to_pay_as_mint_bitcredit_bill_payload(
     dynamic raw,
@@ -1089,6 +1095,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   RequestToMintBitcreditBillPayload
   dco_decode_request_to_mint_bitcredit_bill_payload(dynamic raw);
+
+  @protected
+  RequestToMintBitcreditBillReissuePayload
+  dco_decode_request_to_mint_bitcredit_bill_reissue_payload(dynamic raw);
 
   @protected
   RequestToPayAsMintBitcreditBillPayload
@@ -1770,6 +1780,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   RequestToMintBitcreditBillPayload
   sse_decode_box_autoadd_request_to_mint_bitcredit_bill_payload(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  RequestToMintBitcreditBillReissuePayload
+  sse_decode_box_autoadd_request_to_mint_bitcredit_bill_reissue_payload(
     SseDeserializer deserializer,
   );
 
@@ -2500,6 +2516,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   RequestToMintBitcreditBillPayload
   sse_decode_request_to_mint_bitcredit_bill_payload(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  RequestToMintBitcreditBillReissuePayload
+  sse_decode_request_to_mint_bitcredit_bill_reissue_payload(
     SseDeserializer deserializer,
   );
 
@@ -3317,6 +3339,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_box_autoadd_request_to_mint_bitcredit_bill_payload(
     RequestToMintBitcreditBillPayload self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_request_to_mint_bitcredit_bill_reissue_payload(
+    RequestToMintBitcreditBillReissuePayload self,
     SseSerializer serializer,
   );
 
@@ -4223,6 +4251,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_request_to_mint_bitcredit_bill_payload(
     RequestToMintBitcreditBillPayload self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_request_to_mint_bitcredit_bill_reissue_payload(
+    RequestToMintBitcreditBillReissuePayload self,
     SseSerializer serializer,
   );
 

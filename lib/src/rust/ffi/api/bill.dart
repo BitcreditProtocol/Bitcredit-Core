@@ -10,9 +10,10 @@ import '../data/contact.dart';
 import '../data/mint.dart';
 import '../data/notification.dart';
 import '../error.dart';
+
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `endorse`, `get_attachment`, `get_signer_public_data_and_keys`, `issue_bill`, `offer_to_sell_bill`, `request_recourse`
+// These functions are ignored because they are not marked as `pub`: `endorse`, `get_attachment`, `get_signer_public_data_and_keys`, `issue_bill`, `offer_to_sell_bill`, `parse_mint_target`, `request_recourse`
 
 Future<EndorsementsResponse> endorsements({required String id}) =>
     RustLib.instance.api.crateFfiApiBillEndorsements(id: id);
@@ -122,6 +123,12 @@ Future<void> requestToMint({
 }) => RustLib.instance.api.crateFfiApiBillRequestToMint(
   requestToMintBillPayload: requestToMintBillPayload,
 );
+
+/// Requests a replacement quote after AI Credit permitted a reviewed correction of a terminal one.
+Future<void> requestToMintReissue({
+  required RequestToMintBitcreditBillReissuePayload payload,
+}) =>
+    RustLib.instance.api.crateFfiApiBillRequestToMintReissue(payload: payload);
 
 Future<MintRequestStateResponse> mintState({required String id}) =>
     RustLib.instance.api.crateFfiApiBillMintState(id: id);
