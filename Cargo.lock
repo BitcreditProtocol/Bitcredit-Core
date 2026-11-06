@@ -588,6 +588,7 @@ dependencies = [
  "nostr 0.45.5",
  "once_cell",
  "rustls",
+ "serde_json",
  "time",
  "tokio",
  "tokio-util",

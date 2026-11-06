@@ -17,6 +17,7 @@ import 'ffi/api/facility.dart';
 import 'ffi/api/general.dart';
 import 'ffi/api/identity.dart';
 import 'ffi/api/mint_application_admission.dart';
+import 'ffi/api/mint_record.dart';
 import 'ffi/api/notification.dart';
 import 'ffi/data.dart';
 import 'ffi/data/bill.dart';
@@ -62,6 +63,17 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   AcceptCompanyInvitePayload dco_decode_accept_company_invite_payload(
     dynamic raw,
   );
+
+  @protected
+  AddMintRecordDisputePayloadFfi dco_decode_add_mint_record_dispute_payload_ffi(
+    dynamic raw,
+  );
+
+  @protected
+  AddMintRecordPayloadFfi dco_decode_add_mint_record_payload_ffi(dynamic raw);
+
+  @protected
+  AddMintRecordResultFfi dco_decode_add_mint_record_result_ffi(dynamic raw);
 
   @protected
   ApproveContactSharePayload dco_decode_approve_contact_share_payload(
@@ -238,6 +250,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   AcceptCompanyInvitePayload
   dco_decode_box_autoadd_accept_company_invite_payload(dynamic raw);
+
+  @protected
+  AddMintRecordDisputePayloadFfi
+  dco_decode_box_autoadd_add_mint_record_dispute_payload_ffi(dynamic raw);
+
+  @protected
+  AddMintRecordPayloadFfi dco_decode_box_autoadd_add_mint_record_payload_ffi(
+    dynamic raw,
+  );
 
   @protected
   ApproveContactSharePayload
@@ -433,6 +454,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   MintOfferFfi dco_decode_box_autoadd_mint_offer_ffi(dynamic raw);
+
+  @protected
+  MintRecordSnapshotRequestFfi
+  dco_decode_box_autoadd_mint_record_snapshot_request_ffi(dynamic raw);
 
   @protected
   NewContactPayload dco_decode_box_autoadd_new_contact_payload(dynamic raw);
@@ -850,6 +875,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  List<MintRecordDisputeFfi> dco_decode_list_mint_record_dispute_ffi(
+    dynamic raw,
+  );
+
+  @protected
+  List<MintRecordFfi> dco_decode_list_mint_record_ffi(dynamic raw);
+
+  @protected
   List<MintRequestStateFfi> dco_decode_list_mint_request_state_ffi(dynamic raw);
 
   @protected
@@ -904,6 +937,26 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   MintOfferFfi dco_decode_mint_offer_ffi(dynamic raw);
+
+  @protected
+  MintRecordDisputeFfi dco_decode_mint_record_dispute_ffi(dynamic raw);
+
+  @protected
+  MintRecordFfi dco_decode_mint_record_ffi(dynamic raw);
+
+  @protected
+  MintRecordHeaderFfi dco_decode_mint_record_header_ffi(dynamic raw);
+
+  @protected
+  MintRecordIssuerFfi dco_decode_mint_record_issuer_ffi(dynamic raw);
+
+  @protected
+  MintRecordSnapshotRequestFfi dco_decode_mint_record_snapshot_request_ffi(
+    dynamic raw,
+  );
+
+  @protected
+  MintRecordSubjectFfi dco_decode_mint_record_subject_ffi(dynamic raw);
 
   @protected
   MintRequestFfi dco_decode_mint_request_ffi(dynamic raw);
@@ -1164,6 +1217,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   dco_decode_signed_mint_application_admission_ffi(dynamic raw);
 
   @protected
+  SignedMintRecordSnapshotFfi dco_decode_signed_mint_record_snapshot_ffi(
+    dynamic raw,
+  );
+
+  @protected
   StatusResponse dco_decode_status_response(dynamic raw);
 
   @protected
@@ -1212,6 +1270,21 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   AcceptCompanyInvitePayload sse_decode_accept_company_invite_payload(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  AddMintRecordDisputePayloadFfi sse_decode_add_mint_record_dispute_payload_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  AddMintRecordPayloadFfi sse_decode_add_mint_record_payload_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  AddMintRecordResultFfi sse_decode_add_mint_record_result_ffi(
     SseDeserializer deserializer,
   );
 
@@ -1444,6 +1517,17 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   AcceptCompanyInvitePayload
   sse_decode_box_autoadd_accept_company_invite_payload(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  AddMintRecordDisputePayloadFfi
+  sse_decode_box_autoadd_add_mint_record_dispute_payload_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  AddMintRecordPayloadFfi sse_decode_box_autoadd_add_mint_record_payload_ffi(
     SseDeserializer deserializer,
   );
 
@@ -1687,6 +1771,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   MintOfferFfi sse_decode_box_autoadd_mint_offer_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  MintRecordSnapshotRequestFfi
+  sse_decode_box_autoadd_mint_record_snapshot_request_ffi(
     SseDeserializer deserializer,
   );
 
@@ -2210,6 +2300,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  List<MintRecordDisputeFfi> sse_decode_list_mint_record_dispute_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<MintRecordFfi> sse_decode_list_mint_record_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<MintRequestStateFfi> sse_decode_list_mint_request_state_ffi(
     SseDeserializer deserializer,
   );
@@ -2280,6 +2380,34 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   MintOfferFfi sse_decode_mint_offer_ffi(SseDeserializer deserializer);
+
+  @protected
+  MintRecordDisputeFfi sse_decode_mint_record_dispute_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  MintRecordFfi sse_decode_mint_record_ffi(SseDeserializer deserializer);
+
+  @protected
+  MintRecordHeaderFfi sse_decode_mint_record_header_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  MintRecordIssuerFfi sse_decode_mint_record_issuer_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  MintRecordSnapshotRequestFfi sse_decode_mint_record_snapshot_request_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  MintRecordSubjectFfi sse_decode_mint_record_subject_ffi(
+    SseDeserializer deserializer,
+  );
 
   @protected
   MintRequestFfi sse_decode_mint_request_ffi(SseDeserializer deserializer);
@@ -2622,6 +2750,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  SignedMintRecordSnapshotFfi sse_decode_signed_mint_record_snapshot_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   StatusResponse sse_decode_status_response(SseDeserializer deserializer);
 
   @protected
@@ -2688,6 +2821,24 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_accept_company_invite_payload(
     AcceptCompanyInvitePayload self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_add_mint_record_dispute_payload_ffi(
+    AddMintRecordDisputePayloadFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_add_mint_record_payload_ffi(
+    AddMintRecordPayloadFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_add_mint_record_result_ffi(
+    AddMintRecordResultFfi self,
     SseSerializer serializer,
   );
 
@@ -2977,6 +3128,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_box_autoadd_add_mint_record_dispute_payload_ffi(
+    AddMintRecordDisputePayloadFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_add_mint_record_payload_ffi(
+    AddMintRecordPayloadFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_approve_contact_share_payload(
     ApproveContactSharePayload self,
     SseSerializer serializer,
@@ -3249,6 +3412,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_box_autoadd_mint_offer_ffi(
     MintOfferFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_mint_record_snapshot_request_ffi(
+    MintRecordSnapshotRequestFfi self,
     SseSerializer serializer,
   );
 
@@ -3880,6 +4049,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_mint_record_dispute_ffi(
+    List<MintRecordDisputeFfi> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_mint_record_ffi(
+    List<MintRecordFfi> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_mint_request_state_ffi(
     List<MintRequestStateFfi> self,
     SseSerializer serializer,
@@ -3965,6 +4146,39 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_mint_offer_ffi(MintOfferFfi self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_mint_record_dispute_ffi(
+    MintRecordDisputeFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_mint_record_ffi(MintRecordFfi self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_mint_record_header_ffi(
+    MintRecordHeaderFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_mint_record_issuer_ffi(
+    MintRecordIssuerFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_mint_record_snapshot_request_ffi(
+    MintRecordSnapshotRequestFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_mint_record_subject_ffi(
+    MintRecordSubjectFfi self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_mint_request_ffi(
@@ -4386,6 +4600,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_signed_mint_application_admission_ffi(
     SignedMintApplicationAdmissionFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_signed_mint_record_snapshot_ffi(
+    SignedMintRecordSnapshotFfi self,
     SseSerializer serializer,
   );
 

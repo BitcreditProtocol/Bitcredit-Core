@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 2064485383;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1351704435;
 
 // Section: executor
 
@@ -269,6 +269,93 @@ fn wire__crate__ffi__api__notification__active_notifications_for_node_ids_impl(
                                 api_node_ids,
                             )
                             .await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__ffi__api__mint_record__add_mint_record_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "add_mint_record",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_company_id = <Option<String>>::sse_decode(&mut deserializer);
+            let api_payload = <crate::ffi::api::mint_record::AddMintRecordPayloadFfi>::sse_decode(
+                &mut deserializer,
+            );
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, crate::ffi::error::EbillFfiError>(
+                    (move || async move {
+                        let output_ok = crate::ffi::api::mint_record::add_mint_record(
+                            api_company_id,
+                            api_payload,
+                        )
+                        .await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__ffi__api__mint_record__add_mint_record_dispute_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "add_mint_record_dispute",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_company_id = <Option<String>>::sse_decode(&mut deserializer);
+            let api_payload =
+                <crate::ffi::api::mint_record::AddMintRecordDisputePayloadFfi>::sse_decode(
+                    &mut deserializer,
+                );
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, crate::ffi::error::EbillFfiError>(
+                    (move || async move {
+                        let output_ok = crate::ffi::api::mint_record::add_mint_record_dispute(
+                            api_company_id,
+                            api_payload,
+                        )
+                        .await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -2945,6 +3032,87 @@ fn wire__crate__ffi__api__general__mempool_link_impl(
         },
     )
 }
+fn wire__crate__ffi__api__mint_record__mint_record_snapshot_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "mint_record_snapshot",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_company_id = <Option<String>>::sse_decode(&mut deserializer);
+            let api_payload =
+                <crate::ffi::api::mint_record::MintRecordSnapshotRequestFfi>::sse_decode(
+                    &mut deserializer,
+                );
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, crate::ffi::error::EbillFfiError>(
+                    (move || async move {
+                        let output_ok = crate::ffi::api::mint_record::mint_record_snapshot(
+                            api_company_id,
+                            api_payload,
+                        )
+                        .await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__ffi__api__mint_record__mint_records_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "mint_records",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_company_id = <Option<String>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, crate::ffi::error::EbillFfiError>(
+                    (move || async move {
+                        let output_ok =
+                            crate::ffi::api::mint_record::mint_records(api_company_id).await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
 fn wire__crate__ffi__api__bill__mint_state_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -4948,6 +5116,46 @@ impl SseDecode for crate::ffi::data::company::AcceptCompanyInvitePayload {
         return crate::ffi::data::company::AcceptCompanyInvitePayload {
             id: var_id,
             email: var_email,
+        };
+    }
+}
+
+impl SseDecode for crate::ffi::api::mint_record::AddMintRecordDisputePayloadFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_entryBlockId = <u64>::sse_decode(deserializer);
+        let mut var_statement = <String>::sse_decode(deserializer);
+        return crate::ffi::api::mint_record::AddMintRecordDisputePayloadFfi {
+            entry_block_id: var_entryBlockId,
+            statement: var_statement,
+        };
+    }
+}
+
+impl SseDecode for crate::ffi::api::mint_record::AddMintRecordPayloadFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_entry = <String>::sse_decode(deserializer);
+        let mut var_signature = <String>::sse_decode(deserializer);
+        return crate::ffi::api::mint_record::AddMintRecordPayloadFfi {
+            entry: var_entry,
+            signature: var_signature,
+        };
+    }
+}
+
+impl SseDecode for crate::ffi::api::mint_record::AddMintRecordResultFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_blockId = <u64>::sse_decode(deserializer);
+        let mut var_sequence = <u64>::sse_decode(deserializer);
+        let mut var_signingKey = <String>::sse_decode(deserializer);
+        let mut var_alreadyPresent = <bool>::sse_decode(deserializer);
+        return crate::ffi::api::mint_record::AddMintRecordResultFfi {
+            block_id: var_blockId,
+            sequence: var_sequence,
+            signing_key: var_signingKey,
+            already_present: var_alreadyPresent,
         };
     }
 }
@@ -7231,6 +7439,34 @@ impl SseDecode for Vec<crate::ffi::data::bill::LightBitcreditBillFfi> {
     }
 }
 
+impl SseDecode for Vec<crate::ffi::api::mint_record::MintRecordDisputeFfi> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(
+                <crate::ffi::api::mint_record::MintRecordDisputeFfi>::sse_decode(deserializer),
+            );
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::ffi::api::mint_record::MintRecordFfi> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<crate::ffi::api::mint_record::MintRecordFfi>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
 impl SseDecode for Vec<crate::ffi::data::mint::MintRequestStateFfi> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -7448,6 +7684,120 @@ impl SseDecode for crate::ffi::data::mint::MintOfferFfi {
             discounted_sum: var_discountedSum,
             proofs: var_proofs,
             proofs_spent: var_proofsSpent,
+        };
+    }
+}
+
+impl SseDecode for crate::ffi::api::mint_record::MintRecordDisputeFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_blockId = <u64>::sse_decode(deserializer);
+        let mut var_blockHash = <String>::sse_decode(deserializer);
+        let mut var_timestamp = <u64>::sse_decode(deserializer);
+        let mut var_entryBlockId = <u64>::sse_decode(deserializer);
+        let mut var_entryDigest = <String>::sse_decode(deserializer);
+        let mut var_statement = <String>::sse_decode(deserializer);
+        let mut var_createdAt = <u64>::sse_decode(deserializer);
+        return crate::ffi::api::mint_record::MintRecordDisputeFfi {
+            block_id: var_blockId,
+            block_hash: var_blockHash,
+            timestamp: var_timestamp,
+            entry_block_id: var_entryBlockId,
+            entry_digest: var_entryDigest,
+            statement: var_statement,
+            created_at: var_createdAt,
+        };
+    }
+}
+
+impl SseDecode for crate::ffi::api::mint_record::MintRecordFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_blockId = <u64>::sse_decode(deserializer);
+        let mut var_blockHash = <String>::sse_decode(deserializer);
+        let mut var_timestamp = <u64>::sse_decode(deserializer);
+        let mut var_header =
+            <crate::ffi::api::mint_record::MintRecordHeaderFfi>::sse_decode(deserializer);
+        let mut var_entry = <String>::sse_decode(deserializer);
+        let mut var_signature = <String>::sse_decode(deserializer);
+        let mut var_digest = <String>::sse_decode(deserializer);
+        let mut var_disputes =
+            <Vec<crate::ffi::api::mint_record::MintRecordDisputeFfi>>::sse_decode(deserializer);
+        return crate::ffi::api::mint_record::MintRecordFfi {
+            block_id: var_blockId,
+            block_hash: var_blockHash,
+            timestamp: var_timestamp,
+            header: var_header,
+            entry: var_entry,
+            signature: var_signature,
+            digest: var_digest,
+            disputes: var_disputes,
+        };
+    }
+}
+
+impl SseDecode for crate::ffi::api::mint_record::MintRecordHeaderFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_schema = <String>::sse_decode(deserializer);
+        let mut var_network = <String>::sse_decode(deserializer);
+        let mut var_issuer =
+            <crate::ffi::api::mint_record::MintRecordIssuerFfi>::sse_decode(deserializer);
+        let mut var_subject =
+            <crate::ffi::api::mint_record::MintRecordSubjectFfi>::sse_decode(deserializer);
+        let mut var_sequence = <u64>::sse_decode(deserializer);
+        let mut var_previousEntryDigest = <Option<String>>::sse_decode(deserializer);
+        let mut var_createdAt = <String>::sse_decode(deserializer);
+        let mut var_reason = <String>::sse_decode(deserializer);
+        return crate::ffi::api::mint_record::MintRecordHeaderFfi {
+            schema: var_schema,
+            network: var_network,
+            issuer: var_issuer,
+            subject: var_subject,
+            sequence: var_sequence,
+            previous_entry_digest: var_previousEntryDigest,
+            created_at: var_createdAt,
+            reason: var_reason,
+        };
+    }
+}
+
+impl SseDecode for crate::ffi::api::mint_record::MintRecordIssuerFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_signingKey = <String>::sse_decode(deserializer);
+        let mut var_mintNodeId = <String>::sse_decode(deserializer);
+        let mut var_name = <String>::sse_decode(deserializer);
+        return crate::ffi::api::mint_record::MintRecordIssuerFfi {
+            signing_key: var_signingKey,
+            mint_node_id: var_mintNodeId,
+            name: var_name,
+        };
+    }
+}
+
+impl SseDecode for crate::ffi::api::mint_record::MintRecordSnapshotRequestFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_receivingMintKey = <String>::sse_decode(deserializer);
+        let mut var_applicationRef = <String>::sse_decode(deserializer);
+        return crate::ffi::api::mint_record::MintRecordSnapshotRequestFfi {
+            receiving_mint_key: var_receivingMintKey,
+            application_ref: var_applicationRef,
+        };
+    }
+}
+
+impl SseDecode for crate::ffi::api::mint_record::MintRecordSubjectFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_chain = <String>::sse_decode(deserializer);
+        let mut var_nodeId = <String>::sse_decode(deserializer);
+        let mut var_companyNodeId = <Option<String>>::sse_decode(deserializer);
+        return crate::ffi::api::mint_record::MintRecordSubjectFfi {
+            chain: var_chain,
+            node_id: var_nodeId,
+            company_node_id: var_companyNodeId,
         };
     }
 }
@@ -8575,6 +8925,18 @@ impl SseDecode for crate::ffi::api::mint_application_admission::SignedMintApplic
     }
 }
 
+impl SseDecode for crate::ffi::api::mint_record::SignedMintRecordSnapshotFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_payload = <String>::sse_decode(deserializer);
+        let mut var_signature = <String>::sse_decode(deserializer);
+        return crate::ffi::api::mint_record::SignedMintRecordSnapshotFfi {
+            payload: var_payload,
+            signature: var_signature,
+        };
+    }
+}
+
 impl SseDecode for crate::ffi::data::StatusResponse {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -8706,319 +9068,342 @@ fn pde_ffi_dispatcher_primary_impl(
             rust_vec_len,
             data_len,
         ),
-        7 => wire__crate__ffi__api__contact__approve_contact_share_impl(
+        7 => wire__crate__ffi__api__mint_record__add_mint_record_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        8 => wire__crate__ffi__api__bill__attachment_impl(port, ptr, rust_vec_len, data_len),
-        9 => wire__crate__ffi__api__bill__attachment_base64_impl(port, ptr, rust_vec_len, data_len),
-        10 => wire__crate__ffi__api__bill__bill_history_impl(port, ptr, rust_vec_len, data_len),
-        11 => wire__crate__ffi__api__bill__bitcoin_keys_impl(port, ptr, rust_vec_len, data_len),
-        12 => wire__crate__ffi__api__bill__cancel_request_to_mint_impl(
+        8 => wire__crate__ffi__api__mint_record__add_mint_record_dispute_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        13 => wire__crate__ffi__api__bill__cancel_request_to_mint_for_mint_impl(
+        9 => wire__crate__ffi__api__contact__approve_contact_share_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        14 => wire__crate__ffi__api__identity__change_impl(port, ptr, rust_vec_len, data_len),
-        15 => wire__crate__ffi__api__identity__change_email_impl(port, ptr, rust_vec_len, data_len),
-        16 => wire__crate__ffi__api__company__change_signatory_email_impl(
+        10 => wire__crate__ffi__api__bill__attachment_impl(port, ptr, rust_vec_len, data_len),
+        11 => {
+            wire__crate__ffi__api__bill__attachment_base64_impl(port, ptr, rust_vec_len, data_len)
+        }
+        12 => wire__crate__ffi__api__bill__bill_history_impl(port, ptr, rust_vec_len, data_len),
+        13 => wire__crate__ffi__api__bill__bitcoin_keys_impl(port, ptr, rust_vec_len, data_len),
+        14 => wire__crate__ffi__api__bill__cancel_request_to_mint_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        17 => wire__crate__ffi__api__bill__check_and_estimate_btc_sweep_impl(
+        15 => wire__crate__ffi__api__bill__cancel_request_to_mint_for_mint_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        18 => wire__crate__ffi__api__bill__check_mint_state_impl(port, ptr, rust_vec_len, data_len),
-        19 => wire__crate__ffi__api__bill__check_payment_impl(port, ptr, rust_vec_len, data_len),
-        20 => wire__crate__ffi__api__bill__check_payment_for_bill_impl(
+        16 => wire__crate__ffi__api__identity__change_impl(port, ptr, rust_vec_len, data_len),
+        17 => wire__crate__ffi__api__identity__change_email_impl(port, ptr, rust_vec_len, data_len),
+        18 => wire__crate__ffi__api__company__change_signatory_email_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        21 => wire__crate__ffi__api__bill__clear_bill_cache_impl(port, ptr, rust_vec_len, data_len),
-        22 => wire__crate__ffi__api__company__confirm_email_impl(port, ptr, rust_vec_len, data_len),
-        23 => {
+        19 => wire__crate__ffi__api__bill__check_and_estimate_btc_sweep_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        20 => wire__crate__ffi__api__bill__check_mint_state_impl(port, ptr, rust_vec_len, data_len),
+        21 => wire__crate__ffi__api__bill__check_payment_impl(port, ptr, rust_vec_len, data_len),
+        22 => wire__crate__ffi__api__bill__check_payment_for_bill_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        23 => wire__crate__ffi__api__bill__clear_bill_cache_impl(port, ptr, rust_vec_len, data_len),
+        24 => wire__crate__ffi__api__company__confirm_email_impl(port, ptr, rust_vec_len, data_len),
+        25 => {
             wire__crate__ffi__api__identity__confirm_email_impl(port, ptr, rust_vec_len, data_len)
         }
-        24 => wire__crate__ffi__api__company__create_impl(port, ptr, rust_vec_len, data_len),
-        25 => wire__crate__ffi__api__contact__create_impl(port, ptr, rust_vec_len, data_len),
-        26 => wire__crate__ffi__api__identity__create_impl(port, ptr, rust_vec_len, data_len),
-        27 => wire__crate__ffi__api__company__create_keys_impl(port, ptr, rust_vec_len, data_len),
-        28 => wire__crate__ffi__data__create_optional_postal_address_ffi_is_none_impl(
+        26 => wire__crate__ffi__api__company__create_impl(port, ptr, rust_vec_len, data_len),
+        27 => wire__crate__ffi__api__contact__create_impl(port, ptr, rust_vec_len, data_len),
+        28 => wire__crate__ffi__api__identity__create_impl(port, ptr, rust_vec_len, data_len),
+        29 => wire__crate__ffi__api__company__create_keys_impl(port, ptr, rust_vec_len, data_len),
+        30 => wire__crate__ffi__data__create_optional_postal_address_ffi_is_none_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        29 => wire__crate__ffi__api__general__currencies_impl(port, ptr, rust_vec_len, data_len),
-        30 => wire__crate__ffi__api__contact__deanonymize_impl(port, ptr, rust_vec_len, data_len),
-        31 => wire__crate__ffi__api__identity__deanonymize_impl(port, ptr, rust_vec_len, data_len),
-        32 => wire__crate__ffi__api__bill__detail_impl(port, ptr, rust_vec_len, data_len),
-        33 => wire__crate__ffi__api__company__detail_impl(port, ptr, rust_vec_len, data_len),
-        34 => wire__crate__ffi__api__contact__detail_impl(port, ptr, rust_vec_len, data_len),
-        35 => wire__crate__ffi__api__identity__detail_impl(port, ptr, rust_vec_len, data_len),
-        36 => wire__crate__ffi__api__bill__dev_mode_get_full_bill_chain_impl(
+        31 => wire__crate__ffi__api__general__currencies_impl(port, ptr, rust_vec_len, data_len),
+        32 => wire__crate__ffi__api__contact__deanonymize_impl(port, ptr, rust_vec_len, data_len),
+        33 => wire__crate__ffi__api__identity__deanonymize_impl(port, ptr, rust_vec_len, data_len),
+        34 => wire__crate__ffi__api__bill__detail_impl(port, ptr, rust_vec_len, data_len),
+        35 => wire__crate__ffi__api__company__detail_impl(port, ptr, rust_vec_len, data_len),
+        36 => wire__crate__ffi__api__contact__detail_impl(port, ptr, rust_vec_len, data_len),
+        37 => wire__crate__ffi__api__identity__detail_impl(port, ptr, rust_vec_len, data_len),
+        38 => wire__crate__ffi__api__bill__dev_mode_get_full_bill_chain_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        37 => wire__crate__ffi__api__company__dev_mode_get_full_company_chain_impl(
+        39 => wire__crate__ffi__api__company__dev_mode_get_full_company_chain_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        38 => wire__crate__ffi__api__identity__dev_mode_get_full_identity_chain_impl(
+        40 => wire__crate__ffi__api__identity__dev_mode_get_full_identity_chain_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        39 => wire__crate__ffi__api__bill__dev_mode_override_bill_chain_from_nostr_impl(
+        41 => wire__crate__ffi__api__bill__dev_mode_override_bill_chain_from_nostr_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        40 => wire__crate__ffi__api__company__dev_mode_override_company_chain_from_nostr_impl(
+        42 => wire__crate__ffi__api__company__dev_mode_override_company_chain_from_nostr_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        41 => wire__crate__ffi__api__identity__dev_mode_override_identity_chain_from_nostr_impl(
+        43 => wire__crate__ffi__api__identity__dev_mode_override_identity_chain_from_nostr_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        42 => wire__crate__ffi__api__bill__dev_mode_reset_bill_mint_quote_state_impl(
+        44 => wire__crate__ffi__api__bill__dev_mode_reset_bill_mint_quote_state_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        43 => wire__crate__ffi__api__company__edit_impl(port, ptr, rust_vec_len, data_len),
-        44 => wire__crate__ffi__api__contact__edit_impl(port, ptr, rust_vec_len, data_len),
-        45 => wire__crate__ffi__api__bill__endorse_bill_impl(port, ptr, rust_vec_len, data_len),
-        46 => {
+        45 => wire__crate__ffi__api__company__edit_impl(port, ptr, rust_vec_len, data_len),
+        46 => wire__crate__ffi__api__contact__edit_impl(port, ptr, rust_vec_len, data_len),
+        47 => wire__crate__ffi__api__bill__endorse_bill_impl(port, ptr, rust_vec_len, data_len),
+        48 => {
             wire__crate__ffi__api__bill__endorse_bill_blank_impl(port, ptr, rust_vec_len, data_len)
         }
-        47 => wire__crate__ffi__api__bill__endorsements_impl(port, ptr, rust_vec_len, data_len),
-        48 => wire__crate__ffi__api__general__fetch_resend_queue_entries_impl(
+        49 => wire__crate__ffi__api__bill__endorsements_impl(port, ptr, rust_vec_len, data_len),
+        50 => wire__crate__ffi__api__general__fetch_resend_queue_entries_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        49 => wire__crate__ffi__api__company__file_impl(port, ptr, rust_vec_len, data_len),
-        50 => wire__crate__ffi__api__contact__file_impl(port, ptr, rust_vec_len, data_len),
-        51 => wire__crate__ffi__api__identity__file_impl(port, ptr, rust_vec_len, data_len),
-        52 => wire__crate__ffi__api__company__file_base64_impl(port, ptr, rust_vec_len, data_len),
-        53 => wire__crate__ffi__api__contact__file_base64_impl(port, ptr, rust_vec_len, data_len),
-        54 => wire__crate__ffi__api__identity__file_base64_impl(port, ptr, rust_vec_len, data_len),
-        55 => wire__crate__ffi__api__general__generate_random_mnemonic_impl(
+        51 => wire__crate__ffi__api__company__file_impl(port, ptr, rust_vec_len, data_len),
+        52 => wire__crate__ffi__api__contact__file_impl(port, ptr, rust_vec_len, data_len),
+        53 => wire__crate__ffi__api__identity__file_impl(port, ptr, rust_vec_len, data_len),
+        54 => wire__crate__ffi__api__company__file_base64_impl(port, ptr, rust_vec_len, data_len),
+        55 => wire__crate__ffi__api__contact__file_base64_impl(port, ptr, rust_vec_len, data_len),
+        56 => wire__crate__ffi__api__identity__file_base64_impl(port, ptr, rust_vec_len, data_len),
+        57 => wire__crate__ffi__api__general__generate_random_mnemonic_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        56 => wire__crate__ffi__get_active_instance_impl(port, ptr, rust_vec_len, data_len),
-        57 => wire__crate__ffi__api__company__get_email_confirmations_impl(
+        58 => wire__crate__ffi__get_active_instance_impl(port, ptr, rust_vec_len, data_len),
+        59 => wire__crate__ffi__api__company__get_email_confirmations_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        58 => wire__crate__ffi__api__identity__get_email_confirmations_impl(
+        60 => wire__crate__ffi__api__identity__get_email_confirmations_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        59 => wire__crate__ffi__api__notification__get_email_notifications_preferences_link_impl(
+        61 => wire__crate__ffi__api__notification__get_email_notifications_preferences_link_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        60 => wire__crate__ffi__api__contact__get_pending_contact_share_impl(
+        62 => wire__crate__ffi__api__contact__get_pending_contact_share_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        61 => wire__crate__ffi__api__general__get_status_impl(port, ptr, rust_vec_len, data_len),
-        62 => wire__crate__ffi__init_app_impl(port, ptr, rust_vec_len, data_len),
-        63 => wire__crate__ffi__init_ebill_instance_impl(port, ptr, rust_vec_len, data_len),
-        64 => {
+        63 => wire__crate__ffi__api__general__get_status_impl(port, ptr, rust_vec_len, data_len),
+        64 => wire__crate__ffi__init_app_impl(port, ptr, rust_vec_len, data_len),
+        65 => wire__crate__ffi__init_ebill_instance_impl(port, ptr, rust_vec_len, data_len),
+        66 => {
             wire__crate__ffi__api__company__invite_signatory_impl(port, ptr, rust_vec_len, data_len)
         }
-        65 => wire__crate__ffi__api__bill__issue_impl(port, ptr, rust_vec_len, data_len),
-        66 => wire__crate__ffi__api__bill__issue_blank_impl(port, ptr, rust_vec_len, data_len),
-        67 => wire__crate__ffi__api__general__link_to_pay_impl(port, ptr, rust_vec_len, data_len),
-        68 => wire__crate__ffi__api__bill__list_impl(port, ptr, rust_vec_len, data_len),
-        69 => wire__crate__ffi__api__company__list_impl(port, ptr, rust_vec_len, data_len),
-        70 => wire__crate__ffi__api__contact__list_impl(port, ptr, rust_vec_len, data_len),
-        71 => wire__crate__ffi__api__notification__list_impl(port, ptr, rust_vec_len, data_len),
-        72 => wire__crate__ffi__api__company__list_invites_impl(port, ptr, rust_vec_len, data_len),
-        73 => wire__crate__ffi__api__bill__list_light_impl(port, ptr, rust_vec_len, data_len),
-        74 => wire__crate__ffi__api__contact__list_pending_contact_shares_impl(
+        67 => wire__crate__ffi__api__bill__issue_impl(port, ptr, rust_vec_len, data_len),
+        68 => wire__crate__ffi__api__bill__issue_blank_impl(port, ptr, rust_vec_len, data_len),
+        69 => wire__crate__ffi__api__general__link_to_pay_impl(port, ptr, rust_vec_len, data_len),
+        70 => wire__crate__ffi__api__bill__list_impl(port, ptr, rust_vec_len, data_len),
+        71 => wire__crate__ffi__api__company__list_impl(port, ptr, rust_vec_len, data_len),
+        72 => wire__crate__ffi__api__contact__list_impl(port, ptr, rust_vec_len, data_len),
+        73 => wire__crate__ffi__api__notification__list_impl(port, ptr, rust_vec_len, data_len),
+        74 => wire__crate__ffi__api__company__list_invites_impl(port, ptr, rust_vec_len, data_len),
+        75 => wire__crate__ffi__api__bill__list_light_impl(port, ptr, rust_vec_len, data_len),
+        76 => wire__crate__ffi__api__contact__list_pending_contact_shares_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        75 => {
+        77 => {
             wire__crate__ffi__api__company__list_signatories_impl(port, ptr, rust_vec_len, data_len)
         }
-        76 => wire__crate__ffi__api__company__locally_hide_signatory_impl(
+        78 => wire__crate__ffi__api__company__locally_hide_signatory_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        77 => wire__crate__ffi__api__notification__mark_as_done_impl(
+        79 => wire__crate__ffi__api__notification__mark_as_done_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        78 => wire__crate__ffi__api__general__mempool_link_impl(port, ptr, rust_vec_len, data_len),
-        79 => wire__crate__ffi__api__bill__mint_state_impl(port, ptr, rust_vec_len, data_len),
-        80 => wire__crate__ffi__data__notification_filters_ffi_default_impl(
+        80 => wire__crate__ffi__api__general__mempool_link_impl(port, ptr, rust_vec_len, data_len),
+        81 => wire__crate__ffi__api__mint_record__mint_record_snapshot_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        81 => wire__crate__ffi__api__bill__offer_to_sell_impl(port, ptr, rust_vec_len, data_len),
         82 => {
+            wire__crate__ffi__api__mint_record__mint_records_impl(port, ptr, rust_vec_len, data_len)
+        }
+        83 => wire__crate__ffi__api__bill__mint_state_impl(port, ptr, rust_vec_len, data_len),
+        84 => wire__crate__ffi__data__notification_filters_ffi_default_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        85 => wire__crate__ffi__api__bill__offer_to_sell_impl(port, ptr, rust_vec_len, data_len),
+        86 => {
             wire__crate__ffi__api__bill__offer_to_sell_blank_impl(port, ptr, rust_vec_len, data_len)
         }
-        83 => wire__crate__ffi__data__optional_postal_address_ffi_is_none_impl(
+        87 => wire__crate__ffi__data__optional_postal_address_ffi_is_none_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        84 => wire__crate__ffi__api__general__overview_impl(port, ptr, rust_vec_len, data_len),
-        85 => wire__crate__ffi__api__bill__past_endorsees_impl(port, ptr, rust_vec_len, data_len),
-        86 => wire__crate__ffi__api__bill__past_payments_impl(port, ptr, rust_vec_len, data_len),
-        87 => wire__crate__ffi__api__contact__reject_contact_share_impl(
+        88 => wire__crate__ffi__api__general__overview_impl(port, ptr, rust_vec_len, data_len),
+        89 => wire__crate__ffi__api__bill__past_endorsees_impl(port, ptr, rust_vec_len, data_len),
+        90 => wire__crate__ffi__api__bill__past_payments_impl(port, ptr, rust_vec_len, data_len),
+        91 => wire__crate__ffi__api__contact__reject_contact_share_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        88 => wire__crate__ffi__api__company__reject_invite_impl(port, ptr, rust_vec_len, data_len),
-        89 => {
+        92 => wire__crate__ffi__api__company__reject_invite_impl(port, ptr, rust_vec_len, data_len),
+        93 => {
             wire__crate__ffi__api__bill__reject_mint_offer_impl(port, ptr, rust_vec_len, data_len)
         }
-        90 => wire__crate__ffi__api__bill__reject_mint_offer_for_mint_impl(
+        94 => wire__crate__ffi__api__bill__reject_mint_offer_for_mint_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        91 => wire__crate__ffi__api__bill__reject_to_accept_impl(port, ptr, rust_vec_len, data_len),
-        92 => wire__crate__ffi__api__bill__reject_to_buy_impl(port, ptr, rust_vec_len, data_len),
-        93 => wire__crate__ffi__api__bill__reject_to_pay_impl(port, ptr, rust_vec_len, data_len),
-        94 => wire__crate__ffi__api__bill__reject_to_pay_recourse_impl(
+        95 => wire__crate__ffi__api__bill__reject_to_accept_impl(port, ptr, rust_vec_len, data_len),
+        96 => wire__crate__ffi__api__bill__reject_to_buy_impl(port, ptr, rust_vec_len, data_len),
+        97 => wire__crate__ffi__api__bill__reject_to_pay_impl(port, ptr, rust_vec_len, data_len),
+        98 => wire__crate__ffi__api__bill__reject_to_pay_recourse_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        95 => wire__crate__ffi__api__contact__remove_impl(port, ptr, rust_vec_len, data_len),
-        96 => {
+        99 => wire__crate__ffi__api__contact__remove_impl(port, ptr, rust_vec_len, data_len),
+        100 => {
             wire__crate__ffi__api__company__remove_signatory_impl(port, ptr, rust_vec_len, data_len)
         }
-        97 => {
+        101 => {
             wire__crate__ffi__api__bill__request_to_accept_impl(port, ptr, rust_vec_len, data_len)
         }
-        98 => wire__crate__ffi__api__bill__request_to_mint_impl(port, ptr, rust_vec_len, data_len),
-        99 => wire__crate__ffi__api__bill__request_to_mint_reissue_impl(
+        102 => wire__crate__ffi__api__bill__request_to_mint_impl(port, ptr, rust_vec_len, data_len),
+        103 => wire__crate__ffi__api__bill__request_to_mint_reissue_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        100 => wire__crate__ffi__api__bill__request_to_pay_impl(port, ptr, rust_vec_len, data_len),
-        101 => wire__crate__ffi__api__bill__request_to_pay_as_mint_impl(
+        104 => wire__crate__ffi__api__bill__request_to_pay_impl(port, ptr, rust_vec_len, data_len),
+        105 => wire__crate__ffi__api__bill__request_to_pay_as_mint_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        102 => wire__crate__ffi__api__bill__request_to_recourse_bill_acceptance_impl(
+        106 => wire__crate__ffi__api__bill__request_to_recourse_bill_acceptance_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        103 => wire__crate__ffi__api__bill__request_to_recourse_bill_payment_impl(
+        107 => wire__crate__ffi__api__bill__request_to_recourse_bill_payment_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        104 => wire__crate__ffi__api__general__requeue_failed_resend_queue_entry_impl(
+        108 => wire__crate__ffi__api__general__requeue_failed_resend_queue_entry_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        105 => wire__crate__ffi__reset_ebill_instance_impl(port, ptr, rust_vec_len, data_len),
-        106 => wire__crate__ffi__api__bill__search_impl(port, ptr, rust_vec_len, data_len),
-        107 => wire__crate__ffi__api__contact__search_impl(port, ptr, rust_vec_len, data_len),
-        108 => wire__crate__ffi__api__general__search_impl(port, ptr, rust_vec_len, data_len),
-        109 => wire__crate__ffi__api__identity__seed_backup_impl(port, ptr, rust_vec_len, data_len),
-        110 => {
+        109 => wire__crate__ffi__reset_ebill_instance_impl(port, ptr, rust_vec_len, data_len),
+        110 => wire__crate__ffi__api__bill__search_impl(port, ptr, rust_vec_len, data_len),
+        111 => wire__crate__ffi__api__contact__search_impl(port, ptr, rust_vec_len, data_len),
+        112 => wire__crate__ffi__api__general__search_impl(port, ptr, rust_vec_len, data_len),
+        113 => wire__crate__ffi__api__identity__seed_backup_impl(port, ptr, rust_vec_len, data_len),
+        114 => {
             wire__crate__ffi__api__identity__seed_recover_impl(port, ptr, rust_vec_len, data_len)
         }
-        111 => wire__crate__ffi__set_active_instance_impl(port, ptr, rust_vec_len, data_len),
-        112 => wire__crate__ffi__api__bill__share_bill_with_court_impl(
+        115 => wire__crate__ffi__set_active_instance_impl(port, ptr, rust_vec_len, data_len),
+        116 => wire__crate__ffi__api__bill__share_bill_with_court_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        113 => wire__crate__ffi__api__company__share_contact_details_impl(
+        117 => wire__crate__ffi__api__company__share_contact_details_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        114 => wire__crate__ffi__api__identity__share_contact_details_impl(
+        118 => wire__crate__ffi__api__identity__share_contact_details_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        115 => wire__crate__ffi__api__facility__sign_facility_application_admission_impl(
+        119 => wire__crate__ffi__api__facility__sign_facility_application_admission_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        116 => {
+        120 => {
             wire__crate__ffi__api__mint_application_admission__sign_mint_application_admission_impl(
                 port,
                 ptr,
@@ -9026,31 +9411,31 @@ fn pde_ffi_dispatcher_primary_impl(
                 data_len,
             )
         }
-        117 => {
+        121 => {
             wire__crate__ffi__api__notification__subscribe_impl(port, ptr, rust_vec_len, data_len)
         }
-        118 => wire__crate__ffi__api__bill__sweep_btc_funds_impl(port, ptr, rust_vec_len, data_len),
-        119 => wire__crate__ffi__api__identity__switch_impl(port, ptr, rust_vec_len, data_len),
-        120 => wire__crate__ffi__api__bill__sync_bill_chain_impl(port, ptr, rust_vec_len, data_len),
-        121 => wire__crate__ffi__api__company__sync_company_chain_impl(
+        122 => wire__crate__ffi__api__bill__sweep_btc_funds_impl(port, ptr, rust_vec_len, data_len),
+        123 => wire__crate__ffi__api__identity__switch_impl(port, ptr, rust_vec_len, data_len),
+        124 => wire__crate__ffi__api__bill__sync_bill_chain_impl(port, ptr, rust_vec_len, data_len),
+        125 => wire__crate__ffi__api__company__sync_company_chain_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        122 => wire__crate__ffi__api__identity__sync_identity_chain_impl(
+        126 => wire__crate__ffi__api__identity__sync_identity_chain_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        123 => wire__crate__ffi__api__general__temp_file_impl(port, ptr, rust_vec_len, data_len),
-        124 => wire__crate__ffi__api__bill__upload_impl(port, ptr, rust_vec_len, data_len),
-        125 => wire__crate__ffi__api__company__upload_impl(port, ptr, rust_vec_len, data_len),
-        126 => wire__crate__ffi__api__contact__upload_impl(port, ptr, rust_vec_len, data_len),
-        127 => wire__crate__ffi__api__identity__upload_impl(port, ptr, rust_vec_len, data_len),
-        128 => wire__crate__ffi__api__company__verify_email_impl(port, ptr, rust_vec_len, data_len),
-        129 => {
+        127 => wire__crate__ffi__api__general__temp_file_impl(port, ptr, rust_vec_len, data_len),
+        128 => wire__crate__ffi__api__bill__upload_impl(port, ptr, rust_vec_len, data_len),
+        129 => wire__crate__ffi__api__company__upload_impl(port, ptr, rust_vec_len, data_len),
+        130 => wire__crate__ffi__api__contact__upload_impl(port, ptr, rust_vec_len, data_len),
+        131 => wire__crate__ffi__api__identity__upload_impl(port, ptr, rust_vec_len, data_len),
+        132 => wire__crate__ffi__api__company__verify_email_impl(port, ptr, rust_vec_len, data_len),
+        133 => {
             wire__crate__ffi__api__identity__verify_email_impl(port, ptr, rust_vec_len, data_len)
         }
         _ => unreachable!(),
@@ -9106,6 +9491,73 @@ impl flutter_rust_bridge::IntoIntoDart<crate::ffi::data::company::AcceptCompanyI
     for crate::ffi::data::company::AcceptCompanyInvitePayload
 {
     fn into_into_dart(self) -> crate::ffi::data::company::AcceptCompanyInvitePayload {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart
+    for crate::ffi::api::mint_record::AddMintRecordDisputePayloadFfi
+{
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.entry_block_id.into_into_dart().into_dart(),
+            self.statement.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::ffi::api::mint_record::AddMintRecordDisputePayloadFfi
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::ffi::api::mint_record::AddMintRecordDisputePayloadFfi>
+    for crate::ffi::api::mint_record::AddMintRecordDisputePayloadFfi
+{
+    fn into_into_dart(self) -> crate::ffi::api::mint_record::AddMintRecordDisputePayloadFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::ffi::api::mint_record::AddMintRecordPayloadFfi {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.entry.into_into_dart().into_dart(),
+            self.signature.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::ffi::api::mint_record::AddMintRecordPayloadFfi
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::ffi::api::mint_record::AddMintRecordPayloadFfi>
+    for crate::ffi::api::mint_record::AddMintRecordPayloadFfi
+{
+    fn into_into_dart(self) -> crate::ffi::api::mint_record::AddMintRecordPayloadFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::ffi::api::mint_record::AddMintRecordResultFfi {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.block_id.into_into_dart().into_dart(),
+            self.sequence.into_into_dart().into_dart(),
+            self.signing_key.into_into_dart().into_dart(),
+            self.already_present.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::ffi::api::mint_record::AddMintRecordResultFfi
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::ffi::api::mint_record::AddMintRecordResultFfi>
+    for crate::ffi::api::mint_record::AddMintRecordResultFfi
+{
+    fn into_into_dart(self) -> crate::ffi::api::mint_record::AddMintRecordResultFfi {
         self
     }
 }
@@ -11845,6 +12297,151 @@ impl flutter_rust_bridge::IntoIntoDart<crate::ffi::data::mint::MintOfferFfi>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::ffi::api::mint_record::MintRecordDisputeFfi {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.block_id.into_into_dart().into_dart(),
+            self.block_hash.into_into_dart().into_dart(),
+            self.timestamp.into_into_dart().into_dart(),
+            self.entry_block_id.into_into_dart().into_dart(),
+            self.entry_digest.into_into_dart().into_dart(),
+            self.statement.into_into_dart().into_dart(),
+            self.created_at.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::ffi::api::mint_record::MintRecordDisputeFfi
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::ffi::api::mint_record::MintRecordDisputeFfi>
+    for crate::ffi::api::mint_record::MintRecordDisputeFfi
+{
+    fn into_into_dart(self) -> crate::ffi::api::mint_record::MintRecordDisputeFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::ffi::api::mint_record::MintRecordFfi {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.block_id.into_into_dart().into_dart(),
+            self.block_hash.into_into_dart().into_dart(),
+            self.timestamp.into_into_dart().into_dart(),
+            self.header.into_into_dart().into_dart(),
+            self.entry.into_into_dart().into_dart(),
+            self.signature.into_into_dart().into_dart(),
+            self.digest.into_into_dart().into_dart(),
+            self.disputes.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::ffi::api::mint_record::MintRecordFfi
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::ffi::api::mint_record::MintRecordFfi>
+    for crate::ffi::api::mint_record::MintRecordFfi
+{
+    fn into_into_dart(self) -> crate::ffi::api::mint_record::MintRecordFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::ffi::api::mint_record::MintRecordHeaderFfi {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.schema.into_into_dart().into_dart(),
+            self.network.into_into_dart().into_dart(),
+            self.issuer.into_into_dart().into_dart(),
+            self.subject.into_into_dart().into_dart(),
+            self.sequence.into_into_dart().into_dart(),
+            self.previous_entry_digest.into_into_dart().into_dart(),
+            self.created_at.into_into_dart().into_dart(),
+            self.reason.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::ffi::api::mint_record::MintRecordHeaderFfi
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::ffi::api::mint_record::MintRecordHeaderFfi>
+    for crate::ffi::api::mint_record::MintRecordHeaderFfi
+{
+    fn into_into_dart(self) -> crate::ffi::api::mint_record::MintRecordHeaderFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::ffi::api::mint_record::MintRecordIssuerFfi {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.signing_key.into_into_dart().into_dart(),
+            self.mint_node_id.into_into_dart().into_dart(),
+            self.name.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::ffi::api::mint_record::MintRecordIssuerFfi
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::ffi::api::mint_record::MintRecordIssuerFfi>
+    for crate::ffi::api::mint_record::MintRecordIssuerFfi
+{
+    fn into_into_dart(self) -> crate::ffi::api::mint_record::MintRecordIssuerFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::ffi::api::mint_record::MintRecordSnapshotRequestFfi {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.receiving_mint_key.into_into_dart().into_dart(),
+            self.application_ref.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::ffi::api::mint_record::MintRecordSnapshotRequestFfi
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::ffi::api::mint_record::MintRecordSnapshotRequestFfi>
+    for crate::ffi::api::mint_record::MintRecordSnapshotRequestFfi
+{
+    fn into_into_dart(self) -> crate::ffi::api::mint_record::MintRecordSnapshotRequestFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::ffi::api::mint_record::MintRecordSubjectFfi {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.chain.into_into_dart().into_dart(),
+            self.node_id.into_into_dart().into_dart(),
+            self.company_node_id.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::ffi::api::mint_record::MintRecordSubjectFfi
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::ffi::api::mint_record::MintRecordSubjectFfi>
+    for crate::ffi::api::mint_record::MintRecordSubjectFfi
+{
+    fn into_into_dart(self) -> crate::ffi::api::mint_record::MintRecordSubjectFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::ffi::data::mint::MintRequestFfi {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -13054,6 +13651,27 @@ impl
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::ffi::api::mint_record::SignedMintRecordSnapshotFfi {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.payload.into_into_dart().into_dart(),
+            self.signature.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::ffi::api::mint_record::SignedMintRecordSnapshotFfi
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::ffi::api::mint_record::SignedMintRecordSnapshotFfi>
+    for crate::ffi::api::mint_record::SignedMintRecordSnapshotFfi
+{
+    fn into_into_dart(self) -> crate::ffi::api::mint_record::SignedMintRecordSnapshotFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::ffi::data::StatusResponse {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -13204,6 +13822,32 @@ impl SseEncode for crate::ffi::data::company::AcceptCompanyInvitePayload {
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <String>::sse_encode(self.id, serializer);
         <String>::sse_encode(self.email, serializer);
+    }
+}
+
+impl SseEncode for crate::ffi::api::mint_record::AddMintRecordDisputePayloadFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <u64>::sse_encode(self.entry_block_id, serializer);
+        <String>::sse_encode(self.statement, serializer);
+    }
+}
+
+impl SseEncode for crate::ffi::api::mint_record::AddMintRecordPayloadFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.entry, serializer);
+        <String>::sse_encode(self.signature, serializer);
+    }
+}
+
+impl SseEncode for crate::ffi::api::mint_record::AddMintRecordResultFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <u64>::sse_encode(self.block_id, serializer);
+        <u64>::sse_encode(self.sequence, serializer);
+        <String>::sse_encode(self.signing_key, serializer);
+        <bool>::sse_encode(self.already_present, serializer);
     }
 }
 
@@ -14932,6 +15576,26 @@ impl SseEncode for Vec<crate::ffi::data::bill::LightBitcreditBillFfi> {
     }
 }
 
+impl SseEncode for Vec<crate::ffi::api::mint_record::MintRecordDisputeFfi> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::ffi::api::mint_record::MintRecordDisputeFfi>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::ffi::api::mint_record::MintRecordFfi> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::ffi::api::mint_record::MintRecordFfi>::sse_encode(item, serializer);
+        }
+    }
+}
+
 impl SseEncode for Vec<crate::ffi::data::mint::MintRequestStateFfi> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -15083,6 +15747,76 @@ impl SseEncode for crate::ffi::data::mint::MintOfferFfi {
         <String>::sse_encode(self.discounted_sum, serializer);
         <Option<String>>::sse_encode(self.proofs, serializer);
         <bool>::sse_encode(self.proofs_spent, serializer);
+    }
+}
+
+impl SseEncode for crate::ffi::api::mint_record::MintRecordDisputeFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <u64>::sse_encode(self.block_id, serializer);
+        <String>::sse_encode(self.block_hash, serializer);
+        <u64>::sse_encode(self.timestamp, serializer);
+        <u64>::sse_encode(self.entry_block_id, serializer);
+        <String>::sse_encode(self.entry_digest, serializer);
+        <String>::sse_encode(self.statement, serializer);
+        <u64>::sse_encode(self.created_at, serializer);
+    }
+}
+
+impl SseEncode for crate::ffi::api::mint_record::MintRecordFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <u64>::sse_encode(self.block_id, serializer);
+        <String>::sse_encode(self.block_hash, serializer);
+        <u64>::sse_encode(self.timestamp, serializer);
+        <crate::ffi::api::mint_record::MintRecordHeaderFfi>::sse_encode(self.header, serializer);
+        <String>::sse_encode(self.entry, serializer);
+        <String>::sse_encode(self.signature, serializer);
+        <String>::sse_encode(self.digest, serializer);
+        <Vec<crate::ffi::api::mint_record::MintRecordDisputeFfi>>::sse_encode(
+            self.disputes,
+            serializer,
+        );
+    }
+}
+
+impl SseEncode for crate::ffi::api::mint_record::MintRecordHeaderFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.schema, serializer);
+        <String>::sse_encode(self.network, serializer);
+        <crate::ffi::api::mint_record::MintRecordIssuerFfi>::sse_encode(self.issuer, serializer);
+        <crate::ffi::api::mint_record::MintRecordSubjectFfi>::sse_encode(self.subject, serializer);
+        <u64>::sse_encode(self.sequence, serializer);
+        <Option<String>>::sse_encode(self.previous_entry_digest, serializer);
+        <String>::sse_encode(self.created_at, serializer);
+        <String>::sse_encode(self.reason, serializer);
+    }
+}
+
+impl SseEncode for crate::ffi::api::mint_record::MintRecordIssuerFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.signing_key, serializer);
+        <String>::sse_encode(self.mint_node_id, serializer);
+        <String>::sse_encode(self.name, serializer);
+    }
+}
+
+impl SseEncode for crate::ffi::api::mint_record::MintRecordSnapshotRequestFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.receiving_mint_key, serializer);
+        <String>::sse_encode(self.application_ref, serializer);
+    }
+}
+
+impl SseEncode for crate::ffi::api::mint_record::MintRecordSubjectFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.chain, serializer);
+        <String>::sse_encode(self.node_id, serializer);
+        <Option<String>>::sse_encode(self.company_node_id, serializer);
     }
 }
 
@@ -15910,6 +16644,14 @@ impl SseEncode for crate::ffi::api::mint_application_admission::SignedMintApplic
             self.admission,
             serializer,
         );
+        <String>::sse_encode(self.signature, serializer);
+    }
+}
+
+impl SseEncode for crate::ffi::api::mint_record::SignedMintRecordSnapshotFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.payload, serializer);
         <String>::sse_encode(self.signature, serializer);
     }
 }
