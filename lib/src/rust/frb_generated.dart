@@ -15,6 +15,7 @@ import 'ffi/api/general.dart';
 import 'ffi/api/identity.dart';
 import 'ffi/api/mint_application_admission.dart';
 import 'ffi/api/mint_record.dart';
+import 'ffi/api/network_consent.dart';
 import 'ffi/api/notification.dart';
 import 'ffi/data.dart';
 import 'ffi/data/bill.dart';
@@ -85,7 +86,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => 1351704435;
+  int get rustContentHash => 823833087;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -516,6 +517,23 @@ abstract class RustLibApi extends BaseApi {
     required ShareContactTo shareContactTo,
   });
 
+  Future<SignedCrossMintGrantFfi> crateFfiApiNetworkConsentSignCrossMintGrant({
+    required CrossMintGrantPayloadFfi payload,
+  });
+
+  Future<SignedCrossMintRevokeFfi>
+  crateFfiApiNetworkConsentSignCrossMintRevoke({
+    required CrossMintRevokePayloadFfi payload,
+  });
+
+  Future<SignedDirectoryEventFfi>
+  crateFfiApiNetworkConsentSignDirectoryListing({required String payloadJson});
+
+  Future<SignedDirectoryWithdrawalFfi>
+  crateFfiApiNetworkConsentSignDirectoryWithdrawal({
+    required List<String> priorEventsJson,
+  });
+
   Future<SignedFacilityApplicationAdmissionFfi>
   crateFfiApiFacilitySignFacilityApplicationAdmission({
     required FacilityApplicationAdmissionPayloadFfi payload,
@@ -524,6 +542,11 @@ abstract class RustLibApi extends BaseApi {
   Future<SignedMintApplicationAdmissionFfi>
   crateFfiApiMintApplicationAdmissionSignMintApplicationAdmission({
     required MintApplicationAdmissionPayloadFfi payload,
+  });
+
+  Future<SignedServiceVoiceAdmissionFfi>
+  crateFfiApiNetworkConsentSignServiceVoiceAdmission({
+    required ServiceVoiceAdmissionPayloadFfi payload,
   });
 
   Future<void> crateFfiApiNotificationSubscribe({
@@ -4387,6 +4410,146 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<SignedCrossMintGrantFfi> crateFfiApiNetworkConsentSignCrossMintGrant({
+    required CrossMintGrantPayloadFfi payload,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_box_autoadd_cross_mint_grant_payload_ffi(
+            payload,
+            serializer,
+          );
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 119,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_signed_cross_mint_grant_ffi,
+          decodeErrorData: sse_decode_ebill_ffi_error,
+        ),
+        constMeta: kCrateFfiApiNetworkConsentSignCrossMintGrantConstMeta,
+        argValues: [payload],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateFfiApiNetworkConsentSignCrossMintGrantConstMeta =>
+      const TaskConstMeta(
+        debugName: "sign_cross_mint_grant",
+        argNames: ["payload"],
+      );
+
+  @override
+  Future<SignedCrossMintRevokeFfi>
+  crateFfiApiNetworkConsentSignCrossMintRevoke({
+    required CrossMintRevokePayloadFfi payload,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_box_autoadd_cross_mint_revoke_payload_ffi(
+            payload,
+            serializer,
+          );
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 120,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_signed_cross_mint_revoke_ffi,
+          decodeErrorData: sse_decode_ebill_ffi_error,
+        ),
+        constMeta: kCrateFfiApiNetworkConsentSignCrossMintRevokeConstMeta,
+        argValues: [payload],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateFfiApiNetworkConsentSignCrossMintRevokeConstMeta =>
+      const TaskConstMeta(
+        debugName: "sign_cross_mint_revoke",
+        argNames: ["payload"],
+      );
+
+  @override
+  Future<SignedDirectoryEventFfi>
+  crateFfiApiNetworkConsentSignDirectoryListing({required String payloadJson}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(payloadJson, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 121,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_signed_directory_event_ffi,
+          decodeErrorData: sse_decode_ebill_ffi_error,
+        ),
+        constMeta: kCrateFfiApiNetworkConsentSignDirectoryListingConstMeta,
+        argValues: [payloadJson],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateFfiApiNetworkConsentSignDirectoryListingConstMeta =>
+      const TaskConstMeta(
+        debugName: "sign_directory_listing",
+        argNames: ["payloadJson"],
+      );
+
+  @override
+  Future<SignedDirectoryWithdrawalFfi>
+  crateFfiApiNetworkConsentSignDirectoryWithdrawal({
+    required List<String> priorEventsJson,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_String(priorEventsJson, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 122,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_signed_directory_withdrawal_ffi,
+          decodeErrorData: sse_decode_ebill_ffi_error,
+        ),
+        constMeta: kCrateFfiApiNetworkConsentSignDirectoryWithdrawalConstMeta,
+        argValues: [priorEventsJson],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta
+  get kCrateFfiApiNetworkConsentSignDirectoryWithdrawalConstMeta =>
+      const TaskConstMeta(
+        debugName: "sign_directory_withdrawal",
+        argNames: ["priorEventsJson"],
+      );
+
+  @override
   Future<SignedFacilityApplicationAdmissionFfi>
   crateFfiApiFacilitySignFacilityApplicationAdmission({
     required FacilityApplicationAdmissionPayloadFfi payload,
@@ -4402,7 +4565,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 119,
+            funcId: 123,
             port: port_,
           );
         },
@@ -4442,7 +4605,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 120,
+            funcId: 124,
             port: port_,
           );
         },
@@ -4466,6 +4629,44 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<SignedServiceVoiceAdmissionFfi>
+  crateFfiApiNetworkConsentSignServiceVoiceAdmission({
+    required ServiceVoiceAdmissionPayloadFfi payload,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_box_autoadd_service_voice_admission_payload_ffi(
+            payload,
+            serializer,
+          );
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 125,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_signed_service_voice_admission_ffi,
+          decodeErrorData: sse_decode_ebill_ffi_error,
+        ),
+        constMeta: kCrateFfiApiNetworkConsentSignServiceVoiceAdmissionConstMeta,
+        argValues: [payload],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta
+  get kCrateFfiApiNetworkConsentSignServiceVoiceAdmissionConstMeta =>
+      const TaskConstMeta(
+        debugName: "sign_service_voice_admission",
+        argNames: ["payload"],
+      );
+
+  @override
   Future<void> crateFfiApiNotificationSubscribe({
     required InstanceId instanceId,
     required FutureOr<void> Function(NotificationSubscriptionResponse) callback,
@@ -4482,7 +4683,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 121,
+            funcId: 126,
             port: port_,
           );
         },
@@ -4518,7 +4719,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 122,
+            funcId: 127,
             port: port_,
           );
         },
@@ -4546,7 +4747,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 123,
+            funcId: 128,
             port: port_,
           );
         },
@@ -4576,7 +4777,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 124,
+            funcId: 129,
             port: port_,
           );
         },
@@ -4606,7 +4807,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 125,
+            funcId: 130,
             port: port_,
           );
         },
@@ -4636,7 +4837,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 126,
+            funcId: 131,
             port: port_,
           );
         },
@@ -4666,7 +4867,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 127,
+            funcId: 132,
             port: port_,
           );
         },
@@ -4696,7 +4897,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 128,
+            funcId: 133,
             port: port_,
           );
         },
@@ -4726,7 +4927,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 129,
+            funcId: 134,
             port: port_,
           );
         },
@@ -4756,7 +4957,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 130,
+            funcId: 135,
             port: port_,
           );
         },
@@ -4786,7 +4987,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 131,
+            funcId: 136,
             port: port_,
           );
         },
@@ -4819,7 +5020,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 132,
+            funcId: 137,
             port: port_,
           );
         },
@@ -4849,7 +5050,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 133,
+            funcId: 138,
             port: port_,
           );
         },
@@ -5934,6 +6135,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  CrossMintGrantPayloadFfi dco_decode_box_autoadd_cross_mint_grant_payload_ffi(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_cross_mint_grant_payload_ffi(raw);
+  }
+
+  @protected
+  CrossMintRevokePayloadFfi
+  dco_decode_box_autoadd_cross_mint_revoke_payload_ffi(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_cross_mint_revoke_payload_ffi(raw);
+  }
+
+  @protected
   DateRange dco_decode_box_autoadd_date_range(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_date_range(raw);
@@ -6265,6 +6481,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   SeedPhrase dco_decode_box_autoadd_seed_phrase(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_seed_phrase(raw);
+  }
+
+  @protected
+  ServiceVoiceAdmissionPayloadFfi
+  dco_decode_box_autoadd_service_voice_admission_payload_ffi(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_service_voice_admission_payload_ffi(raw);
   }
 
   @protected
@@ -6635,6 +6858,79 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       city: dco_decode_String(arr[1]),
       zip: dco_decode_opt_String(arr[2]),
       address: dco_decode_String(arr[3]),
+    );
+  }
+
+  @protected
+  CrossMintGrantFfi dco_decode_cross_mint_grant_ffi(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 12)
+      throw Exception('unexpected arr length: expect 12 but see ${arr.length}');
+    return CrossMintGrantFfi(
+      schema: dco_decode_String(arr[0]),
+      grantId: dco_decode_String(arr[1]),
+      network: dco_decode_String(arr[2]),
+      subjectNodeId: dco_decode_String(arr[3]),
+      requestingMintPubkey: dco_decode_String(arr[4]),
+      answeringMintPubkey: dco_decode_String(arr[5]),
+      operation: dco_decode_String(arr[6]),
+      billId: dco_decode_String(arr[7]),
+      caseBinding: dco_decode_String(arr[8]),
+      issuedAt: dco_decode_u_64(arr[9]),
+      expiresAt: dco_decode_u_64(arr[10]),
+      nonce: dco_decode_String(arr[11]),
+    );
+  }
+
+  @protected
+  CrossMintGrantPayloadFfi dco_decode_cross_mint_grant_payload_ffi(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
+    return CrossMintGrantPayloadFfi(
+      grantId: dco_decode_String(arr[0]),
+      requestingMintPubkey: dco_decode_String(arr[1]),
+      answeringMintPubkey: dco_decode_String(arr[2]),
+      billId: dco_decode_String(arr[3]),
+      caseBinding: dco_decode_String(arr[4]),
+      lifetimeSeconds: dco_decode_opt_box_autoadd_u_64(arr[5]),
+    );
+  }
+
+  @protected
+  CrossMintRevokeFfi dco_decode_cross_mint_revoke_ffi(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 8)
+      throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
+    return CrossMintRevokeFfi(
+      schema: dco_decode_String(arr[0]),
+      grantId: dco_decode_String(arr[1]),
+      network: dco_decode_String(arr[2]),
+      subjectNodeId: dco_decode_String(arr[3]),
+      requestingMintPubkey: dco_decode_String(arr[4]),
+      answeringMintPubkey: dco_decode_String(arr[5]),
+      nonce: dco_decode_String(arr[6]),
+      issuedAt: dco_decode_u_64(arr[7]),
+    );
+  }
+
+  @protected
+  CrossMintRevokePayloadFfi dco_decode_cross_mint_revoke_payload_ffi(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return CrossMintRevokePayloadFfi(
+      grantId: dco_decode_String(arr[0]),
+      requestingMintPubkey: dco_decode_String(arr[1]),
+      answeringMintPubkey: dco_decode_String(arr[2]),
     );
   }
 
@@ -7279,6 +7575,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     return (raw as List<dynamic>)
         .map(dco_decode_light_bitcredit_bill_ffi)
         .toList();
+  }
+
+  @protected
+  List<List<String>> dco_decode_list_list_String(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_list_String).toList();
   }
 
   @protected
@@ -8350,6 +8652,36 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  ServiceVoiceAdmissionFfi dco_decode_service_voice_admission_ffi(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 7)
+      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    return ServiceVoiceAdmissionFfi(
+      schema: dco_decode_String(arr[0]),
+      network: dco_decode_String(arr[1]),
+      subjectNodeId: dco_decode_String(arr[2]),
+      serviceMintNodeId: dco_decode_String(arr[3]),
+      issuedAt: dco_decode_u_64(arr[4]),
+      expiresAt: dco_decode_u_64(arr[5]),
+      nonce: dco_decode_String(arr[6]),
+    );
+  }
+
+  @protected
+  ServiceVoiceAdmissionPayloadFfi
+  dco_decode_service_voice_admission_payload_ffi(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return ServiceVoiceAdmissionPayloadFfi(
+      serviceMintNodeId: dco_decode_String(arr[0]),
+      lifetimeSeconds: dco_decode_opt_box_autoadd_u_64(arr[1]),
+    );
+  }
+
+  @protected
   ShareBillWithCourtPayload dco_decode_share_bill_with_court_payload(
     dynamic raw,
   ) {
@@ -8402,6 +8734,66 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  SignedCrossMintGrantFfi dco_decode_signed_cross_mint_grant_ffi(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return SignedCrossMintGrantFfi(
+      grant: dco_decode_cross_mint_grant_ffi(arr[0]),
+      signature: dco_decode_String(arr[1]),
+      json: dco_decode_String(arr[2]),
+    );
+  }
+
+  @protected
+  SignedCrossMintRevokeFfi dco_decode_signed_cross_mint_revoke_ffi(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return SignedCrossMintRevokeFfi(
+      revoke: dco_decode_cross_mint_revoke_ffi(arr[0]),
+      signature: dco_decode_String(arr[1]),
+      json: dco_decode_String(arr[2]),
+    );
+  }
+
+  @protected
+  SignedDirectoryEventFfi dco_decode_signed_directory_event_ffi(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 8)
+      throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
+    return SignedDirectoryEventFfi(
+      id: dco_decode_String(arr[0]),
+      pubkey: dco_decode_String(arr[1]),
+      createdAt: dco_decode_u_64(arr[2]),
+      kind: dco_decode_u_16(arr[3]),
+      tags: dco_decode_list_list_String(arr[4]),
+      content: dco_decode_String(arr[5]),
+      sig: dco_decode_String(arr[6]),
+      json: dco_decode_String(arr[7]),
+    );
+  }
+
+  @protected
+  SignedDirectoryWithdrawalFfi dco_decode_signed_directory_withdrawal_ffi(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return SignedDirectoryWithdrawalFfi(
+      withdrawal: dco_decode_signed_directory_event_ffi(arr[0]),
+      deletion: dco_decode_signed_directory_event_ffi(arr[1]),
+    );
+  }
+
+  @protected
   SignedFacilityApplicationAdmissionFfi
   dco_decode_signed_facility_application_admission_ffi(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
@@ -8442,6 +8834,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  SignedServiceVoiceAdmissionFfi dco_decode_signed_service_voice_admission_ffi(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return SignedServiceVoiceAdmissionFfi(
+      admission: dco_decode_service_voice_admission_ffi(arr[0]),
+      signature: dco_decode_String(arr[1]),
+      json: dco_decode_String(arr[2]),
+    );
+  }
+
+  @protected
   StatusResponse dco_decode_status_response(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -8470,6 +8877,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   SwitchIdentityTypeFfi dco_decode_switch_identity_type_ffi(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return SwitchIdentityTypeFfi.values[raw as int];
+  }
+
+  @protected
+  int dco_decode_u_16(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as int;
   }
 
   @protected
@@ -9775,6 +10188,23 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  CrossMintGrantPayloadFfi sse_decode_box_autoadd_cross_mint_grant_payload_ffi(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_cross_mint_grant_payload_ffi(deserializer));
+  }
+
+  @protected
+  CrossMintRevokePayloadFfi
+  sse_decode_box_autoadd_cross_mint_revoke_payload_ffi(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_cross_mint_revoke_payload_ffi(deserializer));
+  }
+
+  @protected
   DateRange sse_decode_box_autoadd_date_range(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_date_range(deserializer));
@@ -10168,6 +10598,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   SeedPhrase sse_decode_box_autoadd_seed_phrase(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_seed_phrase(deserializer));
+  }
+
+  @protected
+  ServiceVoiceAdmissionPayloadFfi
+  sse_decode_box_autoadd_service_voice_admission_payload_ffi(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_service_voice_admission_payload_ffi(deserializer));
   }
 
   @protected
@@ -10592,6 +11031,100 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       city: var_city,
       zip: var_zip,
       address: var_address,
+    );
+  }
+
+  @protected
+  CrossMintGrantFfi sse_decode_cross_mint_grant_ffi(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_schema = sse_decode_String(deserializer);
+    var var_grantId = sse_decode_String(deserializer);
+    var var_network = sse_decode_String(deserializer);
+    var var_subjectNodeId = sse_decode_String(deserializer);
+    var var_requestingMintPubkey = sse_decode_String(deserializer);
+    var var_answeringMintPubkey = sse_decode_String(deserializer);
+    var var_operation = sse_decode_String(deserializer);
+    var var_billId = sse_decode_String(deserializer);
+    var var_caseBinding = sse_decode_String(deserializer);
+    var var_issuedAt = sse_decode_u_64(deserializer);
+    var var_expiresAt = sse_decode_u_64(deserializer);
+    var var_nonce = sse_decode_String(deserializer);
+    return CrossMintGrantFfi(
+      schema: var_schema,
+      grantId: var_grantId,
+      network: var_network,
+      subjectNodeId: var_subjectNodeId,
+      requestingMintPubkey: var_requestingMintPubkey,
+      answeringMintPubkey: var_answeringMintPubkey,
+      operation: var_operation,
+      billId: var_billId,
+      caseBinding: var_caseBinding,
+      issuedAt: var_issuedAt,
+      expiresAt: var_expiresAt,
+      nonce: var_nonce,
+    );
+  }
+
+  @protected
+  CrossMintGrantPayloadFfi sse_decode_cross_mint_grant_payload_ffi(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_grantId = sse_decode_String(deserializer);
+    var var_requestingMintPubkey = sse_decode_String(deserializer);
+    var var_answeringMintPubkey = sse_decode_String(deserializer);
+    var var_billId = sse_decode_String(deserializer);
+    var var_caseBinding = sse_decode_String(deserializer);
+    var var_lifetimeSeconds = sse_decode_opt_box_autoadd_u_64(deserializer);
+    return CrossMintGrantPayloadFfi(
+      grantId: var_grantId,
+      requestingMintPubkey: var_requestingMintPubkey,
+      answeringMintPubkey: var_answeringMintPubkey,
+      billId: var_billId,
+      caseBinding: var_caseBinding,
+      lifetimeSeconds: var_lifetimeSeconds,
+    );
+  }
+
+  @protected
+  CrossMintRevokeFfi sse_decode_cross_mint_revoke_ffi(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_schema = sse_decode_String(deserializer);
+    var var_grantId = sse_decode_String(deserializer);
+    var var_network = sse_decode_String(deserializer);
+    var var_subjectNodeId = sse_decode_String(deserializer);
+    var var_requestingMintPubkey = sse_decode_String(deserializer);
+    var var_answeringMintPubkey = sse_decode_String(deserializer);
+    var var_nonce = sse_decode_String(deserializer);
+    var var_issuedAt = sse_decode_u_64(deserializer);
+    return CrossMintRevokeFfi(
+      schema: var_schema,
+      grantId: var_grantId,
+      network: var_network,
+      subjectNodeId: var_subjectNodeId,
+      requestingMintPubkey: var_requestingMintPubkey,
+      answeringMintPubkey: var_answeringMintPubkey,
+      nonce: var_nonce,
+      issuedAt: var_issuedAt,
+    );
+  }
+
+  @protected
+  CrossMintRevokePayloadFfi sse_decode_cross_mint_revoke_payload_ffi(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_grantId = sse_decode_String(deserializer);
+    var var_requestingMintPubkey = sse_decode_String(deserializer);
+    var var_answeringMintPubkey = sse_decode_String(deserializer);
+    return CrossMintRevokePayloadFfi(
+      grantId: var_grantId,
+      requestingMintPubkey: var_requestingMintPubkey,
+      answeringMintPubkey: var_answeringMintPubkey,
     );
   }
 
@@ -11441,6 +11974,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var ans_ = <LightBitcreditBillFfi>[];
     for (var idx_ = 0; idx_ < len_; ++idx_) {
       ans_.add(sse_decode_light_bitcredit_bill_ffi(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<List<String>> sse_decode_list_list_String(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <List<String>>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_list_String(deserializer));
     }
     return ans_;
   }
@@ -12820,6 +13365,41 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  ServiceVoiceAdmissionFfi sse_decode_service_voice_admission_ffi(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_schema = sse_decode_String(deserializer);
+    var var_network = sse_decode_String(deserializer);
+    var var_subjectNodeId = sse_decode_String(deserializer);
+    var var_serviceMintNodeId = sse_decode_String(deserializer);
+    var var_issuedAt = sse_decode_u_64(deserializer);
+    var var_expiresAt = sse_decode_u_64(deserializer);
+    var var_nonce = sse_decode_String(deserializer);
+    return ServiceVoiceAdmissionFfi(
+      schema: var_schema,
+      network: var_network,
+      subjectNodeId: var_subjectNodeId,
+      serviceMintNodeId: var_serviceMintNodeId,
+      issuedAt: var_issuedAt,
+      expiresAt: var_expiresAt,
+      nonce: var_nonce,
+    );
+  }
+
+  @protected
+  ServiceVoiceAdmissionPayloadFfi
+  sse_decode_service_voice_admission_payload_ffi(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_serviceMintNodeId = sse_decode_String(deserializer);
+    var var_lifetimeSeconds = sse_decode_opt_box_autoadd_u_64(deserializer);
+    return ServiceVoiceAdmissionPayloadFfi(
+      serviceMintNodeId: var_serviceMintNodeId,
+      lifetimeSeconds: var_lifetimeSeconds,
+    );
+  }
+
+  @protected
   ShareBillWithCourtPayload sse_decode_share_bill_with_court_payload(
     SseDeserializer deserializer,
   ) {
@@ -12878,6 +13458,74 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  SignedCrossMintGrantFfi sse_decode_signed_cross_mint_grant_ffi(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_grant = sse_decode_cross_mint_grant_ffi(deserializer);
+    var var_signature = sse_decode_String(deserializer);
+    var var_json = sse_decode_String(deserializer);
+    return SignedCrossMintGrantFfi(
+      grant: var_grant,
+      signature: var_signature,
+      json: var_json,
+    );
+  }
+
+  @protected
+  SignedCrossMintRevokeFfi sse_decode_signed_cross_mint_revoke_ffi(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_revoke = sse_decode_cross_mint_revoke_ffi(deserializer);
+    var var_signature = sse_decode_String(deserializer);
+    var var_json = sse_decode_String(deserializer);
+    return SignedCrossMintRevokeFfi(
+      revoke: var_revoke,
+      signature: var_signature,
+      json: var_json,
+    );
+  }
+
+  @protected
+  SignedDirectoryEventFfi sse_decode_signed_directory_event_ffi(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_id = sse_decode_String(deserializer);
+    var var_pubkey = sse_decode_String(deserializer);
+    var var_createdAt = sse_decode_u_64(deserializer);
+    var var_kind = sse_decode_u_16(deserializer);
+    var var_tags = sse_decode_list_list_String(deserializer);
+    var var_content = sse_decode_String(deserializer);
+    var var_sig = sse_decode_String(deserializer);
+    var var_json = sse_decode_String(deserializer);
+    return SignedDirectoryEventFfi(
+      id: var_id,
+      pubkey: var_pubkey,
+      createdAt: var_createdAt,
+      kind: var_kind,
+      tags: var_tags,
+      content: var_content,
+      sig: var_sig,
+      json: var_json,
+    );
+  }
+
+  @protected
+  SignedDirectoryWithdrawalFfi sse_decode_signed_directory_withdrawal_ffi(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_withdrawal = sse_decode_signed_directory_event_ffi(deserializer);
+    var var_deletion = sse_decode_signed_directory_event_ffi(deserializer);
+    return SignedDirectoryWithdrawalFfi(
+      withdrawal: var_withdrawal,
+      deletion: var_deletion,
+    );
+  }
+
+  @protected
   SignedFacilityApplicationAdmissionFfi
   sse_decode_signed_facility_application_admission_ffi(
     SseDeserializer deserializer,
@@ -12921,6 +13569,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  SignedServiceVoiceAdmissionFfi sse_decode_signed_service_voice_admission_ffi(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_admission = sse_decode_service_voice_admission_ffi(deserializer);
+    var var_signature = sse_decode_String(deserializer);
+    var var_json = sse_decode_String(deserializer);
+    return SignedServiceVoiceAdmissionFfi(
+      admission: var_admission,
+      signature: var_signature,
+      json: var_json,
+    );
+  }
+
+  @protected
   StatusResponse sse_decode_status_response(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_bitcoinNetwork = sse_decode_String(deserializer);
@@ -12950,6 +13613,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var inner = sse_decode_i_32(deserializer);
     return SwitchIdentityTypeFfi.values[inner];
+  }
+
+  @protected
+  int sse_decode_u_16(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getUint16();
   }
 
   @protected
@@ -14066,6 +14735,24 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_box_autoadd_cross_mint_grant_payload_ffi(
+    CrossMintGrantPayloadFfi self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_cross_mint_grant_payload_ffi(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_cross_mint_revoke_payload_ffi(
+    CrossMintRevokePayloadFfi self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_cross_mint_revoke_payload_ffi(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_date_range(
     DateRange self,
     SseSerializer serializer,
@@ -14486,6 +15173,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_box_autoadd_service_voice_admission_payload_ffi(
+    ServiceVoiceAdmissionPayloadFfi self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_service_voice_admission_payload_ffi(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_share_bill_with_court_payload(
     ShareBillWithCourtPayload self,
     SseSerializer serializer,
@@ -14851,6 +15547,67 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.city, serializer);
     sse_encode_opt_String(self.zip, serializer);
     sse_encode_String(self.address, serializer);
+  }
+
+  @protected
+  void sse_encode_cross_mint_grant_ffi(
+    CrossMintGrantFfi self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.schema, serializer);
+    sse_encode_String(self.grantId, serializer);
+    sse_encode_String(self.network, serializer);
+    sse_encode_String(self.subjectNodeId, serializer);
+    sse_encode_String(self.requestingMintPubkey, serializer);
+    sse_encode_String(self.answeringMintPubkey, serializer);
+    sse_encode_String(self.operation, serializer);
+    sse_encode_String(self.billId, serializer);
+    sse_encode_String(self.caseBinding, serializer);
+    sse_encode_u_64(self.issuedAt, serializer);
+    sse_encode_u_64(self.expiresAt, serializer);
+    sse_encode_String(self.nonce, serializer);
+  }
+
+  @protected
+  void sse_encode_cross_mint_grant_payload_ffi(
+    CrossMintGrantPayloadFfi self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.grantId, serializer);
+    sse_encode_String(self.requestingMintPubkey, serializer);
+    sse_encode_String(self.answeringMintPubkey, serializer);
+    sse_encode_String(self.billId, serializer);
+    sse_encode_String(self.caseBinding, serializer);
+    sse_encode_opt_box_autoadd_u_64(self.lifetimeSeconds, serializer);
+  }
+
+  @protected
+  void sse_encode_cross_mint_revoke_ffi(
+    CrossMintRevokeFfi self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.schema, serializer);
+    sse_encode_String(self.grantId, serializer);
+    sse_encode_String(self.network, serializer);
+    sse_encode_String(self.subjectNodeId, serializer);
+    sse_encode_String(self.requestingMintPubkey, serializer);
+    sse_encode_String(self.answeringMintPubkey, serializer);
+    sse_encode_String(self.nonce, serializer);
+    sse_encode_u_64(self.issuedAt, serializer);
+  }
+
+  @protected
+  void sse_encode_cross_mint_revoke_payload_ffi(
+    CrossMintRevokePayloadFfi self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.grantId, serializer);
+    sse_encode_String(self.requestingMintPubkey, serializer);
+    sse_encode_String(self.answeringMintPubkey, serializer);
   }
 
   @protected
@@ -15536,6 +16293,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_i_32(self.length, serializer);
     for (final item in self) {
       sse_encode_light_bitcredit_bill_ffi(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_list_String(
+    List<List<String>> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_list_String(item, serializer);
     }
   }
 
@@ -16677,6 +17446,31 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_service_voice_admission_ffi(
+    ServiceVoiceAdmissionFfi self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.schema, serializer);
+    sse_encode_String(self.network, serializer);
+    sse_encode_String(self.subjectNodeId, serializer);
+    sse_encode_String(self.serviceMintNodeId, serializer);
+    sse_encode_u_64(self.issuedAt, serializer);
+    sse_encode_u_64(self.expiresAt, serializer);
+    sse_encode_String(self.nonce, serializer);
+  }
+
+  @protected
+  void sse_encode_service_voice_admission_payload_ffi(
+    ServiceVoiceAdmissionPayloadFfi self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.serviceMintNodeId, serializer);
+    sse_encode_opt_box_autoadd_u_64(self.lifetimeSeconds, serializer);
+  }
+
+  @protected
   void sse_encode_share_bill_with_court_payload(
     ShareBillWithCourtPayload self,
     SseSerializer serializer,
@@ -16724,6 +17518,54 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_signed_cross_mint_grant_ffi(
+    SignedCrossMintGrantFfi self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_cross_mint_grant_ffi(self.grant, serializer);
+    sse_encode_String(self.signature, serializer);
+    sse_encode_String(self.json, serializer);
+  }
+
+  @protected
+  void sse_encode_signed_cross_mint_revoke_ffi(
+    SignedCrossMintRevokeFfi self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_cross_mint_revoke_ffi(self.revoke, serializer);
+    sse_encode_String(self.signature, serializer);
+    sse_encode_String(self.json, serializer);
+  }
+
+  @protected
+  void sse_encode_signed_directory_event_ffi(
+    SignedDirectoryEventFfi self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.id, serializer);
+    sse_encode_String(self.pubkey, serializer);
+    sse_encode_u_64(self.createdAt, serializer);
+    sse_encode_u_16(self.kind, serializer);
+    sse_encode_list_list_String(self.tags, serializer);
+    sse_encode_String(self.content, serializer);
+    sse_encode_String(self.sig, serializer);
+    sse_encode_String(self.json, serializer);
+  }
+
+  @protected
+  void sse_encode_signed_directory_withdrawal_ffi(
+    SignedDirectoryWithdrawalFfi self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_signed_directory_event_ffi(self.withdrawal, serializer);
+    sse_encode_signed_directory_event_ffi(self.deletion, serializer);
+  }
+
+  @protected
   void sse_encode_signed_facility_application_admission_ffi(
     SignedFacilityApplicationAdmissionFfi self,
     SseSerializer serializer,
@@ -16754,6 +17596,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_signed_service_voice_admission_ffi(
+    SignedServiceVoiceAdmissionFfi self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_service_voice_admission_ffi(self.admission, serializer);
+    sse_encode_String(self.signature, serializer);
+    sse_encode_String(self.json, serializer);
+  }
+
+  @protected
   void sse_encode_status_response(
     StatusResponse self,
     SseSerializer serializer,
@@ -16781,6 +17634,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_32(self.index, serializer);
+  }
+
+  @protected
+  void sse_encode_u_16(int self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putUint16(self);
   }
 
   @protected

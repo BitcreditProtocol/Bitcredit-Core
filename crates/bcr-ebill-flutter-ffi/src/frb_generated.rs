@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1351704435;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 823833087;
 
 // Section: executor
 
@@ -4490,6 +4490,167 @@ fn wire__crate__ffi__api__identity__share_contact_details_impl(
         },
     )
 }
+fn wire__crate__ffi__api__network_consent__sign_cross_mint_grant_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "sign_cross_mint_grant",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_payload =
+                <crate::ffi::api::network_consent::CrossMintGrantPayloadFfi>::sse_decode(
+                    &mut deserializer,
+                );
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, crate::ffi::error::EbillFfiError>(
+                    (move || async move {
+                        let output_ok =
+                            crate::ffi::api::network_consent::sign_cross_mint_grant(api_payload)
+                                .await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__ffi__api__network_consent__sign_cross_mint_revoke_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "sign_cross_mint_revoke",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_payload =
+                <crate::ffi::api::network_consent::CrossMintRevokePayloadFfi>::sse_decode(
+                    &mut deserializer,
+                );
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, crate::ffi::error::EbillFfiError>(
+                    (move || async move {
+                        let output_ok =
+                            crate::ffi::api::network_consent::sign_cross_mint_revoke(api_payload)
+                                .await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__ffi__api__network_consent__sign_directory_listing_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "sign_directory_listing",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_payload_json = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, crate::ffi::error::EbillFfiError>(
+                    (move || async move {
+                        let output_ok = crate::ffi::api::network_consent::sign_directory_listing(
+                            api_payload_json,
+                        )
+                        .await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__ffi__api__network_consent__sign_directory_withdrawal_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "sign_directory_withdrawal",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_prior_events_json = <Vec<String>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, crate::ffi::error::EbillFfiError>(
+                    (move || async move {
+                        let output_ok =
+                            crate::ffi::api::network_consent::sign_directory_withdrawal(
+                                api_prior_events_json,
+                            )
+                            .await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
 fn wire__crate__ffi__api__facility__sign_facility_application_admission_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -4547,6 +4708,49 @@ fn wire__crate__ffi__api__mint_application_admission__sign_mint_application_admi
                          let output_ok = crate::ffi::api::mint_application_admission::sign_mint_application_admission(api_payload).await?;   std::result::Result::Ok(output_ok)
                     })().await)
                 } })
+}
+fn wire__crate__ffi__api__network_consent__sign_service_voice_admission_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "sign_service_voice_admission",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_payload =
+                <crate::ffi::api::network_consent::ServiceVoiceAdmissionPayloadFfi>::sse_decode(
+                    &mut deserializer,
+                );
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, crate::ffi::error::EbillFfiError>(
+                    (move || async move {
+                        let output_ok =
+                            crate::ffi::api::network_consent::sign_service_voice_admission(
+                                api_payload,
+                            )
+                            .await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
 }
 fn wire__crate__ffi__api__notification__subscribe_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
@@ -6450,6 +6654,96 @@ impl SseDecode for crate::ffi::data::CreatePostalAddressFfi {
     }
 }
 
+impl SseDecode for crate::ffi::api::network_consent::CrossMintGrantFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_schema = <String>::sse_decode(deserializer);
+        let mut var_grantId = <String>::sse_decode(deserializer);
+        let mut var_network = <String>::sse_decode(deserializer);
+        let mut var_subjectNodeId = <String>::sse_decode(deserializer);
+        let mut var_requestingMintPubkey = <String>::sse_decode(deserializer);
+        let mut var_answeringMintPubkey = <String>::sse_decode(deserializer);
+        let mut var_operation = <String>::sse_decode(deserializer);
+        let mut var_billId = <String>::sse_decode(deserializer);
+        let mut var_caseBinding = <String>::sse_decode(deserializer);
+        let mut var_issuedAt = <u64>::sse_decode(deserializer);
+        let mut var_expiresAt = <u64>::sse_decode(deserializer);
+        let mut var_nonce = <String>::sse_decode(deserializer);
+        return crate::ffi::api::network_consent::CrossMintGrantFfi {
+            schema: var_schema,
+            grant_id: var_grantId,
+            network: var_network,
+            subject_node_id: var_subjectNodeId,
+            requesting_mint_pubkey: var_requestingMintPubkey,
+            answering_mint_pubkey: var_answeringMintPubkey,
+            operation: var_operation,
+            bill_id: var_billId,
+            case_binding: var_caseBinding,
+            issued_at: var_issuedAt,
+            expires_at: var_expiresAt,
+            nonce: var_nonce,
+        };
+    }
+}
+
+impl SseDecode for crate::ffi::api::network_consent::CrossMintGrantPayloadFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_grantId = <String>::sse_decode(deserializer);
+        let mut var_requestingMintPubkey = <String>::sse_decode(deserializer);
+        let mut var_answeringMintPubkey = <String>::sse_decode(deserializer);
+        let mut var_billId = <String>::sse_decode(deserializer);
+        let mut var_caseBinding = <String>::sse_decode(deserializer);
+        let mut var_lifetimeSeconds = <Option<u64>>::sse_decode(deserializer);
+        return crate::ffi::api::network_consent::CrossMintGrantPayloadFfi {
+            grant_id: var_grantId,
+            requesting_mint_pubkey: var_requestingMintPubkey,
+            answering_mint_pubkey: var_answeringMintPubkey,
+            bill_id: var_billId,
+            case_binding: var_caseBinding,
+            lifetime_seconds: var_lifetimeSeconds,
+        };
+    }
+}
+
+impl SseDecode for crate::ffi::api::network_consent::CrossMintRevokeFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_schema = <String>::sse_decode(deserializer);
+        let mut var_grantId = <String>::sse_decode(deserializer);
+        let mut var_network = <String>::sse_decode(deserializer);
+        let mut var_subjectNodeId = <String>::sse_decode(deserializer);
+        let mut var_requestingMintPubkey = <String>::sse_decode(deserializer);
+        let mut var_answeringMintPubkey = <String>::sse_decode(deserializer);
+        let mut var_nonce = <String>::sse_decode(deserializer);
+        let mut var_issuedAt = <u64>::sse_decode(deserializer);
+        return crate::ffi::api::network_consent::CrossMintRevokeFfi {
+            schema: var_schema,
+            grant_id: var_grantId,
+            network: var_network,
+            subject_node_id: var_subjectNodeId,
+            requesting_mint_pubkey: var_requestingMintPubkey,
+            answering_mint_pubkey: var_answeringMintPubkey,
+            nonce: var_nonce,
+            issued_at: var_issuedAt,
+        };
+    }
+}
+
+impl SseDecode for crate::ffi::api::network_consent::CrossMintRevokePayloadFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_grantId = <String>::sse_decode(deserializer);
+        let mut var_requestingMintPubkey = <String>::sse_decode(deserializer);
+        let mut var_answeringMintPubkey = <String>::sse_decode(deserializer);
+        return crate::ffi::api::network_consent::CrossMintRevokePayloadFfi {
+            grant_id: var_grantId,
+            requesting_mint_pubkey: var_requestingMintPubkey,
+            answering_mint_pubkey: var_answeringMintPubkey,
+        };
+    }
+}
+
 impl SseDecode for crate::ffi::data::CurrenciesResponse {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -7434,6 +7728,18 @@ impl SseDecode for Vec<crate::ffi::data::bill::LightBitcreditBillFfi> {
             ans_.push(<crate::ffi::data::bill::LightBitcreditBillFfi>::sse_decode(
                 deserializer,
             ));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<Vec<String>> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ {
+            ans_.push(<Vec<String>>::sse_decode(deserializer));
         }
         return ans_;
     }
@@ -8839,6 +9145,40 @@ impl SseDecode for crate::ffi::data::identity::SeedPhrase {
     }
 }
 
+impl SseDecode for crate::ffi::api::network_consent::ServiceVoiceAdmissionFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_schema = <String>::sse_decode(deserializer);
+        let mut var_network = <String>::sse_decode(deserializer);
+        let mut var_subjectNodeId = <String>::sse_decode(deserializer);
+        let mut var_serviceMintNodeId = <String>::sse_decode(deserializer);
+        let mut var_issuedAt = <u64>::sse_decode(deserializer);
+        let mut var_expiresAt = <u64>::sse_decode(deserializer);
+        let mut var_nonce = <String>::sse_decode(deserializer);
+        return crate::ffi::api::network_consent::ServiceVoiceAdmissionFfi {
+            schema: var_schema,
+            network: var_network,
+            subject_node_id: var_subjectNodeId,
+            service_mint_node_id: var_serviceMintNodeId,
+            issued_at: var_issuedAt,
+            expires_at: var_expiresAt,
+            nonce: var_nonce,
+        };
+    }
+}
+
+impl SseDecode for crate::ffi::api::network_consent::ServiceVoiceAdmissionPayloadFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_serviceMintNodeId = <String>::sse_decode(deserializer);
+        let mut var_lifetimeSeconds = <Option<u64>>::sse_decode(deserializer);
+        return crate::ffi::api::network_consent::ServiceVoiceAdmissionPayloadFfi {
+            service_mint_node_id: var_serviceMintNodeId,
+            lifetime_seconds: var_lifetimeSeconds,
+        };
+    }
+}
+
 impl SseDecode for crate::ffi::data::bill::ShareBillWithCourtPayload {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -8897,6 +9237,74 @@ impl SseDecode for crate::ffi::data::company::SignatoryResponse {
     }
 }
 
+impl SseDecode for crate::ffi::api::network_consent::SignedCrossMintGrantFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_grant =
+            <crate::ffi::api::network_consent::CrossMintGrantFfi>::sse_decode(deserializer);
+        let mut var_signature = <String>::sse_decode(deserializer);
+        let mut var_json = <String>::sse_decode(deserializer);
+        return crate::ffi::api::network_consent::SignedCrossMintGrantFfi {
+            grant: var_grant,
+            signature: var_signature,
+            json: var_json,
+        };
+    }
+}
+
+impl SseDecode for crate::ffi::api::network_consent::SignedCrossMintRevokeFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_revoke =
+            <crate::ffi::api::network_consent::CrossMintRevokeFfi>::sse_decode(deserializer);
+        let mut var_signature = <String>::sse_decode(deserializer);
+        let mut var_json = <String>::sse_decode(deserializer);
+        return crate::ffi::api::network_consent::SignedCrossMintRevokeFfi {
+            revoke: var_revoke,
+            signature: var_signature,
+            json: var_json,
+        };
+    }
+}
+
+impl SseDecode for crate::ffi::api::network_consent::SignedDirectoryEventFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_id = <String>::sse_decode(deserializer);
+        let mut var_pubkey = <String>::sse_decode(deserializer);
+        let mut var_createdAt = <u64>::sse_decode(deserializer);
+        let mut var_kind = <u16>::sse_decode(deserializer);
+        let mut var_tags = <Vec<Vec<String>>>::sse_decode(deserializer);
+        let mut var_content = <String>::sse_decode(deserializer);
+        let mut var_sig = <String>::sse_decode(deserializer);
+        let mut var_json = <String>::sse_decode(deserializer);
+        return crate::ffi::api::network_consent::SignedDirectoryEventFfi {
+            id: var_id,
+            pubkey: var_pubkey,
+            created_at: var_createdAt,
+            kind: var_kind,
+            tags: var_tags,
+            content: var_content,
+            sig: var_sig,
+            json: var_json,
+        };
+    }
+}
+
+impl SseDecode for crate::ffi::api::network_consent::SignedDirectoryWithdrawalFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_withdrawal =
+            <crate::ffi::api::network_consent::SignedDirectoryEventFfi>::sse_decode(deserializer);
+        let mut var_deletion =
+            <crate::ffi::api::network_consent::SignedDirectoryEventFfi>::sse_decode(deserializer);
+        return crate::ffi::api::network_consent::SignedDirectoryWithdrawalFfi {
+            withdrawal: var_withdrawal,
+            deletion: var_deletion,
+        };
+    }
+}
+
 impl SseDecode for crate::ffi::api::facility::SignedFacilityApplicationAdmissionFfi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -8937,6 +9345,21 @@ impl SseDecode for crate::ffi::api::mint_record::SignedMintRecordSnapshotFfi {
     }
 }
 
+impl SseDecode for crate::ffi::api::network_consent::SignedServiceVoiceAdmissionFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_admission =
+            <crate::ffi::api::network_consent::ServiceVoiceAdmissionFfi>::sse_decode(deserializer);
+        let mut var_signature = <String>::sse_decode(deserializer);
+        let mut var_json = <String>::sse_decode(deserializer);
+        return crate::ffi::api::network_consent::SignedServiceVoiceAdmissionFfi {
+            admission: var_admission,
+            signature: var_signature,
+            json: var_json,
+        };
+    }
+}
+
 impl SseDecode for crate::ffi::data::StatusResponse {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -8973,6 +9396,13 @@ impl SseDecode for crate::ffi::data::identity::SwitchIdentityTypeFfi {
             1 => crate::ffi::data::identity::SwitchIdentityTypeFfi::Company,
             _ => unreachable!("Invalid variant for SwitchIdentityTypeFfi: {}", inner),
         };
+    }
+}
+
+impl SseDecode for u16 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        deserializer.cursor.read_u16::<NativeEndian>().unwrap()
     }
 }
 
@@ -9397,13 +9827,37 @@ fn pde_ffi_dispatcher_primary_impl(
             rust_vec_len,
             data_len,
         ),
-        119 => wire__crate__ffi__api__facility__sign_facility_application_admission_impl(
+        119 => wire__crate__ffi__api__network_consent__sign_cross_mint_grant_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        120 => {
+        120 => wire__crate__ffi__api__network_consent__sign_cross_mint_revoke_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        121 => wire__crate__ffi__api__network_consent__sign_directory_listing_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        122 => wire__crate__ffi__api__network_consent__sign_directory_withdrawal_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        123 => wire__crate__ffi__api__facility__sign_facility_application_admission_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        124 => {
             wire__crate__ffi__api__mint_application_admission__sign_mint_application_admission_impl(
                 port,
                 ptr,
@@ -9411,31 +9865,37 @@ fn pde_ffi_dispatcher_primary_impl(
                 data_len,
             )
         }
-        121 => {
+        125 => wire__crate__ffi__api__network_consent__sign_service_voice_admission_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        126 => {
             wire__crate__ffi__api__notification__subscribe_impl(port, ptr, rust_vec_len, data_len)
         }
-        122 => wire__crate__ffi__api__bill__sweep_btc_funds_impl(port, ptr, rust_vec_len, data_len),
-        123 => wire__crate__ffi__api__identity__switch_impl(port, ptr, rust_vec_len, data_len),
-        124 => wire__crate__ffi__api__bill__sync_bill_chain_impl(port, ptr, rust_vec_len, data_len),
-        125 => wire__crate__ffi__api__company__sync_company_chain_impl(
+        127 => wire__crate__ffi__api__bill__sweep_btc_funds_impl(port, ptr, rust_vec_len, data_len),
+        128 => wire__crate__ffi__api__identity__switch_impl(port, ptr, rust_vec_len, data_len),
+        129 => wire__crate__ffi__api__bill__sync_bill_chain_impl(port, ptr, rust_vec_len, data_len),
+        130 => wire__crate__ffi__api__company__sync_company_chain_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        126 => wire__crate__ffi__api__identity__sync_identity_chain_impl(
+        131 => wire__crate__ffi__api__identity__sync_identity_chain_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        127 => wire__crate__ffi__api__general__temp_file_impl(port, ptr, rust_vec_len, data_len),
-        128 => wire__crate__ffi__api__bill__upload_impl(port, ptr, rust_vec_len, data_len),
-        129 => wire__crate__ffi__api__company__upload_impl(port, ptr, rust_vec_len, data_len),
-        130 => wire__crate__ffi__api__contact__upload_impl(port, ptr, rust_vec_len, data_len),
-        131 => wire__crate__ffi__api__identity__upload_impl(port, ptr, rust_vec_len, data_len),
-        132 => wire__crate__ffi__api__company__verify_email_impl(port, ptr, rust_vec_len, data_len),
-        133 => {
+        132 => wire__crate__ffi__api__general__temp_file_impl(port, ptr, rust_vec_len, data_len),
+        133 => wire__crate__ffi__api__bill__upload_impl(port, ptr, rust_vec_len, data_len),
+        134 => wire__crate__ffi__api__company__upload_impl(port, ptr, rust_vec_len, data_len),
+        135 => wire__crate__ffi__api__contact__upload_impl(port, ptr, rust_vec_len, data_len),
+        136 => wire__crate__ffi__api__identity__upload_impl(port, ptr, rust_vec_len, data_len),
+        137 => wire__crate__ffi__api__company__verify_email_impl(port, ptr, rust_vec_len, data_len),
+        138 => {
             wire__crate__ffi__api__identity__verify_email_impl(port, ptr, rust_vec_len, data_len)
         }
         _ => unreachable!(),
@@ -11213,6 +11673,111 @@ impl flutter_rust_bridge::IntoIntoDart<crate::ffi::data::CreatePostalAddressFfi>
     for crate::ffi::data::CreatePostalAddressFfi
 {
     fn into_into_dart(self) -> crate::ffi::data::CreatePostalAddressFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::ffi::api::network_consent::CrossMintGrantFfi {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.schema.into_into_dart().into_dart(),
+            self.grant_id.into_into_dart().into_dart(),
+            self.network.into_into_dart().into_dart(),
+            self.subject_node_id.into_into_dart().into_dart(),
+            self.requesting_mint_pubkey.into_into_dart().into_dart(),
+            self.answering_mint_pubkey.into_into_dart().into_dart(),
+            self.operation.into_into_dart().into_dart(),
+            self.bill_id.into_into_dart().into_dart(),
+            self.case_binding.into_into_dart().into_dart(),
+            self.issued_at.into_into_dart().into_dart(),
+            self.expires_at.into_into_dart().into_dart(),
+            self.nonce.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::ffi::api::network_consent::CrossMintGrantFfi
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::ffi::api::network_consent::CrossMintGrantFfi>
+    for crate::ffi::api::network_consent::CrossMintGrantFfi
+{
+    fn into_into_dart(self) -> crate::ffi::api::network_consent::CrossMintGrantFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::ffi::api::network_consent::CrossMintGrantPayloadFfi {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.grant_id.into_into_dart().into_dart(),
+            self.requesting_mint_pubkey.into_into_dart().into_dart(),
+            self.answering_mint_pubkey.into_into_dart().into_dart(),
+            self.bill_id.into_into_dart().into_dart(),
+            self.case_binding.into_into_dart().into_dart(),
+            self.lifetime_seconds.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::ffi::api::network_consent::CrossMintGrantPayloadFfi
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::ffi::api::network_consent::CrossMintGrantPayloadFfi>
+    for crate::ffi::api::network_consent::CrossMintGrantPayloadFfi
+{
+    fn into_into_dart(self) -> crate::ffi::api::network_consent::CrossMintGrantPayloadFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::ffi::api::network_consent::CrossMintRevokeFfi {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.schema.into_into_dart().into_dart(),
+            self.grant_id.into_into_dart().into_dart(),
+            self.network.into_into_dart().into_dart(),
+            self.subject_node_id.into_into_dart().into_dart(),
+            self.requesting_mint_pubkey.into_into_dart().into_dart(),
+            self.answering_mint_pubkey.into_into_dart().into_dart(),
+            self.nonce.into_into_dart().into_dart(),
+            self.issued_at.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::ffi::api::network_consent::CrossMintRevokeFfi
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::ffi::api::network_consent::CrossMintRevokeFfi>
+    for crate::ffi::api::network_consent::CrossMintRevokeFfi
+{
+    fn into_into_dart(self) -> crate::ffi::api::network_consent::CrossMintRevokeFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::ffi::api::network_consent::CrossMintRevokePayloadFfi {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.grant_id.into_into_dart().into_dart(),
+            self.requesting_mint_pubkey.into_into_dart().into_dart(),
+            self.answering_mint_pubkey.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::ffi::api::network_consent::CrossMintRevokePayloadFfi
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::ffi::api::network_consent::CrossMintRevokePayloadFfi>
+    for crate::ffi::api::network_consent::CrossMintRevokePayloadFfi
+{
+    fn into_into_dart(self) -> crate::ffi::api::network_consent::CrossMintRevokePayloadFfi {
         self
     }
 }
@@ -13514,6 +14079,57 @@ impl flutter_rust_bridge::IntoIntoDart<crate::ffi::data::identity::SeedPhrase>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::ffi::api::network_consent::ServiceVoiceAdmissionFfi {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.schema.into_into_dart().into_dart(),
+            self.network.into_into_dart().into_dart(),
+            self.subject_node_id.into_into_dart().into_dart(),
+            self.service_mint_node_id.into_into_dart().into_dart(),
+            self.issued_at.into_into_dart().into_dart(),
+            self.expires_at.into_into_dart().into_dart(),
+            self.nonce.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::ffi::api::network_consent::ServiceVoiceAdmissionFfi
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::ffi::api::network_consent::ServiceVoiceAdmissionFfi>
+    for crate::ffi::api::network_consent::ServiceVoiceAdmissionFfi
+{
+    fn into_into_dart(self) -> crate::ffi::api::network_consent::ServiceVoiceAdmissionFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart
+    for crate::ffi::api::network_consent::ServiceVoiceAdmissionPayloadFfi
+{
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.service_mint_node_id.into_into_dart().into_dart(),
+            self.lifetime_seconds.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::ffi::api::network_consent::ServiceVoiceAdmissionPayloadFfi
+{
+}
+impl
+    flutter_rust_bridge::IntoIntoDart<
+        crate::ffi::api::network_consent::ServiceVoiceAdmissionPayloadFfi,
+    > for crate::ffi::api::network_consent::ServiceVoiceAdmissionPayloadFfi
+{
+    fn into_into_dart(self) -> crate::ffi::api::network_consent::ServiceVoiceAdmissionPayloadFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::ffi::data::bill::ShareBillWithCourtPayload {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -13599,6 +14215,102 @@ impl flutter_rust_bridge::IntoIntoDart<crate::ffi::data::company::SignatoryRespo
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::ffi::api::network_consent::SignedCrossMintGrantFfi {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.grant.into_into_dart().into_dart(),
+            self.signature.into_into_dart().into_dart(),
+            self.json.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::ffi::api::network_consent::SignedCrossMintGrantFfi
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::ffi::api::network_consent::SignedCrossMintGrantFfi>
+    for crate::ffi::api::network_consent::SignedCrossMintGrantFfi
+{
+    fn into_into_dart(self) -> crate::ffi::api::network_consent::SignedCrossMintGrantFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::ffi::api::network_consent::SignedCrossMintRevokeFfi {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.revoke.into_into_dart().into_dart(),
+            self.signature.into_into_dart().into_dart(),
+            self.json.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::ffi::api::network_consent::SignedCrossMintRevokeFfi
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::ffi::api::network_consent::SignedCrossMintRevokeFfi>
+    for crate::ffi::api::network_consent::SignedCrossMintRevokeFfi
+{
+    fn into_into_dart(self) -> crate::ffi::api::network_consent::SignedCrossMintRevokeFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::ffi::api::network_consent::SignedDirectoryEventFfi {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.id.into_into_dart().into_dart(),
+            self.pubkey.into_into_dart().into_dart(),
+            self.created_at.into_into_dart().into_dart(),
+            self.kind.into_into_dart().into_dart(),
+            self.tags.into_into_dart().into_dart(),
+            self.content.into_into_dart().into_dart(),
+            self.sig.into_into_dart().into_dart(),
+            self.json.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::ffi::api::network_consent::SignedDirectoryEventFfi
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::ffi::api::network_consent::SignedDirectoryEventFfi>
+    for crate::ffi::api::network_consent::SignedDirectoryEventFfi
+{
+    fn into_into_dart(self) -> crate::ffi::api::network_consent::SignedDirectoryEventFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart
+    for crate::ffi::api::network_consent::SignedDirectoryWithdrawalFfi
+{
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.withdrawal.into_into_dart().into_dart(),
+            self.deletion.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::ffi::api::network_consent::SignedDirectoryWithdrawalFfi
+{
+}
+impl
+    flutter_rust_bridge::IntoIntoDart<
+        crate::ffi::api::network_consent::SignedDirectoryWithdrawalFfi,
+    > for crate::ffi::api::network_consent::SignedDirectoryWithdrawalFfi
+{
+    fn into_into_dart(self) -> crate::ffi::api::network_consent::SignedDirectoryWithdrawalFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart
     for crate::ffi::api::facility::SignedFacilityApplicationAdmissionFfi
 {
@@ -13668,6 +14380,32 @@ impl flutter_rust_bridge::IntoIntoDart<crate::ffi::api::mint_record::SignedMintR
     for crate::ffi::api::mint_record::SignedMintRecordSnapshotFfi
 {
     fn into_into_dart(self) -> crate::ffi::api::mint_record::SignedMintRecordSnapshotFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart
+    for crate::ffi::api::network_consent::SignedServiceVoiceAdmissionFfi
+{
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.admission.into_into_dart().into_dart(),
+            self.signature.into_into_dart().into_dart(),
+            self.json.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::ffi::api::network_consent::SignedServiceVoiceAdmissionFfi
+{
+}
+impl
+    flutter_rust_bridge::IntoIntoDart<
+        crate::ffi::api::network_consent::SignedServiceVoiceAdmissionFfi,
+    > for crate::ffi::api::network_consent::SignedServiceVoiceAdmissionFfi
+{
+    fn into_into_dart(self) -> crate::ffi::api::network_consent::SignedServiceVoiceAdmissionFfi {
         self
     }
 }
@@ -14785,6 +15523,59 @@ impl SseEncode for crate::ffi::data::CreatePostalAddressFfi {
     }
 }
 
+impl SseEncode for crate::ffi::api::network_consent::CrossMintGrantFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.schema, serializer);
+        <String>::sse_encode(self.grant_id, serializer);
+        <String>::sse_encode(self.network, serializer);
+        <String>::sse_encode(self.subject_node_id, serializer);
+        <String>::sse_encode(self.requesting_mint_pubkey, serializer);
+        <String>::sse_encode(self.answering_mint_pubkey, serializer);
+        <String>::sse_encode(self.operation, serializer);
+        <String>::sse_encode(self.bill_id, serializer);
+        <String>::sse_encode(self.case_binding, serializer);
+        <u64>::sse_encode(self.issued_at, serializer);
+        <u64>::sse_encode(self.expires_at, serializer);
+        <String>::sse_encode(self.nonce, serializer);
+    }
+}
+
+impl SseEncode for crate::ffi::api::network_consent::CrossMintGrantPayloadFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.grant_id, serializer);
+        <String>::sse_encode(self.requesting_mint_pubkey, serializer);
+        <String>::sse_encode(self.answering_mint_pubkey, serializer);
+        <String>::sse_encode(self.bill_id, serializer);
+        <String>::sse_encode(self.case_binding, serializer);
+        <Option<u64>>::sse_encode(self.lifetime_seconds, serializer);
+    }
+}
+
+impl SseEncode for crate::ffi::api::network_consent::CrossMintRevokeFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.schema, serializer);
+        <String>::sse_encode(self.grant_id, serializer);
+        <String>::sse_encode(self.network, serializer);
+        <String>::sse_encode(self.subject_node_id, serializer);
+        <String>::sse_encode(self.requesting_mint_pubkey, serializer);
+        <String>::sse_encode(self.answering_mint_pubkey, serializer);
+        <String>::sse_encode(self.nonce, serializer);
+        <u64>::sse_encode(self.issued_at, serializer);
+    }
+}
+
+impl SseEncode for crate::ffi::api::network_consent::CrossMintRevokePayloadFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.grant_id, serializer);
+        <String>::sse_encode(self.requesting_mint_pubkey, serializer);
+        <String>::sse_encode(self.answering_mint_pubkey, serializer);
+    }
+}
+
 impl SseEncode for crate::ffi::data::CurrenciesResponse {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -15572,6 +16363,16 @@ impl SseEncode for Vec<crate::ffi::data::bill::LightBitcreditBillFfi> {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <crate::ffi::data::bill::LightBitcreditBillFfi>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<Vec<String>> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <Vec<String>>::sse_encode(item, serializer);
         }
     }
 }
@@ -16590,6 +17391,27 @@ impl SseEncode for crate::ffi::data::identity::SeedPhrase {
     }
 }
 
+impl SseEncode for crate::ffi::api::network_consent::ServiceVoiceAdmissionFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.schema, serializer);
+        <String>::sse_encode(self.network, serializer);
+        <String>::sse_encode(self.subject_node_id, serializer);
+        <String>::sse_encode(self.service_mint_node_id, serializer);
+        <u64>::sse_encode(self.issued_at, serializer);
+        <u64>::sse_encode(self.expires_at, serializer);
+        <String>::sse_encode(self.nonce, serializer);
+    }
+}
+
+impl SseEncode for crate::ffi::api::network_consent::ServiceVoiceAdmissionPayloadFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.service_mint_node_id, serializer);
+        <Option<u64>>::sse_encode(self.lifetime_seconds, serializer);
+    }
+}
+
 impl SseEncode for crate::ffi::data::bill::ShareBillWithCourtPayload {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -16626,6 +17448,52 @@ impl SseEncode for crate::ffi::data::company::SignatoryResponse {
     }
 }
 
+impl SseEncode for crate::ffi::api::network_consent::SignedCrossMintGrantFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <crate::ffi::api::network_consent::CrossMintGrantFfi>::sse_encode(self.grant, serializer);
+        <String>::sse_encode(self.signature, serializer);
+        <String>::sse_encode(self.json, serializer);
+    }
+}
+
+impl SseEncode for crate::ffi::api::network_consent::SignedCrossMintRevokeFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <crate::ffi::api::network_consent::CrossMintRevokeFfi>::sse_encode(self.revoke, serializer);
+        <String>::sse_encode(self.signature, serializer);
+        <String>::sse_encode(self.json, serializer);
+    }
+}
+
+impl SseEncode for crate::ffi::api::network_consent::SignedDirectoryEventFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.id, serializer);
+        <String>::sse_encode(self.pubkey, serializer);
+        <u64>::sse_encode(self.created_at, serializer);
+        <u16>::sse_encode(self.kind, serializer);
+        <Vec<Vec<String>>>::sse_encode(self.tags, serializer);
+        <String>::sse_encode(self.content, serializer);
+        <String>::sse_encode(self.sig, serializer);
+        <String>::sse_encode(self.json, serializer);
+    }
+}
+
+impl SseEncode for crate::ffi::api::network_consent::SignedDirectoryWithdrawalFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <crate::ffi::api::network_consent::SignedDirectoryEventFfi>::sse_encode(
+            self.withdrawal,
+            serializer,
+        );
+        <crate::ffi::api::network_consent::SignedDirectoryEventFfi>::sse_encode(
+            self.deletion,
+            serializer,
+        );
+    }
+}
+
 impl SseEncode for crate::ffi::api::facility::SignedFacilityApplicationAdmissionFfi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -16653,6 +17521,18 @@ impl SseEncode for crate::ffi::api::mint_record::SignedMintRecordSnapshotFfi {
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <String>::sse_encode(self.payload, serializer);
         <String>::sse_encode(self.signature, serializer);
+    }
+}
+
+impl SseEncode for crate::ffi::api::network_consent::SignedServiceVoiceAdmissionFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <crate::ffi::api::network_consent::ServiceVoiceAdmissionFfi>::sse_encode(
+            self.admission,
+            serializer,
+        );
+        <String>::sse_encode(self.signature, serializer);
+        <String>::sse_encode(self.json, serializer);
     }
 }
 
@@ -16686,6 +17566,13 @@ impl SseEncode for crate::ffi::data::identity::SwitchIdentityTypeFfi {
             },
             serializer,
         );
+    }
+}
+
+impl SseEncode for u16 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        serializer.cursor.write_u16::<NativeEndian>(self).unwrap();
     }
 }
 

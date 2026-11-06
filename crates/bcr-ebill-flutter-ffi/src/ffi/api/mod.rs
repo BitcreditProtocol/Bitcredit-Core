@@ -6,4 +6,5 @@ pub mod general;
 pub mod identity;
 pub mod mint_application_admission;
 pub mod mint_record;
+pub mod network_consent;
 pub mod notification;

@@ -16,6 +16,7 @@ import 'ffi/api/general.dart';
 import 'ffi/api/identity.dart';
 import 'ffi/api/mint_application_admission.dart';
 import 'ffi/api/mint_record.dart';
+import 'ffi/api/network_consent.dart';
 import 'ffi/api/notification.dart';
 import 'ffi/data.dart';
 import 'ffi/data/bill.dart';
@@ -379,6 +380,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  CrossMintGrantPayloadFfi dco_decode_box_autoadd_cross_mint_grant_payload_ffi(
+    dynamic raw,
+  );
+
+  @protected
+  CrossMintRevokePayloadFfi
+  dco_decode_box_autoadd_cross_mint_revoke_payload_ffi(dynamic raw);
+
+  @protected
   DateRange dco_decode_box_autoadd_date_range(dynamic raw);
 
   @protected
@@ -572,6 +582,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   SeedPhrase dco_decode_box_autoadd_seed_phrase(dynamic raw);
 
   @protected
+  ServiceVoiceAdmissionPayloadFfi
+  dco_decode_box_autoadd_service_voice_admission_payload_ffi(dynamic raw);
+
+  @protected
   ShareBillWithCourtPayload
   dco_decode_box_autoadd_share_bill_with_court_payload(dynamic raw);
 
@@ -680,6 +694,20 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   CreatePostalAddressFfi dco_decode_create_postal_address_ffi(dynamic raw);
+
+  @protected
+  CrossMintGrantFfi dco_decode_cross_mint_grant_ffi(dynamic raw);
+
+  @protected
+  CrossMintGrantPayloadFfi dco_decode_cross_mint_grant_payload_ffi(dynamic raw);
+
+  @protected
+  CrossMintRevokeFfi dco_decode_cross_mint_revoke_ffi(dynamic raw);
+
+  @protected
+  CrossMintRevokePayloadFfi dco_decode_cross_mint_revoke_payload_ffi(
+    dynamic raw,
+  );
 
   @protected
   CurrenciesResponse dco_decode_currencies_response(dynamic raw);
@@ -871,6 +899,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<LightBitcreditBillFfi> dco_decode_list_light_bitcredit_bill_ffi(
     dynamic raw,
   );
+
+  @protected
+  List<List<String>> dco_decode_list_list_String(dynamic raw);
 
   @protected
   List<MintRecordDisputeFfi> dco_decode_list_mint_record_dispute_ffi(
@@ -1193,6 +1224,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   SeedPhrase dco_decode_seed_phrase(dynamic raw);
 
   @protected
+  ServiceVoiceAdmissionFfi dco_decode_service_voice_admission_ffi(dynamic raw);
+
+  @protected
+  ServiceVoiceAdmissionPayloadFfi
+  dco_decode_service_voice_admission_payload_ffi(dynamic raw);
+
+  @protected
   ShareBillWithCourtPayload dco_decode_share_bill_with_court_payload(
     dynamic raw,
   );
@@ -1205,6 +1243,20 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   SignatoryResponse dco_decode_signatory_response(dynamic raw);
+
+  @protected
+  SignedCrossMintGrantFfi dco_decode_signed_cross_mint_grant_ffi(dynamic raw);
+
+  @protected
+  SignedCrossMintRevokeFfi dco_decode_signed_cross_mint_revoke_ffi(dynamic raw);
+
+  @protected
+  SignedDirectoryEventFfi dco_decode_signed_directory_event_ffi(dynamic raw);
+
+  @protected
+  SignedDirectoryWithdrawalFfi dco_decode_signed_directory_withdrawal_ffi(
+    dynamic raw,
+  );
 
   @protected
   SignedFacilityApplicationAdmissionFfi
@@ -1220,6 +1272,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  SignedServiceVoiceAdmissionFfi dco_decode_signed_service_voice_admission_ffi(
+    dynamic raw,
+  );
+
+  @protected
   StatusResponse dco_decode_status_response(dynamic raw);
 
   @protected
@@ -1227,6 +1284,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   SwitchIdentityTypeFfi dco_decode_switch_identity_type_ffi(dynamic raw);
+
+  @protected
+  int dco_decode_u_16(dynamic raw);
 
   @protected
   int dco_decode_u_32(dynamic raw);
@@ -1680,6 +1740,17 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  CrossMintGrantPayloadFfi sse_decode_box_autoadd_cross_mint_grant_payload_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  CrossMintRevokePayloadFfi
+  sse_decode_box_autoadd_cross_mint_revoke_payload_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   DateRange sse_decode_box_autoadd_date_range(SseDeserializer deserializer);
 
   @protected
@@ -1925,6 +1996,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   SeedPhrase sse_decode_box_autoadd_seed_phrase(SseDeserializer deserializer);
 
   @protected
+  ServiceVoiceAdmissionPayloadFfi
+  sse_decode_box_autoadd_service_voice_admission_payload_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   ShareBillWithCourtPayload
   sse_decode_box_autoadd_share_bill_with_court_payload(
     SseDeserializer deserializer,
@@ -2053,6 +2130,26 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   CreatePostalAddressFfi sse_decode_create_postal_address_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  CrossMintGrantFfi sse_decode_cross_mint_grant_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  CrossMintGrantPayloadFfi sse_decode_cross_mint_grant_payload_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  CrossMintRevokeFfi sse_decode_cross_mint_revoke_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  CrossMintRevokePayloadFfi sse_decode_cross_mint_revoke_payload_ffi(
     SseDeserializer deserializer,
   );
 
@@ -2296,6 +2393,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<LightBitcreditBillFfi> sse_decode_list_light_bitcredit_bill_ffi(
     SseDeserializer deserializer,
   );
+
+  @protected
+  List<List<String>> sse_decode_list_list_String(SseDeserializer deserializer);
 
   @protected
   List<MintRecordDisputeFfi> sse_decode_list_mint_record_dispute_ffi(
@@ -2720,6 +2820,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   SeedPhrase sse_decode_seed_phrase(SseDeserializer deserializer);
 
   @protected
+  ServiceVoiceAdmissionFfi sse_decode_service_voice_admission_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  ServiceVoiceAdmissionPayloadFfi
+  sse_decode_service_voice_admission_payload_ffi(SseDeserializer deserializer);
+
+  @protected
   ShareBillWithCourtPayload sse_decode_share_bill_with_court_payload(
     SseDeserializer deserializer,
   );
@@ -2734,6 +2843,26 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   SignatoryResponse sse_decode_signatory_response(SseDeserializer deserializer);
+
+  @protected
+  SignedCrossMintGrantFfi sse_decode_signed_cross_mint_grant_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  SignedCrossMintRevokeFfi sse_decode_signed_cross_mint_revoke_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  SignedDirectoryEventFfi sse_decode_signed_directory_event_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  SignedDirectoryWithdrawalFfi sse_decode_signed_directory_withdrawal_ffi(
+    SseDeserializer deserializer,
+  );
 
   @protected
   SignedFacilityApplicationAdmissionFfi
@@ -2753,6 +2882,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  SignedServiceVoiceAdmissionFfi sse_decode_signed_service_voice_admission_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   StatusResponse sse_decode_status_response(SseDeserializer deserializer);
 
   @protected
@@ -2762,6 +2896,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   SwitchIdentityTypeFfi sse_decode_switch_identity_type_ffi(
     SseDeserializer deserializer,
   );
+
+  @protected
+  int sse_decode_u_16(SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_32(SseDeserializer deserializer);
@@ -3303,6 +3440,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_box_autoadd_cross_mint_grant_payload_ffi(
+    CrossMintGrantPayloadFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_cross_mint_revoke_payload_ffi(
+    CrossMintRevokePayloadFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_date_range(
     DateRange self,
     SseSerializer serializer,
@@ -3582,6 +3731,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_box_autoadd_service_voice_admission_payload_ffi(
+    ServiceVoiceAdmissionPayloadFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_share_bill_with_court_payload(
     ShareBillWithCourtPayload self,
     SseSerializer serializer,
@@ -3749,6 +3904,30 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_create_postal_address_ffi(
     CreatePostalAddressFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_cross_mint_grant_ffi(
+    CrossMintGrantFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_cross_mint_grant_payload_ffi(
+    CrossMintGrantPayloadFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_cross_mint_revoke_ffi(
+    CrossMintRevokeFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_cross_mint_revoke_payload_ffi(
+    CrossMintRevokePayloadFfi self,
     SseSerializer serializer,
   );
 
@@ -4043,6 +4222,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_light_bitcredit_bill_ffi(
     List<LightBitcreditBillFfi> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_list_String(
+    List<List<String>> self,
     SseSerializer serializer,
   );
 
@@ -4566,6 +4751,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_seed_phrase(SeedPhrase self, SseSerializer serializer);
 
   @protected
+  void sse_encode_service_voice_admission_ffi(
+    ServiceVoiceAdmissionFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_service_voice_admission_payload_ffi(
+    ServiceVoiceAdmissionPayloadFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_share_bill_with_court_payload(
     ShareBillWithCourtPayload self,
     SseSerializer serializer,
@@ -4590,6 +4787,30 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_signed_cross_mint_grant_ffi(
+    SignedCrossMintGrantFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_signed_cross_mint_revoke_ffi(
+    SignedCrossMintRevokeFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_signed_directory_event_ffi(
+    SignedDirectoryEventFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_signed_directory_withdrawal_ffi(
+    SignedDirectoryWithdrawalFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_signed_facility_application_admission_ffi(
     SignedFacilityApplicationAdmissionFfi self,
     SseSerializer serializer,
@@ -4604,6 +4825,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_signed_mint_record_snapshot_ffi(
     SignedMintRecordSnapshotFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_signed_service_voice_admission_ffi(
+    SignedServiceVoiceAdmissionFfi self,
     SseSerializer serializer,
   );
 
@@ -4624,6 +4851,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
     SwitchIdentityTypeFfi self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_u_16(int self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_32(int self, SseSerializer serializer);

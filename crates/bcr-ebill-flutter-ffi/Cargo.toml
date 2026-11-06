@@ -28,14 +28,13 @@ log = {workspace = true}
 nostr.workspace = true
 once_cell = {workspace = true}
 rustls = "0.23"
+serde.workspace = true
+serde_json.workspace = true
 time.workspace = true
 tokio = {workspace = true, features = ["macros", "rt-multi-thread", "time", "rt", "sync"]}
 tokio-util = {version = "0.7"}
 url = {workspace = true}
 uuid.workspace = true
-
-[dev-dependencies]
-serde_json.workspace = true
 
 [lints.rust]
 unexpected_cfgs = {level = "warn", check-cfg = ['cfg(frb_expand)']}
