@@ -510,6 +510,9 @@ mockall::mock! {
         ) -> Result<bool>;
         async fn fetch_resend_queue_entries(&self) -> Result<Vec<bcr_ebill_core::application::nostr::ResendQueueEntry>>;
         async fn requeue_resend_queue_entry(&self, id: &str) -> Result<()>;
+        async fn prepare_identity_chain_event(&self, events: &IdentityChainEvent) -> Result<Option<NostrChainEvent>>;
+        async fn prepare_company_chain_event(&self, events: &CompanyChainEvent) -> Result<Option<NostrChainEvent>>;
+        async fn prepare_bill_chain_event(&self, events: &BillChainEvent) -> Result<Option<NostrChainEvent>>;
     }
 }
 

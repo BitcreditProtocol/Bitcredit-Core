@@ -301,33 +301,9 @@ impl NostrTransportService {
     }
 
     // sends all required bill chain events like public bill data and bill invites
-    pub(crate) async fn add_chain_event(
-        &self,
-        event: &nostr::event::Event,
-        root: &Option<NostrChainEvent>,
-        previous: &Option<NostrChainEvent>,
-        chain_id: &str,
-        chain_type: BlockchainType,
-        block_height: usize,
-        block_hash: &Sha256Hash,
-    ) -> Result<()> {
+    pub(crate) async fn add_chain_event(&self, event: NostrChainEvent) -> Result<()> {
         self.chain_event_store
-            .add_chain_event(NostrChainEvent {
-                event_id: event.id.to_string(),
-                root_id: root
-                    .clone()
-                    .map(|e| e.event_id.to_string())
-                    .unwrap_or(event.id.to_string()),
-                reply_id: previous.clone().map(|e| e.event_id.to_string()),
-                author: event.pubkey.to_string(),
-                chain_id: chain_id.to_string(),
-                chain_type,
-                block_height,
-                block_hash: block_hash.to_owned(),
-                received: event.created_at.into(),
-                time: event.created_at.into(),
-                payload: event.clone(),
-            })
+            .add_chain_event(event)
             .await
             .map_err(|_| Error::Persistence("failed to write to chain events".to_owned()))?;
         Ok(())

@@ -9,6 +9,7 @@ use bcr_ebill_core::{
         event::{BillChainEvent, CompanyChainEvent, IdentityChainEvent},
     },
 };
+use bcr_ebill_persistence::traits::nostr::NostrChainEvent;
 
 #[cfg(test)]
 use mockall::automock;
@@ -46,6 +47,21 @@ pub trait BlockTransportServiceApi: ServiceTraitBounds {
     async fn fetch_resend_queue_entries(&self) -> Result<Vec<ResendQueueEntry>>;
     /// Requeue a failed resend queue entry by ID
     async fn requeue_resend_queue_entry(&self, id: &str) -> Result<()>;
+    /// validates and prepares nostr event - does not publish, or persist
+    async fn prepare_identity_chain_event(
+        &self,
+        events: &IdentityChainEvent,
+    ) -> Result<Option<NostrChainEvent>>;
+    /// validates and prepares nostr event - does not publish, or persist
+    async fn prepare_company_chain_event(
+        &self,
+        events: &CompanyChainEvent,
+    ) -> Result<Option<NostrChainEvent>>;
+    /// validates and prepares nostr event - does not publish, or persist
+    async fn prepare_bill_chain_event(
+        &self,
+        events: &BillChainEvent,
+    ) -> Result<Option<NostrChainEvent>>;
 }
 
 #[cfg(test)]
