@@ -429,7 +429,7 @@ dependencies = [
  "cdk-common",
  "ciborium",
  "infer",
- "nostr 0.45.6",
+ "nostr 0.45.7",
  "rand 0.8.8",
  "reqwest 0.13.5",
  "secp256k1 0.29.1",
@@ -466,7 +466,7 @@ dependencies = [
  "miniscript",
  "mockall",
  "mockito",
- "nostr 0.45.6",
+ "nostr 0.45.7",
  "rand 0.10.3",
  "reqwest 0.13.5",
  "serde",
@@ -493,7 +493,7 @@ dependencies = [
  "email_address",
  "log",
  "miniscript",
- "nostr 0.45.6",
+ "nostr 0.45.7",
  "once_cell",
  "rstest",
  "rust_decimal",
@@ -520,7 +520,7 @@ dependencies = [
  "borsh",
  "futures",
  "log",
- "nostr 0.45.6",
+ "nostr 0.45.7",
  "serde",
  "serde_json",
  "sqlx",
@@ -547,7 +547,7 @@ dependencies = [
  "futures",
  "log",
  "mockall",
- "nostr 0.45.6",
+ "nostr 0.45.7",
  "nostr-relay-builder",
  "nostr-sdk",
  "reqwest 0.13.5",
@@ -579,7 +579,7 @@ dependencies = [
  "flutter_rust_bridge",
  "libc",
  "log",
- "nostr 0.45.6",
+ "nostr 0.45.7",
  "once_cell",
  "rustls",
  "time",
@@ -2987,9 +2987,9 @@ dependencies = [
 
 [[package]]
 name = "nostr"
-version = "0.45.6"
+version = "0.45.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc2c39c8b16afa971a835ebe7374835dab31997fcc68c1a2d8714d3dfdd325cc"
+checksum = "b7a55567533eb00df5a6e2855f229e2092f593ab67c97aff7521fdfe55cf0383"
 dependencies = [
  "base64 0.22.1",
  "bech32 0.12.0",
@@ -3027,7 +3027,7 @@ version = "0.45.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "309950383c9854ca413d195705400e78b1376aedc48f3256754a86c609c047e8"
 dependencies = [
- "nostr 0.45.6",
+ "nostr 0.45.7",
  "opaquerr",
 ]
 
@@ -3037,7 +3037,7 @@ version = "0.45.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ea822fd48ff6b84b81ddf84169e6edf1dc0bc9b312c8e41685b2278debaac3d"
 dependencies = [
- "nostr 0.45.6",
+ "nostr 0.45.7",
  "opaquerr",
 ]
 
@@ -3070,7 +3070,7 @@ dependencies = [
  "futures",
  "lru 0.18.5",
  "negentropy",
- "nostr 0.45.6",
+ "nostr 0.45.7",
  "nostr-database 0.45.2",
  "nostr-gossip",
  "opaquerr",
@@ -4669,7 +4669,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
