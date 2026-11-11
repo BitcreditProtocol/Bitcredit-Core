@@ -1488,7 +1488,7 @@ mod tests {
         for _ in 0..2 {
             let result = service.add_mint_record(data.clone()).await.unwrap();
             assert!(result.already_present);
-            assert_eq!(result.block_id.inner(), 2);
+            assert_eq!(result.block_id.inner(), e["blockId"].as_u64().unwrap());
             assert_eq!(result.sequence, 1);
             assert_eq!(
                 result.signing_key,

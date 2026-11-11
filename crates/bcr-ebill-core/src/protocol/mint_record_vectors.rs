@@ -8,7 +8,10 @@ use crate::protocol::{
             CompanyBlock, CompanyBlockchain,
             block::{CompanyCreateBlockData, CompanyIdentityProofBlockData},
         },
-        identity::{IdentityBlock, IdentityBlockchain, IdentityCreateBlockData, IdentityType},
+        identity::{
+            IdentityBlock, IdentityBlockchain, IdentityCreateBlockData, IdentityProofBlockData,
+            IdentityType,
+        },
     },
     crypto::BcrKeys,
     mint_record::*,
@@ -143,6 +146,32 @@ fn identity_case() -> (MintRecordSnapshotPayload, Vec<Value>) {
         &borsh::to_vec(&data).unwrap(),
         &key,
     );
+    // Mint A's email proof precedes its records; the snapshot discloses its plaintext.
+    let proof = EmailIdentityProofData {
+        node_id: subject.clone(),
+        company_node_id: None,
+        email: Email::new("applicant@example.com").unwrap(),
+        created_at: ts(1),
+    };
+    let proof = IdentityProofBlockData {
+        proof: crate::protocol::SignedIdentityProof {
+            signature: SchnorrSignature::from(sign(
+                Sha256Hash::from_bytes(&borsh::to_vec(&proof).unwrap()).decode_to_array(),
+                &keys(5).get_private_key(),
+            )),
+            witness: node(&keys(5)),
+        },
+        data: proof,
+    };
+    let mut block = IdentityBlock::create_block_for_identity_proof(
+        chain.get_latest_block(),
+        &proof,
+        &key,
+        ts(1),
+    )
+    .unwrap();
+    stable_identity(&mut block, &borsh::to_vec(&proof).unwrap(), &key);
+    assert!(chain.try_add_block(block));
     let first = entry(&subject, None, 5, 1, None);
     let second = entry(&subject, None, 5, 2, Some(entry_digest(&first.entry)));
     let other = entry(&subject, None, 11, 1, None);
@@ -155,7 +184,7 @@ fn identity_case() -> (MintRecordSnapshotPayload, Vec<Value>) {
         assert!(chain.try_add_block(block));
     }
     let dispute = MintRecordDisputeBlockData {
-        entry_block_id: BlockId::first().add(1),
+        entry_block_id: BlockId::first().add(2),
         entry_digest: entry_digest(&first.entry),
         statement: "I dispute the harvest estimate.".into(),
         created_at: ts(4),
@@ -376,9 +405,9 @@ fn fixture() -> Value {
     ] {
         let mut payload = identity.clone();
         let index = if name == "sequence_gap" || name == "wrong_previous_entry_digest" {
-            2
-        } else {
             3
+        } else {
+            4
         };
         change_entry(
             &mut payload,
@@ -424,17 +453,17 @@ fn fixture() -> Value {
                 rehash(&mut payload);
             }
             "broken_previous_hash_link" => {
-                payload.blocks[2].previous_hash = Sha256Hash::from_bytes(b"wrong link")
+                payload.blocks[3].previous_hash = Sha256Hash::from_bytes(b"wrong link")
             }
             "tampered_plaintext" => {
                 let mut bytes = STANDARD
-                    .decode(payload.blocks[1].plaintext.as_ref().unwrap())
+                    .decode(payload.blocks[2].plaintext.as_ref().unwrap())
                     .unwrap();
                 bytes[5] ^= 1;
-                payload.blocks[1].plaintext = Some(STANDARD.encode(bytes));
+                payload.blocks[2].plaintext = Some(STANDARD.encode(bytes));
             }
             "bad_block_signature" => {
-                payload.blocks[1].signature = sign([0; 32], &keys(3).get_private_key()).to_string()
+                payload.blocks[2].signature = sign([0; 32], &keys(3).get_private_key()).to_string()
             }
             "wrong_receiving_mint_key" => payload.receiving_mint_key = xkey(19),
             _ => {}
@@ -452,20 +481,63 @@ fn fixture() -> Value {
     }
     // A signed record cannot be disguised as a non-record by omitting its disclosure.
     let mut concealed = identity.clone();
-    concealed.blocks[3].op_code = "Update".into();
-    concealed.blocks[3].plaintext = None;
+    concealed.blocks[4].op_code = "Update".into();
+    concealed.blocks[4].plaintext = None;
     let mut vector = case(&concealed, vec![], 3);
     vector["name"] = json!("concealed_record");
     vector["expected"] = json!("reject");
     vector["expectedRejection"] = json!("block hash mismatch");
     negative.push(vector);
     let mut concealed = identity.clone();
-    concealed.blocks[3].plaintext = None;
+    concealed.blocks[4].plaintext = None;
     let mut vector = case(&concealed, vec![], 3);
     vector["name"] = json!("missing_record_plaintext");
     vector["expected"] = json!("reject");
     vector["expectedRejection"] = json!("missing record plaintext");
     negative.push(vector);
+    // The email proof a record refers to cannot be withheld or altered either.
+    assert_eq!(identity.blocks[1].op_code, "IdentityProof");
+    let mut hidden = identity.clone();
+    hidden.blocks[1].plaintext = None;
+    let mut altered = identity.clone();
+    let mut bytes = STANDARD
+        .decode(altered.blocks[1].plaintext.as_ref().unwrap())
+        .unwrap();
+    let at = bytes.len() - 9; // last byte of the email, before the u64 created_at
+    bytes[at] ^= 1;
+    altered.blocks[1].plaintext = Some(STANDARD.encode(bytes));
+    // Any other block's plaintext is refused even when its hash would match.
+    let mut extra = identity.clone();
+    let create = STANDARD.decode(&extra.blocks[0].data).unwrap();
+    let create = ecies::decrypt(&keys(3).get_private_key().secret_bytes(), &create).unwrap();
+    assert_eq!(
+        extra.blocks[0].plaintext_hash,
+        Sha256Hash::from_bytes(&create)
+    );
+    extra.blocks[0].plaintext = Some(STANDARD.encode(create));
+    for (name, payload, reason) in [
+        (
+            "missing_identity_proof_plaintext",
+            hidden,
+            "missing identity proof plaintext",
+        ),
+        (
+            "altered_identity_proof_plaintext",
+            altered,
+            "plaintextHash mismatch",
+        ),
+        (
+            "unexpected_non_record_plaintext",
+            extra,
+            "unexpected non-record plaintext",
+        ),
+    ] {
+        let mut vector = case(&payload, vec![], 3);
+        vector["name"] = json!(name);
+        vector["expected"] = json!("reject");
+        vector["expectedRejection"] = json!(reason);
+        negative.push(vector);
+    }
     json!({"schema":"mint-record-vectors-v1","network":"regtest","maxEntryBytes":MAX_MINT_RECORD_ENTRY_BYTES,"publicKeys":{"identity":node(&keys(3)),"company":node(&keys(7)),"mintA":xkey(5),"mintB":xkey(11),"receivingMint":xkey(13)},"positive":{"identity":case(&identity,identity_entries,3),"company":case(&company,company_entries,7)},"negative":negative})
 }
 #[test]

@@ -15,8 +15,10 @@ use super::{
     BlockId, Sha256Hash, Timestamp,
     blockchain::{
         Block, Blockchain, Error, Result,
-        company::{CompanyBlock, CompanyBlockchain, CompanyOpCode},
-        identity::{IdentityBlock, IdentityBlockchain, IdentityOpCode},
+        company::{
+            CompanyBlock, CompanyBlockchain, CompanyOpCode, block::CompanyIdentityProofBlockData,
+        },
+        identity::{IdentityBlock, IdentityBlockchain, IdentityOpCode, IdentityProofBlockData},
     },
     crypto::BcrKeys,
 };
@@ -561,7 +563,9 @@ impl IdentityBlockchain {
         for wrapper in wrappers {
             let record = matches!(
                 wrapper.block.op_code,
-                IdentityOpCode::MintRecord | IdentityOpCode::MintRecordDispute
+                IdentityOpCode::MintRecord
+                    | IdentityOpCode::MintRecordDispute
+                    | IdentityOpCode::IdentityProof
             );
             let block = MintRecordSnapshotBlock::new(
                 &wrapper.block,
@@ -713,7 +717,9 @@ impl CompanyBlockchain {
         for wrapper in wrappers {
             let record = matches!(
                 wrapper.block.op_code,
-                CompanyOpCode::MintRecord | CompanyOpCode::MintRecordDispute
+                CompanyOpCode::MintRecord
+                    | CompanyOpCode::MintRecordDispute
+                    | CompanyOpCode::IdentityProof
             );
             let mut block = MintRecordSnapshotBlock::new(
                 &wrapper.block,
@@ -729,6 +735,7 @@ impl CompanyBlockchain {
 }
 impl MintRecordSnapshot {
     /// Verifies the signed disclosure. The receiving application additionally owns single-use storage.
+    /// Record, dispute and identity-proof plaintext is mandatory; any other plaintext is refused.
     /// Historical company membership is attested by the company snapshot signer: the other blocks
     /// deliberately do not disclose signatory operations or their plaintext.
     pub fn verify(
@@ -867,7 +874,30 @@ impl MintRecordSnapshot {
             if !valid_hash {
                 return Err(invalid("block hash mismatch"));
             }
-            if op == "MintRecord" || op == "MintRecordDispute" {
+            if op == "IdentityProof" {
+                let plaintext = STANDARD
+                    .decode(
+                        block
+                            .plaintext
+                            .as_ref()
+                            .ok_or_else(|| invalid("missing identity proof plaintext"))?,
+                    )
+                    .map_err(|_| invalid("invalid plaintext base64"))?;
+                if block.plaintext_hash != Sha256Hash::from_bytes(&plaintext) {
+                    return Err(invalid("plaintextHash mismatch"));
+                }
+                let (proof, data) = if company {
+                    borsh::from_slice::<CompanyIdentityProofBlockData>(&plaintext)
+                        .map(|d| (d.proof, d.data))
+                } else {
+                    borsh::from_slice::<IdentityProofBlockData>(&plaintext)
+                        .map(|d| (d.proof, d.data))
+                }
+                .map_err(|_| invalid("invalid identity proof"))?;
+                if !matches!(proof.verify(&data), Ok(true)) {
+                    return Err(invalid("invalid identity proof"));
+                }
+            } else if op == "MintRecord" || op == "MintRecordDispute" {
                 let plaintext = STANDARD
                     .decode(
                         block
@@ -1286,6 +1316,15 @@ mod tests {
             .unwrap();
         assert_eq!(payload.blocks.len(), 4);
         assert!(payload.blocks[0].op_code == "Create");
+        assert!(payload.blocks[0].plaintext.is_none());
+        assert!(payload.blocks[1].op_code == "IdentityProof");
+        let proof: CompanyIdentityProofBlockData = borsh::from_slice(
+            &STANDARD
+                .decode(payload.blocks[1].plaintext.as_ref().unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(proof.data.company_node_id, Some(node(&key)));
         assert!(payload.blocks[2].signatory_node_id.is_some());
     }
     #[test]
