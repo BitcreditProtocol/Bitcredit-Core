@@ -275,7 +275,7 @@ impl MintClientApi for MintClient {
         let token = wallet::Token::BitcrV5(
             wallet::BitcrTokenV5::new(
                 clowder_node_id,
-                currency,
+                currency.into(),
                 proofs.into_iter().map(|p| p.into()).collect(),
             )
             .with_memo(bill_id.to_string())
