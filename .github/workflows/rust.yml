@@ -47,14 +47,14 @@ jobs:
       - name: Add rustup components
         run: rustup component add clippy rustfmt
 
-      - name: Install required cargo tools
-        run: cargo install cargo-deny clippy-sarif sarif-fmt
-
       - name: Activate cache
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           prefix-key: "ebill-01"
           save-if: ${{ github.ref == 'refs/heads/master' }}
+
+      - name: Install required cargo tools
+        run: cargo install cargo-deny clippy-sarif sarif-fmt
 
       - name: Check
         run: cargo check --verbose
