@@ -419,8 +419,8 @@ checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
 name = "bcr-common"
-version = "0.11.0"
-source = "git+https://github.com/BitcreditProtocol/bcr-common?rev=b95531bafcec0c708b91421016342dcc5b80072c#b95531bafcec0c708b91421016342dcc5b80072c"
+version = "0.13.0-rc1"
+source = "git+https://github.com/BitcreditProtocol/bcr-common?rev=d2a0d28#d2a0d28ced2fc375e0d1f8f94f85c56680712c74"
 dependencies = [
  "bip39 3.0.0",
  "bitcoin",

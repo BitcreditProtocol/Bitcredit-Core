@@ -7298,7 +7298,7 @@ async fn check_mint_state_minting_enabled_proofs() {
     ctx.mint_client.expect_get_keyset_info().returning(|_, _| {
         Ok(ecash::KeySet {
             id: ecash::Id::V1([0; 7]),
-            unit: bcr_common::cashu::CurrencyUnit::Sat,
+            unit: ecash::DEFAULT_CURRENCY_UNIT,
             keys: bcr_common::cashu::Keys::new(std::collections::BTreeMap::default()),
             final_expiry: None,
             active: Some(true),
