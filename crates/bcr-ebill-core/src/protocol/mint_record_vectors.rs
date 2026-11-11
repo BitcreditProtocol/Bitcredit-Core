@@ -90,19 +90,30 @@ fn stable_company(block: &mut CompanyBlock, plaintext: &[u8], personal: &BcrKeys
         .unwrap();
     block.signature = SchnorrSignature::from(sign(block.hash.decode_to_array(), &aggregate));
 }
+/// An entry in the §1.1–§1.3 form: only new or corrected items, each with an id.
+#[allow(clippy::too_many_arguments)]
 fn entry(
     person: &NodeId,
     company: Option<&NodeId>,
     issuer: u8,
     sequence: u64,
     previous: Option<String>,
+    created_at: &str,
+    reason: &str,
+    record: Value,
 ) -> MintRecordBlockData {
     signed_entry(
-        json!({"schema":"mint-record-entry-v1","network":"regtest","issuer":{"signingKey":xkey(issuer),"mintNodeId":node(&keys(issuer)),"name":format!("Synthetic Mint {issuer}")},"subject":{"chain":if company.is_some(){"company"}else{"identity"},"nodeId":person,"companyNodeId":company},"sequence":sequence,"previousEntryDigest":previous,"createdAt":"2026-10-30T12:00:00Z","reason":"applicant_request","record":{"claims":[{"claim":"Synthetic harvest estimate","evidenceState":"applicant_statement"}]},"omissions":[]}),
+        json!({"schema":"mint-record-entry-v1","network":"regtest","issuer":{"signingKey":xkey(issuer),"mintNodeId":node(&keys(issuer)),"name":format!("Synthetic Mint {issuer}")},"subject":{"chain":if company.is_some(){"company"}else{"identity"},"nodeId":person,"companyNodeId":company},"sequence":sequence,"previousEntryDigest":previous,"createdAt":created_at,"reason":reason,"record":record,"omissions":[{"section":"documents","reason":"File contents are not carried; the hash identifies each file."}]}),
         issuer,
     )
 }
-fn signed_entry(value: Value, issuer: u8) -> MintRecordBlockData {
+fn harvest_claim(claim: &str, evidence_state: &str) -> Value {
+    json!({"id":"claim:harvest","claim":claim,"topic":"business","evidenceState":evidence_state})
+}
+fn signed_entry(mut value: Value, issuer: u8) -> MintRecordBlockData {
+    // Issuers serialize with RFC 8785 (JCS). With ASCII keys, integers and compact output,
+    // sorted serde_json output is the JCS text; verifiers still use the exact bytes.
+    value.sort_all_objects();
     let entry = serde_json::to_vec(&value).unwrap();
     let signature = sign(
         domain_hash(ENTRY_DOMAIN, &entry),
@@ -172,9 +183,48 @@ fn identity_case() -> (MintRecordSnapshotPayload, Vec<Value>) {
     .unwrap();
     stable_identity(&mut block, &borsh::to_vec(&proof).unwrap(), &key);
     assert!(chain.try_add_block(block));
-    let first = entry(&subject, None, 5, 1, None);
-    let second = entry(&subject, None, 5, 2, Some(entry_digest(&first.entry)));
-    let other = entry(&subject, None, 11, 1, None);
+    // Mint A references its proof, then corrects one item by id and withdraws another.
+    let first = entry(
+        &subject,
+        None,
+        5,
+        1,
+        None,
+        "2026-10-30T12:00:01Z",
+        "applicant_request",
+        json!({
+            "identityProofs":[{"id":"identity-proof:1","signature":proof.proof.signature.as_str(),"issuedAt":"2026-10-30T12:00:01Z"}],
+            "claims":[
+                harvest_claim("Synthetic harvest estimate", "applicant_statement"),
+                {"id":"claim:buyers","claim":"Synthetic buyer cooperative","topic":"buyers","evidenceState":"applicant_statement"}
+            ],
+            "instruments":[{"id":"instrument:1","billId":"synthetic-bill-1","outcome":"unknown","recordedAt":null}]
+        }),
+    );
+    let second = entry(
+        &subject,
+        None,
+        5,
+        2,
+        Some(entry_digest(&first.entry)),
+        "2026-10-30T12:00:02Z",
+        "correction",
+        json!({
+            "claims":[harvest_claim("Synthetic harvest estimate, corrected", "applicant_confirmed")],
+            "instruments":[{"id":"instrument:1","billId":"synthetic-bill-1","outcome":"paid_late","daysLate":3,"recordedAt":"2026-10-30T12:00:02Z"}],
+            "withdrawn":["claim:buyers"]
+        }),
+    );
+    let other = entry(
+        &subject,
+        None,
+        11,
+        1,
+        None,
+        "2026-10-30T12:00:03Z",
+        "applicant_request",
+        json!({"claims":[harvest_claim("Synthetic harvest estimate", "applicant_statement")]}),
+    );
     for (offset, data) in [first.clone(), second, other].into_iter().enumerate() {
         let mut block = chain
             .create_mint_record(&data, &key, ts(offset as u64 + 1))
@@ -270,7 +320,16 @@ fn company_case() -> (MintRecordSnapshotPayload, Vec<Value>) {
     .unwrap();
     stable_company(&mut block, &borsh::to_vec(&data).unwrap(), &personal, &key);
     assert!(chain.try_add_block(block));
-    let data = entry(&node(&personal), Some(&id), 5, 1, None);
+    let data = entry(
+        &node(&personal),
+        Some(&id),
+        5,
+        1,
+        None,
+        "2026-10-30T12:00:02Z",
+        "applicant_request",
+        json!({"claims":[harvest_claim("Synthetic harvest estimate", "applicant_statement")]}),
+    );
     let mut block = chain
         .create_mint_record(&data, &personal, &key, ts(2))
         .unwrap();
