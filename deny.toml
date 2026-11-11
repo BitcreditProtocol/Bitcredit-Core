@@ -15,6 +15,9 @@ feature-depth = 1
 # More documentation for the advisories section can be found here:
 # https://embarkstudios.github.io/cargo-deny/checks/advisories/cfg.html
 [advisories]
+ignore = [
+    { id = "RUSTSEC-2026-0459", reason = "libsqlitefixed in the next sqlx version" },
+]
 unmaintained = "workspace"
 
 # This section is considered when running `cargo deny check licenses`
