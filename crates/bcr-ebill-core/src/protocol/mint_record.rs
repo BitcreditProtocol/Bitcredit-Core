@@ -791,6 +791,7 @@ impl MintRecordSnapshot {
         let mut expected_id = BlockId::first();
         let mut previous_timestamp = Timestamp::zero();
         let mut records = vec![];
+        let mut proofs = vec![];
         for block in &payload.blocks {
             if block.id != expected_id || block.previous_hash != previous_hash {
                 return Err(invalid("broken previous-hash link"));
@@ -897,6 +898,7 @@ impl MintRecordSnapshot {
                 if !matches!(proof.verify(&data), Ok(true)) {
                     return Err(invalid("invalid identity proof"));
                 }
+                proofs.push((proof, data));
             } else if op == "MintRecord" || op == "MintRecordDispute" {
                 let plaintext = STANDARD
                     .decode(
@@ -933,8 +935,73 @@ impl MintRecordSnapshot {
         if head.id != payload.head.id || head.hash != payload.head.hash {
             return Err(invalid("head mismatch"));
         }
+        for record in &records {
+            verify_identity_proof_references(record, &proofs, subject, company)?;
+        }
         Ok(payload)
     }
+}
+
+/// `issuedAt` is RFC 3339 UTC (`Z`) with whole seconds; `.000` fractions are accepted.
+fn issued_at(value: &str) -> Option<u64> {
+    use time::format_description::well_known::Rfc3339;
+    if !value.ends_with('Z') || value.as_bytes().get(10) != Some(&b'T') {
+        return None;
+    }
+    let at = super::DateTimeUtc::parse(value, &Rfc3339).ok()?;
+    (at.nanosecond() == 0)
+        .then(|| u64::try_from(at.unix_timestamp()).ok())
+        .flatten()
+}
+
+/// Rule 8: every `record.identityProofs` reference of every entry (entries are deltas, so a later
+/// entry may name the same proof again) names a disclosed `IdentityProof` block with that
+/// signature, witnessed by the entry's `issuer.mintNodeId` (public key; the network letter is
+/// ignored), for this subject, signed at `issuedAt`. Witness signatures were checked on ingest.
+/// The rest of the record stays opaque.
+fn verify_identity_proof_references(
+    record: &MintRecordView,
+    proofs: &[(super::SignedIdentityProof, super::EmailIdentityProofData)],
+    subject: &NodeId,
+    company: bool,
+) -> Result<()> {
+    let entry: serde_json::Value =
+        serde_json::from_str(&record.entry).map_err(|_| invalid("invalid identityProofs"))?;
+    let references = match entry.get("record").and_then(|r| r.get("identityProofs")) {
+        None => return Ok(()),
+        Some(serde_json::Value::Array(references)) => references,
+        Some(_) => return Err(invalid("invalid identityProofs")),
+    };
+    let mint = NodeId::from_str(&record.header.issuer.mint_node_id).ok();
+    for reference in references {
+        let (Some(signature), Some(at)) = (
+            reference.get("signature").and_then(|v| v.as_str()),
+            reference.get("issuedAt").and_then(|v| v.as_str()),
+        ) else {
+            return Err(invalid("invalid identityProofs reference"));
+        };
+        let (proof, data) = proofs
+            .iter()
+            .find(|(proof, _)| proof.signature.as_str() == signature)
+            .ok_or_else(|| invalid("identity proof reference not found"))?;
+        if mint.as_ref().map(NodeId::pub_key) != Some(proof.witness.pub_key()) {
+            return Err(invalid(
+                "identity proof reference witnessed by another Mint",
+            ));
+        }
+        let for_subject = if company {
+            data.company_node_id.as_ref() == Some(subject)
+        } else {
+            &data.node_id == subject && data.company_node_id.is_none()
+        };
+        if !for_subject {
+            return Err(invalid("identity proof reference for another subject"));
+        }
+        if issued_at(at) != Some(data.created_at.inner()) {
+            return Err(invalid("identity proof reference with wrong issuedAt"));
+        }
+    }
+    Ok(())
 }
 #[cfg(test)]
 mod tests {
@@ -1215,6 +1282,78 @@ mod tests {
         assert_eq!(payload.blocks.len(), 4);
         assert!(payload.blocks[0].op_code == "Create");
         assert!(payload.blocks[0].plaintext.is_none());
+    }
+    #[test]
+    fn mint_record_snapshot_resolves_identity_proof_references() {
+        let mint = keys(5);
+        let receiving = keys(13).pub_key().x_only_public_key().0.to_string();
+        let verify = |proof_subject: NodeId, record: serde_json::Value| {
+            let (mut chain, key) = identity();
+            let data = EmailIdentityProofData {
+                node_id: proof_subject,
+                company_node_id: None,
+                email: Email::new("applicant@example.com").unwrap(),
+                created_at: ts(1),
+            };
+            let proof = data.sign(&node(&mint), &mint.get_private_key()).unwrap();
+            let signature = proof.signature.to_string();
+            let block = IdentityBlock::create_block_for_identity_proof(
+                chain.get_latest_block(),
+                &IdentityProofBlockData { proof, data },
+                &key,
+                ts(1),
+            )
+            .unwrap();
+            assert!(chain.try_add_block(block));
+            let record = serde_json::from_str::<serde_json::Value>(
+                &record.to_string().replace("PROOF", &signature),
+            )
+            .unwrap();
+            let entry = malformed(
+                &entry(&node(&key), None, &mint, 1, None),
+                "record",
+                record,
+                &mint,
+            );
+            assert!(chain.try_add_block(chain.create_mint_record(&entry, &key, ts(2)).unwrap()));
+            let request = MintRecordSnapshotRequest {
+                receiving_mint_key: receiving.clone(),
+                application_ref: "synthetic-app".into(),
+            };
+            chain
+                .mint_record_snapshot(&key, request, ts(4))
+                .unwrap()
+                .verify(&node(&key), &receiving, "synthetic-app", ts(4))
+        };
+        let reference = |at: &str| json!({"identityProofs":[{"id":"identity-proof:1","signature":"PROOF","issuedAt":at}]});
+        let subject = node(&keys(3));
+        verify(subject.clone(), reference("2026-10-30T12:00:01Z")).unwrap();
+        // AI-Credit renders issuedAt with Date#toISOString: whole seconds with a .000 fraction.
+        verify(subject.clone(), reference("2026-10-30T12:00:01.000Z")).unwrap();
+        for at in [
+            "2026-10-30T12:00:02Z",
+            "2026-10-30T12:00:01.500Z",
+            "2026-10-30T12:00:01+00:00",
+            "2026-10-30 12:00:01Z",
+            "1793361601",
+        ] {
+            reason(
+                verify(subject.clone(), reference(at)),
+                "identity proof reference with wrong issuedAt",
+            );
+        }
+        reason(
+            verify(node(&keys(19)), reference("2026-10-30T12:00:01Z")),
+            "identity proof reference for another subject",
+        );
+        reason(
+            verify(subject.clone(), json!({"identityProofs":{}})),
+            "invalid identityProofs",
+        );
+        reason(
+            verify(subject, json!({"identityProofs":[{"signature":"PROOF"}]})),
+            "invalid identityProofs reference",
+        );
     }
     #[test]
     fn mint_record_company_creation_and_receipt_rules() {

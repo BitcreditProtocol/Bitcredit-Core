@@ -597,6 +597,56 @@ fn fixture() -> Value {
         vector["expectedRejection"] = json!(reason);
         negative.push(vector);
     }
+    // Rule 8: each `identityProofs` reference names a disclosed proof by its own Mint, signed at
+    // `issuedAt`. Mint A's second entry (a delta carrying the same id again) and Mint B's entry
+    // have no later dependents, so editing them leaves every earlier rule satisfied.
+    let proof: IdentityProofBlockData = borsh::from_slice(
+        &STANDARD
+            .decode(identity.blocks[1].plaintext.as_ref().unwrap())
+            .unwrap(),
+    )
+    .unwrap();
+    let signature = proof.proof.signature.as_str();
+    let absent = SchnorrSignature::from(sign([1; 32], &keys(5).get_private_key())).to_string();
+    for (name, index, signature, issued_at, reason) in [
+        (
+            "identity_proof_reference_missing",
+            3,
+            absent.as_str(),
+            "2026-10-30T12:00:01Z",
+            "identity proof reference not found",
+        ),
+        (
+            "identity_proof_reference_other_witness",
+            4,
+            signature,
+            "2026-10-30T12:00:01Z",
+            "identity proof reference witnessed by another Mint",
+        ),
+        (
+            "identity_proof_reference_wrong_issued_at",
+            3,
+            signature,
+            "2026-10-30T12:00:02Z",
+            "identity proof reference with wrong issuedAt",
+        ),
+    ] {
+        let mut payload = identity.clone();
+        change_entry(
+            &mut payload,
+            index,
+            |v| {
+                v["record"]["identityProofs"] =
+                    json!([{"id":"identity-proof:1","signature":signature,"issuedAt":issued_at}])
+            },
+            false,
+        );
+        let mut vector = case(&payload, vec![], 3);
+        vector["name"] = json!(name);
+        vector["expected"] = json!("reject");
+        vector["expectedRejection"] = json!(reason);
+        negative.push(vector);
+    }
     json!({"schema":"mint-record-vectors-v1","network":"regtest","maxEntryBytes":MAX_MINT_RECORD_ENTRY_BYTES,"publicKeys":{"identity":node(&keys(3)),"company":node(&keys(7)),"mintA":xkey(5),"mintB":xkey(11),"receivingMint":xkey(13)},"positive":{"identity":case(&identity,identity_entries,3),"company":case(&company,company_entries,7)},"negative":negative})
 }
 #[test]
