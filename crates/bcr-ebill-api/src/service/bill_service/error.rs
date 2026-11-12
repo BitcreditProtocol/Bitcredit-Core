@@ -60,6 +60,7 @@ impl From<service::Error> for Error {
             service::Error::ExternalApi(err) => Self::ExternalApi(err),
             service::Error::Protocol(err) => Self::Protocol(err),
             service::Error::Json(err) => Self::Json(err),
+            service::Error::Internal(err) => Self::Internal(err),
         }
     }
 }

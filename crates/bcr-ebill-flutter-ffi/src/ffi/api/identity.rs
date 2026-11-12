@@ -1,8 +1,8 @@
 use crate::ffi::{
     context::Context,
     data::{
-        Base64FileResponse, BinaryFileResponse, OptionalPostalAddressFfi, UploadFile,
-        UploadFileResponse,
+        Base64FileResponse, BinaryFileResponse, OptionalPostalAddressFfi, PropagationStatusFfi,
+        UploadFile, UploadFileResponse,
         identity::{
             ChangeIdentityEmailPayload, ChangeIdentityPayload, ConfirmEmailPayload,
             IdentityEmailConfirmationFfi, IdentityFfi, IdentityTypeFfi, NewIdentityPayload,
@@ -23,6 +23,7 @@ use bcr_ebill_core::{
     application::{
         ValidationError,
         identity::{ActiveIdentityState, SwitchIdentityType},
+        nostr::PropagationBlockInfo,
     },
     protocol::{
         Address, City, Country, Date, Email, Identification, Name, OptionalPostalAddress,
@@ -437,4 +438,33 @@ pub async fn get_current_identity_node_id(ctx: Arc<Context>) -> Result<NodeId, E
         None => Ok(current_identity.personal),
         Some(company_node_id) => Ok(company_node_id),
     }
+}
+
+#[frb]
+pub async fn propagation_status() -> Result<Option<PropagationStatusFfi>, EbillFfiError> {
+    let ctx = get_active_ctx().await?;
+    let status = ctx.identity_service.get_latest_propagation_status().await?;
+    let Some(status) = status else {
+        return Ok(None);
+    };
+    let mut last_block: Option<PropagationBlockInfo> = None;
+    for message in &status.messages {
+        if message.chain_id.as_deref() != Some(status.subject_id.as_str()) {
+            continue;
+        }
+        let Some(hash) = message.block_hash.as_ref() else {
+            continue;
+        };
+        if let Ok(Some(info)) = ctx.identity_service.propagation_block_info(hash).await {
+            if last_block
+                .as_ref()
+                .is_none_or(|current| info.block_height > current.block_height)
+            {
+                last_block = Some(info);
+            }
+        }
+    }
+    let mut response: PropagationStatusFfi = status.into();
+    response.last_block = last_block.map(Into::into);
+    Ok(Some(response))
 }

@@ -433,6 +433,7 @@ fn validate_instance_network(id: InstanceId, conf: &EbillConfig) -> Result<(), E
 async fn shutdown_runtime(runtime: Arc<EbillRuntime>) {
     info!("Shutting down Rust E-Bill FFI runtime");
     // signal
+    runtime.ctx.transport_service.stop_propagation_retries();
     runtime.jobs_cancel.cancel();
     runtime.nostr_subscription_cancel.cancel();
     // take handles

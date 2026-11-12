@@ -8,7 +8,7 @@ use crate::{
         identity_chain::PostgresIdentityChainStore, mint::PostgresMintStore,
         nostr_chain_event::PostgresNostrChainEventStore, nostr_contact_store::PostgresNostrStore,
         nostr_event_offset::PostgresNostrEventOffsetStore,
-        nostr_send_queue::PostgresNostrEventQueueStore, notification::PostgresNotificationStore,
+        nostr_propagation::PostgresNostrPropagationStore, notification::PostgresNotificationStore,
         transaction::PostgresTransactionManager,
     },
 };
@@ -28,7 +28,7 @@ pub mod mint;
 pub mod nostr_chain_event;
 pub mod nostr_contact_store;
 pub mod nostr_event_offset;
-pub mod nostr_send_queue;
+pub mod nostr_propagation;
 pub mod notification;
 pub mod transaction;
 
@@ -121,13 +121,6 @@ impl PostgresPersistence {
         PostgresNostrEventOffsetStore::new(self.pool.clone())
     }
 
-    pub fn nostr_event_queue_store(
-        &self,
-        encryption_ctx: Arc<EncryptionContext>,
-    ) -> PostgresNostrEventQueueStore {
-        PostgresNostrEventQueueStore::new(self.pool.clone(), encryption_ctx)
-    }
-
     pub fn nostr_chain_event_store(&self) -> PostgresNostrChainEventStore {
         PostgresNostrChainEventStore::new(self.pool.clone())
     }
@@ -148,6 +141,13 @@ impl PostgresPersistence {
         encryption_ctx: Arc<EncryptionContext>,
     ) -> PostgresTransactionManager {
         PostgresTransactionManager::new(self.pool.clone(), encryption_ctx)
+    }
+
+    pub fn nostr_propagation_store(
+        &self,
+        encryption_ctx: Arc<EncryptionContext>,
+    ) -> PostgresNostrPropagationStore {
+        PostgresNostrPropagationStore::new(self.pool.clone(), encryption_ctx)
     }
 }
 

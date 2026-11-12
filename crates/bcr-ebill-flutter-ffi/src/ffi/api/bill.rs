@@ -4,6 +4,7 @@ use bcr_ebill_core::{
     application::{
         ValidationError,
         bill::{BillsFilterRole, LightBitcreditBillResult},
+        nostr::PropagationBlockInfo,
     },
     protocol::{
         BitcoinAddress, City, Country, Currency, Date, Name, ProtocolValidationError, Sum,
@@ -34,7 +35,8 @@ use crate::ffi::{
     api::identity::{get_current_identity, get_current_identity_node_id},
     context::Context,
     data::{
-        Base64FileResponse, BinaryFileResponse, UploadFile, UploadFileResponse,
+        Base64FileResponse, BinaryFileResponse, PropagationStatusFfi, UploadFile,
+        UploadFileResponse,
         bill::{
             AcceptBitcreditBillPayload, BillCheckSweepBTCFundsPayload, BillCombinedBitcoinKeyFfi,
             BillHistoryResponse, BillIdResponse, BillResetMintQuoteState, BillSweepBTCEstimateFfi,
@@ -1151,4 +1153,42 @@ async fn request_recourse(
         .await?;
 
     Ok(())
+}
+
+#[frb]
+pub async fn propagation_status(id: &str) -> Result<Option<PropagationStatusFfi>, EbillFfiError> {
+    let bill_id = BillId::from_str(id).map_err(ProtocolValidationError::from)?;
+    let ctx = get_active_ctx().await?;
+    let status = ctx
+        .bill_service
+        .get_latest_propagation_status(&bill_id)
+        .await?;
+
+    let Some(status) = status else {
+        return Ok(None);
+    };
+    let mut last_block: Option<PropagationBlockInfo> = None;
+    for message in &status.messages {
+        if message.chain_id.as_deref() != Some(status.subject_id.as_str()) {
+            continue;
+        }
+        let Some(hash) = message.block_hash.as_ref() else {
+            continue;
+        };
+        if let Ok(Some(info)) = ctx
+            .bill_service
+            .propagation_block_info(&bill_id, hash)
+            .await
+        {
+            if last_block
+                .as_ref()
+                .is_none_or(|current| info.block_height > current.block_height)
+            {
+                last_block = Some(info);
+            }
+        }
+    }
+    let mut response: PropagationStatusFfi = status.into();
+    response.last_block = last_block.map(Into::into);
+    Ok(Some(response))
 }

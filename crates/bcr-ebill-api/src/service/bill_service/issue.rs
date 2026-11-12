@@ -1,5 +1,6 @@
 use super::{BillAction, Result, error::Error, service::BillService};
 use crate::service::bill_service::blocks::PreparedSignerBlocks;
+use crate::service::bill_service::propagation::{action_email_recipients, issue_email_recipients};
 use crate::service::file_reference_helper::{bill_file_context, encrypt_upload_and_track_file};
 use crate::{
     constants::MAX_BILL_ATTACHMENTS,
@@ -12,6 +13,7 @@ use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::protocol::blockchain::bill::{
     BillBlock, BillValidateActionData, BillValidationActionMode, ContactType,
 };
+use bcr_ebill_core::protocol::event::BillEventType;
 use bcr_ebill_core::protocol::{
     File, Name, PublicKey, Validate,
     blockchain::{
@@ -371,6 +373,68 @@ impl BillService {
 
         self.transport_service.ensure_publish_ready().await?;
 
+        // prepare propagation
+
+        // Issue block
+        let issue_event = BillChainEvent::new(
+            &bill,
+            &chain_after_issue,
+            &bill_keys,
+            true,
+            &identity.identity.node_id,
+        )?;
+
+        let mut bill_steps = vec![issue_event];
+        // identity signer block produced for Issue
+        let mut signer_steps = vec![&issue_signer_blocks];
+        if let Some((_, accept_signer_blocks)) = &auto_accept {
+            let contacts = self.contact_store.get_map().await?;
+            // state after the optional Accept block
+            let accepted_bill = self
+                .get_last_version_bill(&chain, &bill_keys, &identity.identity, &contacts)
+                .await?;
+            let accept_event = BillChainEvent::new(
+                &accepted_bill,
+                &chain,
+                &bill_keys,
+                true,
+                &data.drawer_public_data.node_id(),
+            )?;
+            bill_steps.push(accept_event);
+            signer_steps.push(accept_signer_blocks);
+        }
+
+        // propagation group covering all new blocks from issue and accept
+        let mut prepared = self
+            .prepare_bill_propagation(&bill_id, &identity, &signer_steps, &bill_steps)
+            .await?;
+
+        // Issue notifications
+        let issue_notifications = bill_steps[0].generate_messages(BillEventType::BillSigned);
+        let issue_email_recipients = issue_email_recipients(&bill_steps[0]);
+        self.add_bill_notifications(
+            &mut prepared,
+            &bill_steps[0],
+            issue_notifications,
+            &issue_email_recipients,
+        )
+        .await;
+
+        // auto-accept generates its own notification set
+        if auto_accept.is_some() {
+            let accept_event = &bill_steps[1];
+            let accept_notifications = accept_event.generate_messages(BillEventType::BillAccepted);
+            let accept_email_recipients =
+                action_email_recipients(accept_event, &BillAction::Accept);
+            self.add_bill_notifications(
+                &mut prepared,
+                accept_event,
+                accept_notifications,
+                &accept_email_recipients,
+            )
+            .await;
+        }
+
         // persist atomically
 
         let mut tx = self.transaction_mgr.begin().await?;
@@ -401,42 +465,25 @@ impl BillService {
         )
         .await?;
 
+        // add propagation for this action to the queue
+        // includes chain events, chain invites and notifications
+        prepared.chain.enqueue(&mut *tx).await?;
+
         tx.commit().await?;
 
         // effects & propagation
 
-        self.propagate_prepared_signer_blocks(&issue_signer_blocks, &identity)
-            .await?;
+        prepared
+            .chain
+            .attempt_after_commit(&*self.transport_service)
+            .await;
 
-        // send notification to all required recipients
-        if let Err(e) = self
-            .transport_service
-            .send_bill_is_signed_event(&BillChainEvent::new(
-                &bill,
-                &chain_after_issue, // after issue, in case we auto-accept
-                &bill_keys,
-                true,
-                &identity.identity.node_id,
-            )?)
-            .await
-        {
-            error!("Error propagating bill via Nostr {e}");
-        }
-
-        // propagate auto-accept blocks and notifications
-        if let Some((_accept_block, accept_signer_blocks)) = &auto_accept {
-            self.propagate_prepared_signer_blocks(accept_signer_blocks, &identity)
-                .await?;
-            let contacts = self.contact_store.get_map().await?;
-            self.notify_for_block_action(
-                &chain,
-                &bill_keys,
-                &BillAction::Accept,
-                &identity.identity,
-                &contacts,
-                &data.drawer_public_data.node_id(),
-            )
-            .await?;
+        // email is best-effort
+        for (sender, recipient, message) in &prepared.email_notifications {
+            self.transport_service
+                .notification_transport()
+                .send_email_notification(sender, recipient, message)
+                .await;
         }
 
         debug!("issued bill with id {bill_id}");

@@ -43,6 +43,17 @@
     * This decreases the likelihood for inconsistent states
 * Add full transactional persistence handling for identity, company and bill blocks
 * Remove `only_known_contacts` setting, since it's unused everywhere
+* Fully Rework Nostr Propagation
+    * Remove `nostr_send_queue` (with a DB migration)
+    * Remove `fetch_resend_queue_entries` and `requeue_failed_resend_queue_entry` from the API
+    * Introduced a durable, retrying propagation queue for outgoing Nostr events (chain events, chain invites, notifications)
+        * Checks and runs every 10 seconds with increasing back-off to 15 minutes per message, if it's retried (can be reset with an API mentioned below)
+        * Propagation is tracked per subject (e.g. bill/company/identity) and within that per action (e.g. Issue + Accept)
+            * Block-dependence is considered - e.g. for promissory note, we wait for Issue to be propagated, then we propagate Accept
+    * Add a new mechanism, where we prepare and validate all events to be sent before transaction persistence
+        * During transaction persistence, the queue entries are also persisted and afterwards tried once
+    * Added `propagation_status` to bill/company/identity API to get the last propagation status for the given identity/company/bill
+        * Added `retry_pending_propagations_now` for users to trigger retry immediately after getting back online
 
 # 0.5.16-hotfix-1
 

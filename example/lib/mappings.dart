@@ -77,18 +77,47 @@ Object? _simplify(Object? value) {
       'companies': value.companies.map(_simplify).toList(),
     };
   }
-  if (value is data.ResendQueueEntry) {
+  if (value is data.PropagationStatusFfi) {
     return {
       'id': value.id,
-      'senderId': value.senderId,
-      'eventType': value.eventType,
-      'status': '${value.status}',
-      'recipient': value.recipient,
-      'blockHeight': value.blockHeight?.toString(),
-      'blockOpCode': value.blockOpCode,
+      'subjectType': value.subjectType,
+      'subjectId': value.subjectId,
+      'createdAt': _simplify(value.createdAt),
+
+      'lastBlock': value.lastBlock == null
+          ? null
+          : {
+              'type': value.lastBlock!.blockType,
+              'height': _simplify(value.lastBlock!.blockHeight),
+            },
+
+      'messages': value.messages.map((message) {
+        final accepted = message.relays
+            .where((relay) => relay.acceptedAt != null)
+            .length;
+
+        return {
+          'id': message.id,
+          'eventType': message.eventType,
+          'nostrEventId': message.nostrEventId,
+          'recipientId': message.recipientId,
+          'chainId': message.chainId,
+          'blockHash': message.blockHash,
+          'accepted': accepted,
+          'totalRelays': message.relays.length,
+          'relays': message.relays.map((relay) {
+            return {
+              'url': relay.relayUrl,
+              'acceptedAt': _simplify(relay.acceptedAt),
+              'attempts': relay.attempts,
+              'nextTryAt': _simplify(relay.nextTryAt),
+              'lastError': relay.lastError,
+            };
+          }).toList(),
+        };
+      }).toList(),
     };
   }
-
   if (value is identity_data.IdentityFfi) {
     return {
       'type': '${value.t}',

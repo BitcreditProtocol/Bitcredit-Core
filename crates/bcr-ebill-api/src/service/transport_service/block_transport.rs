@@ -3,11 +3,14 @@ use crate::service::transport_service::ResyncMode;
 use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_core::{
-    application::{ServiceTraitBounds, nostr::ResendQueueEntry},
+    application::ServiceTraitBounds,
     protocol::{
         blockchain::bill::BillBlock,
         event::{BillChainEvent, CompanyChainEvent, IdentityChainEvent},
     },
+};
+use bcr_ebill_persistence::traits::{
+    nostr::NostrChainEvent, propagation::PreparedPropagationMessage,
 };
 
 #[cfg(test)]
@@ -18,12 +21,24 @@ use mockall::automock;
 #[cfg_attr(test, automock)]
 #[async_trait]
 pub trait BlockTransportServiceApi: ServiceTraitBounds {
-    /// Sent when an identity chain is created or updated
-    async fn send_identity_chain_events(&self, events: IdentityChainEvent) -> Result<()>;
-    /// Sent when a company chain is created or updated
-    async fn send_company_chain_events(&self, events: CompanyChainEvent) -> Result<()>;
-    /// Sent when: A bill chain is created or updated
-    async fn send_bill_chain_events(&self, events: BillChainEvent) -> Result<()>;
+    /// batch-prepare identity chain events if we're propagating multiple at the same time
+    /// e.g. when creating an identity and adding an identity proof
+    async fn prepare_identity_chain_events(
+        &self,
+        events: &[IdentityChainEvent],
+    ) -> Result<Vec<NostrChainEvent>>;
+    /// batch-prepare company chain events if we're propagating multiple at the same time
+    /// e.g. when creating a company and adding an identity proof
+    async fn prepare_company_chain_events(
+        &self,
+        events: &[CompanyChainEvent],
+    ) -> Result<Vec<NostrChainEvent>>;
+    /// batch-prepare bill chain events if we're propagating multiple at the same time
+    /// e.g. when issuing a bill and accepting it immediately
+    async fn prepare_bill_chain_events(
+        &self,
+        events: &[BillChainEvent],
+    ) -> Result<Vec<NostrChainEvent>>;
     /// Resync bill chain. If `from_nostr` is true, fetches missing blocks from Nostr first.
     /// If false, only invalidates the local cache.
     async fn resync_bill_chain(
@@ -42,10 +57,31 @@ pub trait BlockTransportServiceApi: ServiceTraitBounds {
         bill_id: &BillId,
         blocks: &[BillBlock],
     ) -> Result<bool>;
-    /// Fetch failed and pending resend queue entries
-    async fn fetch_resend_queue_entries(&self) -> Result<Vec<ResendQueueEntry>>;
-    /// Requeue a failed resend queue entry by ID
-    async fn requeue_resend_queue_entry(&self, id: &str) -> Result<()>;
+    /// validates and prepares nostr event - does not publish, or persist
+    async fn prepare_identity_chain_event(
+        &self,
+        events: &IdentityChainEvent,
+    ) -> Result<Option<NostrChainEvent>>;
+    /// validates and prepares nostr event - does not publish, or persist
+    async fn prepare_company_chain_event(
+        &self,
+        events: &CompanyChainEvent,
+    ) -> Result<Option<NostrChainEvent>>;
+    /// validates and prepares nostr event - does not publish, or persist
+    async fn prepare_bill_chain_event(
+        &self,
+        events: &BillChainEvent,
+    ) -> Result<Option<NostrChainEvent>>;
+    /// creates signed NIP-17 bill chain invites - does not publish, or persist
+    async fn prepare_bill_chain_invites(
+        &self,
+        events: &BillChainEvent,
+    ) -> Result<Vec<PreparedPropagationMessage>>;
+    /// creates signed NIP-17 company chain invites - does not publish, or persist
+    async fn prepare_company_chain_invites(
+        &self,
+        events: &CompanyChainEvent,
+    ) -> Result<Vec<PreparedPropagationMessage>>;
 }
 
 #[cfg(test)]

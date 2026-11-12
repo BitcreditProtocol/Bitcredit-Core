@@ -40,13 +40,15 @@ use bcr_ebill_core::{
     protocol::event::{ActionType, BillEventType},
     protocol::{OptionalPostalAddress, PostalAddress},
 };
-use bcr_ebill_persistence::traits::nostr::{
-    NostrContactStoreApi, NostrQueuedMessageStoreApi, RelaySyncStatus, SyncStatus,
-};
+use bcr_ebill_persistence::traits::nostr::{NostrContactStoreApi, RelaySyncStatus, SyncStatus};
 use bcr_ebill_persistence::traits::notification::NotificationFilter;
+use bcr_ebill_persistence::traits::propagation::{
+    NostrPropagationStoreApi, PendingDelivery, PropagationStatus, PropagationSubjectType,
+};
 use bcr_ebill_persistence::{
     ContactStoreApi, DbConfig, FileReferenceStoreApi, NostrChainEventStoreApi,
     NostrEventOffsetStoreApi, NotificationStoreApi, PendingContactShare, ShareDirection,
+    traits::propagation::PreparedPropagationMessage,
 };
 use nostr_relay_builder::MockRelay;
 
@@ -476,14 +478,12 @@ pub fn get_nostr_transport(
     mock_transport: MockNotificationJsonTransport,
     contact_store: MockContactStore,
     nostr_contact_store: MockNostrContactStore,
-    queued_message_store: MockNostrQueuedMessageStore,
     chain_events: MockNostrChainEventStore,
 ) -> NostrTransportService {
     NostrTransportService::new(
         Arc::new(mock_transport),
         Arc::new(contact_store),
         Arc::new(nostr_contact_store),
-        Arc::new(queued_message_store),
         Arc::new(chain_events),
         vec![url::Url::parse("ws://test.relay").unwrap()],
         Arc::new(test_cfg()),
@@ -497,9 +497,18 @@ mockall::mock! {
 
     #[async_trait]
     impl BlockTransportServiceApi for BlockTransportService {
-        async fn send_identity_chain_events(&self, events: IdentityChainEvent) -> Result<()>;
-        async fn send_company_chain_events(&self, events: CompanyChainEvent) -> Result<()>;
-        async fn send_bill_chain_events(&self, events: BillChainEvent) -> Result<()>;
+        async fn prepare_identity_chain_events(
+            &self,
+            events: &[IdentityChainEvent],
+        ) -> Result<Vec<NostrChainEvent>>;
+        async fn prepare_company_chain_events(
+            &self,
+            events: &[CompanyChainEvent],
+        ) -> Result<Vec<NostrChainEvent>>;
+        async fn prepare_bill_chain_events(
+            &self,
+            events: &[BillChainEvent],
+        ) -> Result<Vec<NostrChainEvent>>;
         async fn resync_bill_chain(&self, bill_id: &BillId, from_nostr: bool, mode: bcr_ebill_api::service::transport_service::ResyncMode) -> Result<()>;
         async fn resync_company_chain(&self, company_id: &NodeId, mode: bcr_ebill_api::service::transport_service::ResyncMode) -> Result<()>;
         async fn resync_identity_chain(&self, mode: bcr_ebill_api::service::transport_service::ResyncMode) -> Result<()>;
@@ -508,8 +517,11 @@ mockall::mock! {
             bill_id: &BillId,
             blocks: &[BillBlock],
         ) -> Result<bool>;
-        async fn fetch_resend_queue_entries(&self) -> Result<Vec<bcr_ebill_core::application::nostr::ResendQueueEntry>>;
-        async fn requeue_resend_queue_entry(&self, id: &str) -> Result<()>;
+        async fn prepare_identity_chain_event(&self, events: &IdentityChainEvent) -> Result<Option<NostrChainEvent>>;
+        async fn prepare_company_chain_event(&self, events: &CompanyChainEvent) -> Result<Option<NostrChainEvent>>;
+        async fn prepare_bill_chain_event(&self, events: &BillChainEvent) -> Result<Option<NostrChainEvent>>;
+        async fn prepare_bill_chain_invites(&self, events: &BillChainEvent) -> Result<Vec<PreparedPropagationMessage>>;
+        async fn prepare_company_chain_invites(&self, events: &CompanyChainEvent) -> Result<Vec<PreparedPropagationMessage>>;
     }
 }
 
@@ -621,12 +633,6 @@ mockall::mock! {
             event: EventEnvelope,
             previous_event: Option<nostr::event::Event>,
             root_event: Option<nostr::event::Event>) -> Result<nostr::event::Event>;
-        async fn broadcast_event(&self, event: &nostr::event::Event) -> Result<()>;
-        async fn broadcast_event_optimistic(
-            &self,
-            event: &nostr::event::Event,
-            min_acks: usize,
-        ) -> Result<()>;
         fn relay_ack_threshold(&self) -> usize;
         async fn resolve_contact(&self, node_id: &NodeId) -> Result<Option<NostrContactData>>;
         async fn resolve_public_chain(&self, id: &str, chain_type: BlockchainType) -> Result<Vec<nostr::event::Event>>;
@@ -647,6 +653,14 @@ mockall::mock! {
             file_hash: &str,
             nostr_hash: &str,
         ) -> Result<Vec<nostr::event::Event>>;
+        async fn prepare_private_event(
+            &self,
+            sender_node_id: &NodeId,
+            recipient: &BillParticipant,
+            event: EventEnvelope,
+        ) -> Result<bcr_ebill_api::service::transport_service::transport_client::PreparedPrivateNostrEvent>;
+        async fn send_signed_event_to_relay(&self, event: &nostr::event::Event, relay: &url::Url) -> Result<()>;
+        async fn writable_relay_urls(&self) -> Result<Vec<url::Url>>;
     }
 }
 
@@ -770,22 +784,6 @@ mockall::mock! {
         async fn update_nostr_hash(&self, hash: &Sha256Hash, nostr_hash: &bitcoin::hashes::sha256::Hash) -> bcr_ebill_persistence::Result<()>;
         async fn add_context(&self, hash: &Sha256Hash, context: bcr_ebill_core::protocol::file_reference::FileReferenceContext) -> bcr_ebill_persistence::Result<bool>;
         async fn remove_context(&self, hash: &Sha256Hash, context: &bcr_ebill_core::protocol::file_reference::FileReferenceContext) -> bcr_ebill_persistence::Result<bool>;
-    }
-}
-
-mockall::mock! {
-    pub NostrQueuedMessageStore {}
-
-    impl ServiceTraitBounds for NostrQueuedMessageStore {}
-
-    #[async_trait]
-    impl NostrQueuedMessageStoreApi for NostrQueuedMessageStore {
-        async fn add_message(&self, message: bcr_ebill_persistence::traits::nostr::NostrQueuedMessage, max_retries: i32) -> bcr_ebill_persistence::Result<()>;
-        async fn get_retry_messages(&self, limit: u64) -> bcr_ebill_persistence::Result<Vec<bcr_ebill_persistence::traits::nostr::NostrQueuedMessage>>;
-        async fn fail_retry(&self, id: &str) -> bcr_ebill_persistence::Result<()>;
-        async fn succeed_retry(&self, id: &str) -> bcr_ebill_persistence::Result<()>;
-        async fn requeue_failed_entry(&self, id: &str) -> bcr_ebill_persistence::Result<()>;
-        async fn get_non_succeeded_retry_messages(&self) -> bcr_ebill_persistence::Result<Vec<(bcr_ebill_persistence::traits::nostr::NostrQueuedMessage, bcr_ebill_persistence::traits::nostr::NostrQueuedMessageStatus)>>;
     }
 }
 
@@ -995,5 +993,45 @@ mockall::mock! {
         async fn get_pending_relay_retries(&self, relay: &url::Url, limit: usize) -> bcr_ebill_persistence::Result<Vec<nostr::event::Event>>;
         async fn mark_relay_retry_success(&self, relay: &url::Url, event_id: &str) -> bcr_ebill_persistence::Result<()>;
         async fn mark_relay_retry_failed(&self, relay: &url::Url, event_id: &str, max_retries: usize) -> bcr_ebill_persistence::Result<()>;
+    }
+}
+
+mockall::mock! {
+    pub NostrPropagationStoreApiMock {}
+
+    impl ServiceTraitBounds for NostrPropagationStoreApiMock {}
+
+    #[async_trait]
+    impl NostrPropagationStoreApi for NostrPropagationStoreApiMock {
+        async fn get_propagation(&self, propagation_id: &str) -> bcr_ebill_persistence::Result<Option<PropagationStatus>>;
+        async fn list_propagation_ids(
+            &self,
+            subject_type: PropagationSubjectType,
+            subject_id: &str,
+        ) -> bcr_ebill_persistence::Result<Vec<String>>;
+        async fn get_pending_deliveries(
+            &self,
+            now: Timestamp,
+            limit: u64,
+        ) -> bcr_ebill_persistence::Result<Vec<PendingDelivery>>;
+        async fn get_pending_deliveries_for_propagation(
+            &self,
+            propagation_id: &str,
+            now: Timestamp,
+        ) -> bcr_ebill_persistence::Result<Vec<PendingDelivery>>;
+        async fn mark_relay_accepted(
+            &self,
+            message_id: &str,
+            relay: &url::Url,
+            accepted_at: Timestamp,
+        ) -> bcr_ebill_persistence::Result<()>;
+        async fn mark_relay_failed(
+            &self,
+            message_id: &str,
+            relay: &url::Url,
+            next_try_at: Timestamp,
+            error: &str,
+        ) -> bcr_ebill_persistence::Result<()>;
+        async fn make_pending_deliveries_due_now(&self) -> bcr_ebill_persistence::Result<()>;
     }
 }

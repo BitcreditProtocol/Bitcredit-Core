@@ -56,6 +56,9 @@ impl NotificationHandlerApi for BillInviteEventHandler {
         let keys = BcrKeys::from_private_key(&decoded.data.keys.private_key);
         let chain_id =
             BillId::from_str(&decoded.data.chain_id).map_err(ProtocolValidationError::from)?;
+        // persist invite keys
+        self.processor.persist_invite_keys(&chain_id, &keys).await?;
+
         let chain_data = match self.processor.resolve_chain(&chain_id, &keys).await {
             Ok(chains) => chains,
             Err(e) => {
@@ -279,6 +282,10 @@ mod tests {
             })
             .once()
             .returning(|_, _, _| Ok(1));
+        processor
+            .expect_persist_invite_keys()
+            .once()
+            .returning(|_, _| Ok(()));
 
         chain_event_store
             .expect_add_chain_event()
@@ -339,6 +346,11 @@ mod tests {
             .once()
             .returning(|_, _, _| Ok(()));
 
+        processor
+            .expect_persist_invite_keys()
+            .once()
+            .returning(|_, _| Ok(()));
+
         // store events
         chain_event_store
             .expect_add_chain_event()
@@ -397,6 +409,11 @@ mod tests {
             .once()
             .returning(|_, _, _| Ok(()));
 
+        processor
+            .expect_persist_invite_keys()
+            .once()
+            .returning(|_, _| Ok(()));
+
         // store events
         chain_event_store
             .expect_add_chain_event()
@@ -445,6 +462,11 @@ mod tests {
             .withf(|bill_id, blocks, _| bill_id == &bill_id_test() && blocks.len() == 3)
             .once()
             .returning(|_, _, _| Ok(()));
+        processor
+            .expect_persist_invite_keys()
+            .once()
+            .returning(|_, _| Ok(()));
+
         chain_event_store
             .expect_add_chain_event()
             .withf(move |event| event.event_id != rejected_event_id)
@@ -525,6 +547,11 @@ mod tests {
             .withf(|bill_id, blocks, _| bill_id == &bill_id_test() && blocks.len() == 5)
             .once()
             .returning(|_, _, _| Ok(()));
+
+        processor
+            .expect_persist_invite_keys()
+            .once()
+            .returning(|_, _| Ok(()));
 
         let selected_ids: HashSet<String> = [
             root.id.to_string(),

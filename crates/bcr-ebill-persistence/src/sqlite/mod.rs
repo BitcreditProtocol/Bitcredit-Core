@@ -7,7 +7,7 @@ use crate::{
         identity::SqliteIdentityStore, identity_chain::SqliteIdentityChainStore,
         mint::SqliteMintStore, nostr_chain_event::SqliteNostrChainEventStore,
         nostr_contact_store::SqliteNostrStore, nostr_event_offset::SqliteNostrEventOffsetStore,
-        nostr_send_queue::SqliteNostrEventQueueStore, notification::SqliteNotificationStore,
+        nostr_propagation::SqliteNostrPropagationStore, notification::SqliteNotificationStore,
         transaction::SqliteTransactionManager,
     },
 };
@@ -30,7 +30,7 @@ pub mod mint;
 pub mod nostr_chain_event;
 pub mod nostr_contact_store;
 pub mod nostr_event_offset;
-pub mod nostr_send_queue;
+pub mod nostr_propagation;
 pub mod notification;
 pub mod transaction;
 
@@ -134,13 +134,6 @@ impl SqlitePersistence {
         SqliteNostrEventOffsetStore::new(self.pool.clone())
     }
 
-    pub fn nostr_event_queue_store(
-        &self,
-        encryption_ctx: Arc<EncryptionContext>,
-    ) -> SqliteNostrEventQueueStore {
-        SqliteNostrEventQueueStore::new(self.pool.clone(), encryption_ctx)
-    }
-
     pub fn nostr_chain_event_store(&self) -> SqliteNostrChainEventStore {
         SqliteNostrChainEventStore::new(self.pool.clone())
     }
@@ -158,6 +151,13 @@ impl SqlitePersistence {
         encryption_ctx: Arc<EncryptionContext>,
     ) -> SqliteTransactionManager {
         SqliteTransactionManager::new(self.pool.clone(), encryption_ctx)
+    }
+
+    pub fn nostr_propagation_store(
+        &self,
+        encryption_ctx: Arc<EncryptionContext>,
+    ) -> SqliteNostrPropagationStore {
+        SqliteNostrPropagationStore::new(self.pool.clone(), encryption_ctx)
     }
 }
 

@@ -76,9 +76,6 @@ where
     let stored_keys = store.get_key_pair(&id).await.unwrap();
     assert_eq!(stored_keys.pub_key(), keys.pub_key());
 
-    // saving keys again conflicts
-    assert!(store.save_key_pair(&id, &keys).await.is_err());
-
     // UPDATE
     company.name = Name::new("updated company").unwrap();
     update_company(transaction_manager, &id, &company).await;

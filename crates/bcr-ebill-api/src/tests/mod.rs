@@ -45,9 +45,13 @@ pub mod tests {
     };
     use bcr_ebill_persistence::DbConfig;
     use bcr_ebill_persistence::traits::notification::EmailNotificationStoreApi;
+    use bcr_ebill_persistence::traits::propagation::{
+        NostrPropagationStoreApi, PreparedPropagation,
+    };
     use bcr_ebill_persistence::traits::transaction::{
         BillTransactionApi, CompanyTransactionApi, IdentityTransactionApi,
-        NostrChainEventTransactionApi, PersistenceTransactionApi, TransactionManagerApi,
+        NostrChainEventTransactionApi, NostrPropagationTransactionApi, PersistenceTransactionApi,
+        TransactionManagerApi,
     };
     use bcr_ebill_persistence::{
         ContactStoreApi, FileReferenceStoreApi, NostrEventOffset, NostrEventOffsetStoreApi,
@@ -57,11 +61,9 @@ pub mod tests {
         traits::file_upload::FileUploadStoreApi,
         traits::identity::{IdentityChainStoreApi, IdentityStoreApi},
         traits::mint::MintStoreApi,
-        traits::nostr::{
-            NostrChainEvent, NostrChainEventStoreApi, NostrQueuedMessage, NostrQueuedMessageStatus,
-            NostrQueuedMessageStoreApi, RelaySyncStatus, SyncStatus,
-        },
+        traits::nostr::{NostrChainEvent, NostrChainEventStoreApi, RelaySyncStatus, SyncStatus},
         traits::notification::NotificationFilter,
+        traits::propagation::{PendingDelivery, PropagationStatus, PropagationSubjectType},
     };
     use std::path::PathBuf;
     use std::sync::Arc;
@@ -353,22 +355,6 @@ pub mod tests {
     }
 
     mockall::mock! {
-        pub NostrQueuedMessageStore {}
-
-        impl ServiceTraitBounds for NostrQueuedMessageStore {}
-
-        #[async_trait]
-        impl NostrQueuedMessageStoreApi for NostrQueuedMessageStore {
-            async fn add_message(&self, message: NostrQueuedMessage, max_retries: i32) -> Result<()>;
-            async fn get_retry_messages(&self, limit: u64) -> Result<Vec<NostrQueuedMessage>>;
-            async fn fail_retry(&self, id: &str) -> Result<()>;
-            async fn succeed_retry(&self, id: &str) -> Result<()>;
-            async fn requeue_failed_entry(&self, id: &str) -> Result<()>;
-            async fn get_non_succeeded_retry_messages(&self) -> Result<Vec<(NostrQueuedMessage, NostrQueuedMessageStatus)>>;
-        }
-    }
-
-    mockall::mock! {
         pub NostrChainEventStore {}
 
         impl ServiceTraitBounds for NostrChainEventStore {}
@@ -503,6 +489,46 @@ pub mod tests {
     }
 
     mockall::mock! {
+        pub NostrPropagationStoreApiMock {}
+
+        impl ServiceTraitBounds for NostrPropagationStoreApiMock {}
+
+        #[async_trait]
+        impl NostrPropagationStoreApi for NostrPropagationStoreApiMock {
+            async fn get_propagation(&self, propagation_id: &str) -> Result<Option<PropagationStatus>>;
+            async fn list_propagation_ids(
+                &self,
+                subject_type: PropagationSubjectType,
+                subject_id: &str,
+            ) -> Result<Vec<String>>;
+            async fn get_pending_deliveries(
+                &self,
+                now: Timestamp,
+                limit: u64,
+            ) -> Result<Vec<PendingDelivery>>;
+            async fn get_pending_deliveries_for_propagation(
+                &self,
+                propagation_id: &str,
+                now: Timestamp,
+            ) -> Result<Vec<PendingDelivery>>;
+            async fn mark_relay_accepted(
+                &self,
+                message_id: &str,
+                relay: &url::Url,
+                accepted_at: Timestamp,
+            ) -> Result<()>;
+            async fn mark_relay_failed(
+                &self,
+                message_id: &str,
+                relay: &url::Url,
+                next_try_at: Timestamp,
+                error: &str,
+            ) -> Result<()>;
+            async fn make_pending_deliveries_due_now(&self) -> Result<()>;
+        }
+    }
+
+    mockall::mock! {
         pub TransactionManagerApiMock {}
 
         impl ServiceTraitBounds for TransactionManagerApiMock{}
@@ -578,12 +604,13 @@ pub mod tests {
                 identity_node_id: &NodeId,
                 bill: &BitcreditBillResult,
             ) -> Result<()>;
-            async fn add_chain_event(&mut self, event: &NostrChainEvent) -> Result<()>;
-            async fn remove_chain_events(
+            pub async fn add_chain_event(&mut self, event: &NostrChainEvent) -> Result<()>;
+            pub async fn remove_chain_events(
                 &mut self,
                 chain_id: &str,
                 chain_type: BlockchainType,
             ) -> Result<()>;
+            pub async fn enqueue_propagation(&mut self, propagation: &PreparedPropagation) -> Result<()>;
         }
 
         impl ServiceTraitBounds for PersistenceTransactionApiMock {}
@@ -755,6 +782,13 @@ pub mod tests {
         }
     }
 
+    #[async_trait]
+    impl NostrPropagationTransactionApi for MockPersistenceTransactionApiMock {
+        async fn enqueue_propagation(&mut self, propagation: &PreparedPropagation) -> Result<()> {
+            MockPersistenceTransactionApiMock::enqueue_propagation(self, propagation).await
+        }
+    }
+
     #[allow(unused)]
     pub fn get_mock_db_ctx(nostr_contact_store: Option<MockNostrContactStore>) -> DbContext {
         DbContext {
@@ -770,11 +804,11 @@ pub mod tests {
             nostr_event_offset_store: Arc::new(MockNostrEventOffsetStoreApiMock::new()),
             notification_store: Arc::new(MockNotificationStoreApiMock::new()),
             email_notification_store: Arc::new(MockEmailNotificationStoreApiMock::new()),
-            queued_message_store: Arc::new(MockNostrQueuedMessageStore::new()),
             nostr_contact_store: Arc::new(nostr_contact_store.unwrap_or_default()),
             mint_store: Arc::new(MockMintStore::new()),
             nostr_chain_event_store: Arc::new(MockNostrChainEventStore::new()),
             transaction_mgr: Arc::new(MockTransactionManagerApiMock::new()),
+            nostr_propagation_store: Arc::new(MockNostrPropagationStoreApiMock::new()),
         }
     }
 

@@ -117,6 +117,7 @@ pub trait BillChainEventProcessorApi: ServiceTraitBounds {
         blocks: &[BillBlock],
         keys: &BcrKeys,
     ) -> Result<usize>;
+    async fn persist_invite_keys(&self, bill_id: &BillId, keys: &BcrKeys) -> Result<()>;
 }
 
 #[cfg(test)]
@@ -154,6 +155,7 @@ pub trait CompanyChainEventProcessorApi: ServiceTraitBounds {
         blocks: &[CompanyBlock],
         keys: &BcrKeys,
     ) -> Result<usize>;
+    async fn persist_invite_keys(&self, company_id: &NodeId, keys: &BcrKeys) -> Result<()>;
 }
 
 #[cfg(test)]
@@ -406,9 +408,11 @@ mod test_utils {
         BitcoinAddress, EditOptionalFieldMode, EmailIdentityProofData, Sha256Hash,
         SignedIdentityProof, blockchain::bill::BillToShareWithExternalParty,
     };
+    use bcr_ebill_persistence::traits::propagation::PreparedPropagation;
     use bcr_ebill_persistence::traits::transaction::{
         BillTransactionApi, CompanyTransactionApi, IdentityTransactionApi,
-        NostrChainEventTransactionApi, PersistenceTransactionApi, TransactionManagerApi,
+        NostrChainEventTransactionApi, NostrPropagationTransactionApi, PersistenceTransactionApi,
+        TransactionManagerApi,
     };
     use bcr_ebill_persistence::{
         NostrChainEventStoreApi, NotificationStoreApi, Result, ShareDirection,
@@ -843,6 +847,7 @@ mod test_utils {
                 chain_id: &str,
                 chain_type: BlockchainType,
             ) -> Result<()>;
+            async fn enqueue_propagation(&mut self, propagation: &PreparedPropagation) -> Result<()>;
         }
 
         impl ServiceTraitBounds for PersistenceTransactionApiMock {}
@@ -1011,6 +1016,13 @@ mod test_utils {
             chain_type: BlockchainType,
         ) -> Result<()> {
             MockPersistenceTransactionApiMock::remove_chain_events(self, chain_id, chain_type).await
+        }
+    }
+
+    #[async_trait]
+    impl NostrPropagationTransactionApi for MockPersistenceTransactionApiMock {
+        async fn enqueue_propagation(&mut self, propagation: &PreparedPropagation) -> Result<()> {
+            MockPersistenceTransactionApiMock::enqueue_propagation(self, propagation).await
         }
     }
 

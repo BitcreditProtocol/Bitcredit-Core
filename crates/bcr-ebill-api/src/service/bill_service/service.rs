@@ -4,6 +4,9 @@ use crate::external::bitcoin::BitcoinClientApi;
 use crate::external::court::CourtClientApi;
 use crate::external::file_storage::{self, FileStorageClientApi};
 use crate::external::mint::{MintClientApi, QuoteStatusReply, ResolveMintOffer};
+use crate::service::bill_service::propagation::{
+    action_email_recipients, notifications_for_bill_action,
+};
 use crate::service::file_server_service::{
     configured_blossom_servers, download_file_with_fallback, upload_to_blossom_servers_with_server,
 };
@@ -20,6 +23,7 @@ use bcr_ebill_core::application::bill::{
 use bcr_ebill_core::application::company::Company;
 use bcr_ebill_core::application::contact::{Contact, LightBillParticipant};
 use bcr_ebill_core::application::identity::{Identity, IdentityWithAll};
+use bcr_ebill_core::application::nostr::{PropagationBlockInfo, find_block_info};
 use bcr_ebill_core::protocol::Sha256Hash;
 use bcr_ebill_core::protocol::Timestamp;
 use bcr_ebill_core::protocol::blockchain::Block;
@@ -35,7 +39,7 @@ use bcr_ebill_core::protocol::blockchain::bill::{
 };
 use bcr_ebill_core::protocol::blockchain::{Blockchain, identity::IdentityType};
 use bcr_ebill_core::protocol::crypto::{self, BcrKeys};
-use bcr_ebill_core::protocol::event::{ActionType, BillEventType};
+use bcr_ebill_core::protocol::event::{ActionType, BillChainEvent, BillEventType};
 use bcr_ebill_core::protocol::mint::{MintRequest, MintRequestState, MintRequestStatus};
 use bcr_ebill_core::protocol::{BitcoinAddress, Email};
 use bcr_ebill_core::protocol::{BlockId, PublicKey};
@@ -52,6 +56,7 @@ use bcr_ebill_persistence::traits::file_upload::FileUploadStoreApi;
 use bcr_ebill_persistence::traits::identity::{IdentityChainStoreApi, IdentityStoreApi};
 use bcr_ebill_persistence::traits::mint::MintStoreApi;
 use bcr_ebill_persistence::traits::nostr::NostrContactStoreApi;
+use bcr_ebill_persistence::traits::propagation::{PropagationStatus, PropagationSubjectType};
 use bcr_ebill_persistence::traits::transaction::TransactionManagerApi;
 use bitcoin::secp256k1::SecretKey;
 use log::{debug, error, info};
@@ -1294,6 +1299,37 @@ impl BillServiceApi for BillService {
 
         self.transport_service.ensure_publish_ready().await?;
 
+        // prepare propagation
+
+        // calculate bill after the action
+        let updated_bill = self
+            .get_last_version_bill(&blockchain, &bill_keys, &identity.identity, &contacts)
+            .await?;
+        let bill_event = BillChainEvent::new(
+            &updated_bill,
+            &blockchain,
+            &bill_keys,
+            true,
+            &signer_public_data.node_id(),
+        )?;
+
+        // One bill block and one signer-block set.
+        // The same shared method also supports issuing with two.
+        let mut prepared = self
+            .prepare_bill_propagation(
+                bill_id,
+                &identity,
+                &[&signer_blocks],
+                std::slice::from_ref(&bill_event),
+            )
+            .await?;
+
+        // Nostr and email notifications
+        let notifications = notifications_for_bill_action(&bill_event, &bill_action);
+        let email_recipients = action_email_recipients(&bill_event, &bill_action);
+        self.add_bill_notifications(&mut prepared, &bill_event, notifications, &email_recipients)
+            .await;
+
         // persist atomically
         let mut tx = self.transaction_mgr.begin().await?;
 
@@ -1329,6 +1365,10 @@ impl BillServiceApi for BillService {
         tx.save_bill_to_cache(bill_id, &signer_public_data.node_id(), &calculated_bill)
             .await?;
 
+        // add propagation for this action to the queue
+        // includes chain events, chain invites and notifications
+        prepared.chain.enqueue(&mut *tx).await?;
+
         tx.commit().await?;
 
         // effects & propagation
@@ -1347,18 +1387,18 @@ impl BillServiceApi for BillService {
             );
         }
 
-        self.propagate_prepared_signer_blocks(&signer_blocks, &identity)
-            .await?;
+        prepared
+            .chain
+            .attempt_after_commit(&*self.transport_service)
+            .await;
 
-        self.notify_for_block_action(
-            &blockchain,
-            &bill_keys,
-            &bill_action,
-            &identity.identity,
-            &contacts,
-            &signer_public_data.node_id(),
-        )
-        .await?;
+        // email is best-effort
+        for (sender, recipient, message) in &prepared.email_notifications {
+            self.transport_service
+                .notification_transport()
+                .send_email_notification(sender, recipient, message)
+                .await;
+        }
 
         debug!("Executed bill action {:?} for bill {bill_id}", bill_action);
 
@@ -1722,19 +1762,6 @@ impl BillServiceApi for BillService {
             timestamp,
         )
         .await?;
-
-        // Send notifications
-        if let Err(e) = self
-            .transport_service
-            .send_request_to_mint_event(
-                &signer_public_data.node_id(),
-                &mint_anon_participant,
-                &bill,
-            )
-            .await
-        {
-            error!("Couldn't send notifications for request to mint: {e}");
-        }
 
         debug!("Executed request to mint with mint {mint_node_id} for bill {bill_id}");
 
@@ -2240,5 +2267,32 @@ impl BillServiceApi for BillService {
             block_id: BlockId::next_from_previous_block_id(&latest_block.id()),
             previous_hash: latest_block.hash().to_owned(),
         })
+    }
+
+    async fn get_latest_propagation_status(
+        &self,
+        bill_id: &BillId,
+    ) -> Result<Option<PropagationStatus>> {
+        validate_bill_id_network(bill_id, self.config.bitcoin_network())?;
+        match self.store.exists(bill_id).await {
+            Ok(true) => (),
+            _ => {
+                return Err(Error::NotFound);
+            }
+        };
+        Ok(self
+            .transport_service
+            .get_latest_propagation(PropagationSubjectType::Bill, &bill_id.to_string())
+            .await?)
+    }
+
+    async fn propagation_block_info(
+        &self,
+        bill_id: &BillId,
+        block_hash: &Sha256Hash,
+    ) -> Result<Option<PropagationBlockInfo>> {
+        validate_bill_id_network(bill_id, self.config.bitcoin_network())?;
+        let chain = self.blockchain_store.get_chain(bill_id).await?;
+        Ok(find_block_info(&chain, block_hash))
     }
 }

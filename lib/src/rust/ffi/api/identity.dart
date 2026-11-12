@@ -80,3 +80,6 @@ Future<void> verifyEmail({required VerifyEmailPayload payload}) =>
 
 Future<List<IdentityEmailConfirmationFfi>> getEmailConfirmations() =>
     RustLib.instance.api.crateFfiApiIdentityGetEmailConfirmations();
+
+Future<PropagationStatusFfi?> propagationStatus() =>
+    RustLib.instance.api.crateFfiApiIdentityPropagationStatus();

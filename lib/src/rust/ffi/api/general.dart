@@ -35,14 +35,8 @@ Future<LinkToPayResponse> linkToPay({required BtcAddressAndSumPayload pl}) =>
 Future<MempoolLinkResponse> mempoolLink({required BtcAddressPayload pl}) =>
     RustLib.instance.api.crateFfiApiGeneralMempoolLink(pl: pl);
 
-Future<List<ResendQueueEntry>> fetchResendQueueEntries() =>
-    RustLib.instance.api.crateFfiApiGeneralFetchResendQueueEntries();
-
-Future<void> requeueFailedResendQueueEntry({
-  required RequeueFailedResendMessagePayload pl,
-}) => RustLib.instance.api.crateFfiApiGeneralRequeueFailedResendQueueEntry(
-  pl: pl,
-);
-
 Future<MnemonicResponse> generateRandomMnemonic() =>
     RustLib.instance.api.crateFfiApiGeneralGenerateRandomMnemonic();
+
+Future<void> retryPendingPropagationsNow() =>
+    RustLib.instance.api.crateFfiApiGeneralRetryPendingPropagationsNow();

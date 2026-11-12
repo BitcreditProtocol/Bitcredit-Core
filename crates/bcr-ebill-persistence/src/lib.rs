@@ -147,9 +147,8 @@ pub use traits::contact::ContactStoreApi;
 pub use traits::file_reference::FileReferenceStoreApi;
 // Backwards compatibility alias
 pub use traits::nostr::{
-    NostrChainEventStoreApi, NostrEventOffset, NostrEventOffsetStoreApi,
-    NostrQueuedMessageStoreApi, NostrStoreApi, PendingContactShare, RelaySyncRetry,
-    RelaySyncStatus, ShareDirection, SyncStatus,
+    NostrChainEventStoreApi, NostrEventOffset, NostrEventOffsetStoreApi, NostrStoreApi,
+    PendingContactShare, RelaySyncRetry, RelaySyncStatus, ShareDirection, SyncStatus,
 };
 // Backwards compatibility alias
 pub use traits::nostr::NostrStoreApi as NostrContactStoreApi;

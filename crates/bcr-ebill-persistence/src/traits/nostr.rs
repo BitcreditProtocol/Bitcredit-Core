@@ -50,42 +50,6 @@ pub struct NostrEventOffset {
     pub node_id: NodeId,
 }
 
-/// A dumb retry queue for Nostr messages that failed to be sent.
-#[async_trait]
-pub trait NostrQueuedMessageStoreApi: ServiceTraitBounds {
-    /// Adds a new retry message
-    async fn add_message(&self, message: NostrQueuedMessage, max_retries: i32) -> Result<()>;
-    /// Selects all messages that are ready to be retried
-    async fn get_retry_messages(&self, limit: u64) -> Result<Vec<NostrQueuedMessage>>;
-    /// Fail a retry attempt, schedules a new retry or fails the message if
-    /// all retries have been exhausted.
-    async fn fail_retry(&self, id: &str) -> Result<()>;
-    /// Flags a retry as successful
-    async fn succeed_retry(&self, id: &str) -> Result<()>;
-    /// Re-queue a failed entry
-    async fn requeue_failed_entry(&self, id: &str) -> Result<()>;
-    /// Fetches all messages that are either pending, or failed
-    async fn get_non_succeeded_retry_messages(
-        &self,
-    ) -> Result<Vec<(NostrQueuedMessage, NostrQueuedMessageStatus)>>;
-}
-
-#[derive(Clone, Debug)]
-pub enum NostrQueuedMessageStatus {
-    Pending,
-    Failed,
-}
-
-#[derive(Clone, Debug)]
-pub struct NostrQueuedMessage {
-    pub id: String,
-    pub sender_id: NodeId,
-    /// The recipient of the message. `Some(node_id)` for private messages,
-    /// `None` for public broadcast messages (e.g. chain events).
-    pub recipient: Option<NodeId>,
-    pub payload: String,
-}
-
 /// Manages all Nostr-related persistence including contacts, events, sync status, and retries
 #[async_trait]
 pub trait NostrStoreApi: ServiceTraitBounds {

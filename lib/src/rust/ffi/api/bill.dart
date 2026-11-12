@@ -215,3 +215,6 @@ Future<BillSweepBTCEstimateFfi> checkAndEstimateBtcSweep({
 Future<BillSweepBTCFundsResultFfi> sweepBtcFunds({
   required BillSweepBTCFundsPayload payload,
 }) => RustLib.instance.api.crateFfiApiBillSweepBtcFunds(payload: payload);
+
+Future<PropagationStatusFfi?> propagationStatus({required String id}) =>
+    RustLib.instance.api.crateFfiApiBillPropagationStatus(id: id);

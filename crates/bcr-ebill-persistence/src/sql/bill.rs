@@ -76,6 +76,7 @@ pub(crate) const INSERT_KEYS: &str = r#"
         private_key
     )
     VALUES ($1, $2)
+    ON CONFLICT(bill_id) DO NOTHING;
 "#;
 
 pub(crate) const SELECT_KEYS: &str = r#"

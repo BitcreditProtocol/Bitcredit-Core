@@ -564,6 +564,29 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
         }
         Ok(prepared.chain.blocks().len())
     }
+
+    async fn persist_invite_keys(&self, company_id: &NodeId, keys: &BcrKeys) -> Result<()> {
+        if company_id.network() != self.bitcoin_network
+            || *company_id != NodeId::new(keys.pub_key(), self.bitcoin_network)
+        {
+            return Err(Error::Blockchain(
+                "Invalid company invite id or keys".to_string(),
+            ));
+        }
+
+        let mut tx = self
+            .transaction_mgr
+            .begin()
+            .await
+            .map_err(|e| Error::Persistence(e.to_string()))?;
+        tx.save_company_key_pair(company_id, keys)
+            .await
+            .map_err(|e| Error::Persistence(e.to_string()))?;
+        tx.commit()
+            .await
+            .map_err(|e| Error::Persistence(e.to_string()))?;
+        Ok(())
+    }
 }
 
 impl CompanyChainEventProcessor {

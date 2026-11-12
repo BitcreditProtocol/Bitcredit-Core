@@ -156,6 +156,7 @@ impl From<ServiceError> for EbillFfiError {
             ServiceError::Persistence(e) => err_500(e, EbillFfiErrorCode::Persistence),
             ServiceError::Protocol(e) => err_500(e, EbillFfiErrorCode::Protocol),
             ServiceError::Json(e) => err_500(e, EbillFfiErrorCode::Json),
+            ServiceError::Internal(e) => err_500(e, EbillFfiErrorCode::Internal),
         }
     }
 }

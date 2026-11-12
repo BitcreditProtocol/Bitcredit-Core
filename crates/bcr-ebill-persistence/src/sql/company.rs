@@ -174,6 +174,7 @@ pub(crate) const INSERT_KEY: &str = r#"
         $1,
         $2
     )
+    ON CONFLICT(id) DO NOTHING;
 "#;
 
 pub(crate) const SELECT_KEY: &str = r#"

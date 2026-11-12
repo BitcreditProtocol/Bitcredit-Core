@@ -4,16 +4,12 @@ use crate::service::transport_service::{
 };
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
-use bcr_ebill_core::{
-    application::ServiceTraitBounds,
-    protocol::blockchain::bill::{
-        BitcreditBill,
-        participant::{BillIdentParticipant, BillParticipant},
-    },
-    protocol::crypto::BcrKeys,
-    protocol::event::ActionType,
-    protocol::event::BillChainEvent,
+use bcr_ebill_core::protocol::event::{BillChainEventPayload, Event};
+use bcr_ebill_core::{application::ServiceTraitBounds, protocol::crypto::BcrKeys};
+use bcr_ebill_persistence::traits::propagation::{
+    PreparedPropagationMessage, PropagationStatus, PropagationSubjectType,
 };
+use std::collections::HashMap;
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -38,91 +34,6 @@ pub trait TransportServiceApi: ServiceTraitBounds {
 
     /// Checks that at least one write-relay is connected
     async fn ensure_publish_ready(&self) -> Result<()>;
-
-    /// Sent when: A bill is signed by: Drawer
-    /// Receiver: Payer, Action: AcceptBill
-    /// Receiver: Payee, Action: CheckBill
-    async fn send_bill_is_signed_event(&self, event: &BillChainEvent) -> Result<()>;
-
-    /// Sent when: A bill is accepted by: Payer
-    /// Receiver: Holder, Action: CheckBill
-    async fn send_bill_is_accepted_event(&self, event: &BillChainEvent) -> Result<()>;
-
-    /// Sent when: A bill is requested to be accepted, Sent by: Holder
-    /// Receiver: Payer, Action: AcceptBill
-    async fn send_request_to_accept_event(&self, event: &BillChainEvent) -> Result<()>;
-
-    /// Sent when: A bill is requested to be paid, Sent by: Holder
-    /// Receiver: Payer, Action: PayBill
-    async fn send_request_to_pay_event(&self, event: &BillChainEvent) -> Result<()>;
-
-    /// Sent when: A bill is endorsed by: Previous Holder
-    /// Receiver: NewHolder, Action: CheckBill
-    async fn send_bill_is_endorsed_event(&self, event: &BillChainEvent) -> Result<()>;
-
-    /// Sent when: A bill is offered to be sold, Sent by: Holder
-    /// Receiver: Buyer, Action: CheckBill (with buy page)
-    async fn send_offer_to_sell_event(
-        &self,
-        event: &BillChainEvent,
-        buyer: &BillParticipant,
-    ) -> Result<()>;
-
-    /// Sent when: A bill is sold by: Seller (old holder)
-    /// Receiver: Buyer (new holder), Action: CheckBill
-    async fn send_bill_is_sold_event(
-        &self,
-        event: &BillChainEvent,
-        buyer: &BillParticipant,
-    ) -> Result<()>;
-
-    /// Sent when: A bill recourse was paid, by: Recourser (old holder)
-    /// Receiver: Recoursee (new holder), Action: CheckBill
-    async fn send_bill_recourse_paid_event(
-        &self,
-        event: &BillChainEvent,
-        recoursee: &BillIdentParticipant,
-    ) -> Result<()>;
-
-    /// In case a participant rejects one of the 'request to' actions (e.g. request to accept,
-    /// request to pay) we send this event to all bill participants. Will only send the event
-    /// if the given action can be a rejected action.
-    /// Arguments:
-    /// * bill_id: The id of the bill affected
-    /// * rejected_action: The action that was rejected
-    /// * recipients: The list of recipients that should receive the notification
-    async fn send_request_to_action_rejected_event(
-        &self,
-        event: &BillChainEvent,
-        rejected_action: ActionType,
-    ) -> Result<()>;
-
-    /// In case an action was rejected or timed out a holder can request a recourse action
-    /// from another participant in the chain. Will only send the event if the given action
-    /// can be a recourse action.
-    /// Arguments:
-    /// * bill_id: The id of the bill affected
-    /// * action: The action that should be performed via recourse. This will also be the action
-    /// sent in the event given it can be a recourse action.
-    /// * recipient: The recourse recipient that should perform the action
-    async fn send_recourse_action_event(
-        &self,
-        event: &BillChainEvent,
-        action: ActionType,
-        recoursee: &BillIdentParticipant,
-    ) -> Result<()>;
-
-    /// Sent when: A bill is requested to be minted, Sent by: Holder
-    /// Receiver: Mint, Action: CheckBill (with generate quote page)
-    async fn send_request_to_mint_event(
-        &self,
-        sender_node_id: &NodeId,
-        mint: &BillParticipant,
-        bill: &BitcreditBill,
-    ) -> Result<()>;
-
-    /// Retry sending a queued message to the given node id
-    async fn send_retry_messages(&self) -> Result<()>;
 
     /// Syncs historical events to newly added relays
     async fn sync_relays(&self) -> Result<()>;
@@ -156,6 +67,43 @@ pub trait TransportServiceApi: ServiceTraitBounds {
         file_hash: &str,
         nostr_hash: &str,
     ) -> Result<Vec<nostr::event::Event>>;
+
+    /// Prepare private Nostr notifications for bill participants - does not publish, or persist
+    async fn prepare_bill_private_messages(
+        &self,
+        sender: &NodeId,
+        events: &HashMap<NodeId, Event<BillChainEventPayload>>,
+    ) -> Result<Vec<PreparedPropagationMessage>>;
+
+    /// Returns the writable relay targets used for preparing public Nostr chain events
+    async fn writable_relay_urls(&self) -> Result<Vec<url::Url>>;
+
+    /// Attemt the first sending for a propagation, waiting for its results to be recorded
+    async fn attempt_propagation(
+        &self,
+        propagation_id: &str,
+        required_message_ids: &[String],
+    ) -> Result<()>;
+
+    /// Return the stored propagation status
+    async fn get_propagation_status(
+        &self,
+        propagation_id: &str,
+    ) -> Result<Option<PropagationStatus>>;
+
+    /// Retrieve the most recent propagation for a subject
+    async fn get_latest_propagation(
+        &self,
+        subject_type: PropagationSubjectType,
+        subject_id: &str,
+    ) -> Result<Option<PropagationStatus>>;
+
+    /// Stop the background Nostr propagation retry loop
+    /// Does not delete or change pending deliveries
+    fn stop_propagation_retries(&self);
+
+    /// Immediately retries pending propagations
+    async fn retry_pending_propagations_now(&self) -> Result<()>;
 }
 
 #[cfg(test)]

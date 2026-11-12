@@ -43,5 +43,3 @@ pub const DB_NODE_ID: &str = "node_id";
 pub const DB_FILE_UPLOAD_ID: &str = "file_upload_id";
 pub const DB_RECEIVER_NODE_ID: &str = "receiver_node_id";
 pub const DB_CONTACT_SHARE_DIRECTION: &str = "direction";
-
-pub const NOSTR_QUEUE_PROCESSING_TIMEOUT_SECS: u64 = 60;

@@ -336,10 +336,16 @@ mod tests {
         COMPANY_LOGO_FILE_FIELD, IDENTITY_DOCUMENT_FILE_FIELD, IDENTITY_PROFILE_PICTURE_FILE_FIELD,
     };
     use crate::tests::tests::MockFileReferenceStoreApiMock;
+    use bcr_ebill_core::protocol::event::{BillChainEventPayload, Event};
     use bcr_ebill_core::protocol::{Name, file_reference::FileReference};
     use bitcoin::hashes::Hash;
     use mockall::predicate;
+    use std::collections::HashMap;
     use std::str::FromStr;
+
+    use bcr_ebill_persistence::traits::propagation::{
+        PreparedPropagationMessage, PropagationStatus, PropagationSubjectType,
+    };
 
     mockall::mock! {
         TransportService {}
@@ -351,24 +357,19 @@ mod tests {
             fn notification_transport(&self) -> &std::sync::Arc<dyn crate::service::transport_service::NotificationTransportServiceApi>;
             async fn connect(&self);
             async fn ensure_publish_ready(&self) -> crate::service::transport_service::Result<()>;
-            async fn send_bill_is_signed_event(&self, event: &bcr_ebill_core::protocol::event::BillChainEvent) -> crate::service::transport_service::Result<()>;
-            async fn send_bill_is_accepted_event(&self, event: &bcr_ebill_core::protocol::event::BillChainEvent) -> crate::service::transport_service::Result<()>;
-            async fn send_request_to_accept_event(&self, event: &bcr_ebill_core::protocol::event::BillChainEvent) -> crate::service::transport_service::Result<()>;
-            async fn send_request_to_pay_event(&self, event: &bcr_ebill_core::protocol::event::BillChainEvent) -> crate::service::transport_service::Result<()>;
-            async fn send_bill_is_endorsed_event(&self, event: &bcr_ebill_core::protocol::event::BillChainEvent) -> crate::service::transport_service::Result<()>;
-            async fn send_offer_to_sell_event(&self, event: &bcr_ebill_core::protocol::event::BillChainEvent, buyer: &bcr_ebill_core::protocol::blockchain::bill::participant::BillParticipant) -> crate::service::transport_service::Result<()>;
-            async fn send_bill_is_sold_event(&self, event: &bcr_ebill_core::protocol::event::BillChainEvent, buyer: &bcr_ebill_core::protocol::blockchain::bill::participant::BillParticipant) -> crate::service::transport_service::Result<()>;
-            async fn send_bill_recourse_paid_event(&self, event: &bcr_ebill_core::protocol::event::BillChainEvent, recoursee: &bcr_ebill_core::protocol::blockchain::bill::participant::BillIdentParticipant) -> crate::service::transport_service::Result<()>;
-            async fn send_request_to_mint_event(&self, sender_node_id: &bcr_common::core::NodeId, mint: &bcr_ebill_core::protocol::blockchain::bill::participant::BillParticipant, bill: &bcr_ebill_core::protocol::blockchain::bill::BitcreditBill) -> crate::service::transport_service::Result<()>;
-            async fn send_request_to_action_rejected_event(&self, event: &bcr_ebill_core::protocol::event::BillChainEvent, rejected_action: bcr_ebill_core::protocol::event::ActionType) -> crate::service::transport_service::Result<()>;
-            async fn send_recourse_action_event(&self, event: &bcr_ebill_core::protocol::event::BillChainEvent, action: bcr_ebill_core::protocol::event::ActionType, recoursee: &bcr_ebill_core::protocol::blockchain::bill::participant::BillIdentParticipant) -> crate::service::transport_service::Result<()>;
-            async fn send_retry_messages(&self) -> crate::service::transport_service::Result<()>;
             async fn sync_relays(&self) -> crate::service::transport_service::Result<()>;
             async fn retry_failed_syncs(&self) -> crate::service::transport_service::Result<()>;
             async fn add_identity(&self, node_id: &bcr_common::core::NodeId, keys: &bcr_ebill_core::protocol::crypto::BcrKeys) -> crate::service::transport_service::Result<()>;
             async fn process_company_historical_bill_invites(&self, company_id: &bcr_common::core::NodeId) -> crate::service::transport_service::Result<()>;
             async fn publish_file_metadata(&self, node_id: &bcr_common::core::NodeId, plaintext_hash: &str, encrypted_hash: &str, server_urls: Vec<url::Url>, mime_type: Option<String>) -> crate::service::transport_service::Result<()>;
             async fn query_file_metadata_events(&self, file_hash: &str, nostr_hash: &str) -> crate::service::transport_service::Result<Vec<nostr::event::Event>>;
+            async fn prepare_bill_private_messages(&self, sender: &NodeId, events: &HashMap<NodeId, Event<BillChainEventPayload>>) -> crate::service::transport_service::Result<Vec<PreparedPropagationMessage>>;
+            async fn writable_relay_urls(&self) -> crate::service::transport_service::Result<Vec<url::Url>>;
+            async fn attempt_propagation(&self, propagation_id: &str, required_message_ids: &[String]) -> crate::service::transport_service::Result<()>;
+            async fn get_propagation_status(&self, propagation_id: &str) -> crate::service::transport_service::Result<Option<PropagationStatus>>;
+            async fn get_latest_propagation(&self, subject_type: PropagationSubjectType, subject_id: &str) -> crate::service::transport_service::Result<Option<PropagationStatus>>;
+            fn stop_propagation_retries(&self);
+            async fn retry_pending_propagations_now(&self) -> crate::service::transport_service::Result<()>;
         }
     }
 
