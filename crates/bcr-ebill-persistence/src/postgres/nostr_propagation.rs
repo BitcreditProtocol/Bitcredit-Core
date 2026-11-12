@@ -290,4 +290,13 @@ mod tests {
         let manager = PostgresTransactionManager::new(pool.clone(), encryption_ctx.clone());
         nostr_propagation::test_retry_now_preserves_accepted_deliveries(&store, &manager).await;
     }
+
+    #[sqlx::test(migrations = "migrations/postgres")]
+    async fn same_second_propagations_use_insertion_order(pool: PgPool) {
+        let encryption_ctx = Arc::new(EncryptionContext::new(BcrKeys::new()));
+        let manager = PostgresTransactionManager::new(pool.clone(), encryption_ctx.clone());
+        let store = PostgresNostrPropagationStore::new(pool, encryption_ctx);
+        nostr_propagation::test_same_second_propagations_are_ordered_by_sequence(&store, &manager)
+            .await;
+    }
 }

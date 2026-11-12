@@ -2,16 +2,17 @@
 -- subject type is the event type, e.g. Bill, Company, Identity, Contact
 CREATE TABLE nostr_propagations (
     id TEXT PRIMARY KEY NOT NULL,
+    sequence BIGINT GENERATED ALWAYS AS IDENTITY UNIQUE, -- monotonic sequence for ordering
     subject_type TEXT NOT NULL,
     subject_id TEXT NOT NULL,
     created_at BIGINT NOT NULL
 );
 
-CREATE INDEX nostr_propagations_subject_idx
+CREATE INDEX idx_nostr_propagations_subject_sequence
     ON nostr_propagations (
         subject_type,
         subject_id,
-        created_at DESC
+        sequence DESC
     );
 
 -- prepared and signed Nostr events, ready to send

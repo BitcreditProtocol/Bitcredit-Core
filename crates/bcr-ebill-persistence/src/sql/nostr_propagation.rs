@@ -56,7 +56,7 @@ pub(crate) const SELECT_PROPAGATION_IDS_BY_SUBJECT: &str = r#"
     SELECT id
     FROM nostr_propagations
     WHERE subject_type = $1 AND subject_id = $2
-    ORDER BY created_at DESC, id DESC
+    ORDER BY sequence DESC
 "#;
 
 pub(crate) const SELECT_PROPAGATION_MESSAGES: &str = r#"

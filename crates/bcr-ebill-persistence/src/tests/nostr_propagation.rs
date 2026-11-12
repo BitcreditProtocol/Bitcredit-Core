@@ -258,3 +258,58 @@ where
     assert_eq!(pending_after.attempts, pending_before.attempts,);
     assert_eq!(pending_after.last_error, pending_before.last_error,);
 }
+
+pub async fn test_same_second_propagations_are_ordered_by_sequence(
+    store: &dyn NostrPropagationStoreApi,
+    manager: &dyn TransactionManagerApi,
+) {
+    // Deliberately use IDs whose lexical ordering is the opposite of their insertion order
+    let mut older = sample_propagation();
+    older.id = "ffffffff-ffff-4fff-8fff-ffffffffffff".to_owned();
+    older.subject_id = "same-second-bill".to_owned();
+    let mut newer = sample_propagation();
+    newer.id = "00000000-0000-4000-8000-000000000000".to_owned();
+    newer.subject_id = older.subject_id.clone();
+
+    // propagations have the same timestamp
+    newer.created_at = older.created_at;
+    assert!(older.id > newer.id);
+
+    for propagation in [&older, &newer] {
+        let mut tx = manager.begin().await.unwrap();
+        tx.enqueue_propagation(propagation).await.unwrap();
+        tx.commit().await.unwrap();
+    }
+    for relay in &older.messages[0].target_relays {
+        store
+            .mark_relay_accepted(&older.messages[0].id, relay, Timestamp::now())
+            .await
+            .unwrap();
+    }
+    let ids = store
+        .list_propagation_ids(PropagationSubjectType::Bill, &older.subject_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        ids,
+        vec![newer.id.clone(), older.id.clone()],
+        "Newest insertion must be first, regardless of UUIDv4 ordering"
+    );
+
+    let latest = store.get_propagation(&ids[0]).await.unwrap().unwrap();
+    assert_eq!(latest.id, newer.id);
+    assert!(
+        latest.messages[0]
+            .relays
+            .iter()
+            .all(|relay| relay.accepted_at.is_none())
+    );
+
+    let previous = store.get_propagation(&older.id).await.unwrap().unwrap();
+    assert!(
+        previous.messages[0]
+            .relays
+            .iter()
+            .all(|relay| relay.accepted_at.is_some())
+    );
+}

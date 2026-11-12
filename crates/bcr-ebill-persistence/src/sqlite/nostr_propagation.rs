@@ -289,4 +289,13 @@ mod tests {
         let manager = SqliteTransactionManager::new(pool.clone(), encryption_ctx.clone());
         nostr_propagation::test_retry_now_preserves_accepted_deliveries(&store, &manager).await;
     }
+
+    #[sqlx::test(migrations = "migrations/sqlite")]
+    async fn same_second_propagations_use_insertion_order(pool: SqlitePool) {
+        let encryption_ctx = Arc::new(EncryptionContext::new(BcrKeys::new()));
+        let manager = SqliteTransactionManager::new(pool.clone(), encryption_ctx.clone());
+        let store = SqliteNostrPropagationStore::new(pool, encryption_ctx);
+        nostr_propagation::test_same_second_propagations_are_ordered_by_sequence(&store, &manager)
+            .await;
+    }
 }

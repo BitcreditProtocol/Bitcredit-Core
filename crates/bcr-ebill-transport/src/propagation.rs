@@ -209,11 +209,7 @@ impl NostrPropagationService {
         loop {
             tokio::select! {
                 _ = interval.tick() => {
-                    if let Err(e) = self.retry_due_once().await {
-                        error!(
-                            "Nostr propagation retry failed: {e}"
-                        );
-                    }
+                    // periodic retry - executed below
                 }
                 _ = self.retry_wakeup.notified() => {
                     // user-requested immediate retry - executed below
