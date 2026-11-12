@@ -630,6 +630,13 @@ fn fixture() -> Value {
             "2026-10-30T12:00:02Z",
             "identity proof reference with wrong issuedAt",
         ),
+        (
+            "identity_proof_reference_subsecond_issued_at",
+            3,
+            signature,
+            "2026-10-30T12:00:01.0001Z",
+            "identity proof reference with wrong issuedAt",
+        ),
     ] {
         let mut payload = identity.clone();
         change_entry(
