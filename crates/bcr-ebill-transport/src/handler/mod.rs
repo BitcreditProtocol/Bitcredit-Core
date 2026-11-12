@@ -117,6 +117,7 @@ pub trait BillChainEventProcessorApi: ServiceTraitBounds {
         blocks: &[BillBlock],
         keys: &BcrKeys,
     ) -> Result<usize>;
+    async fn persist_invite_keys(&self, bill_id: &BillId, keys: &BcrKeys) -> Result<()>;
 }
 
 #[cfg(test)]
@@ -154,6 +155,7 @@ pub trait CompanyChainEventProcessorApi: ServiceTraitBounds {
         blocks: &[CompanyBlock],
         keys: &BcrKeys,
     ) -> Result<usize>;
+    async fn persist_invite_keys(&self, company_id: &NodeId, keys: &BcrKeys) -> Result<()>;
 }
 
 #[cfg(test)]

@@ -62,6 +62,10 @@ impl NotificationHandlerApi for CompanyInviteEventHandler {
         let company_id =
             NodeId::from_str(&decoded.data.chain_id).map_err(ProtocolValidationError::from)?;
         let keys = BcrKeys::from_private_key(&decoded.data.keys.private_key);
+        // persist invite keys
+        self.processor
+            .persist_invite_keys(&company_id, &keys)
+            .await?;
 
         let Ok(chain_data) = resolve_event_chains(
             self.transport.clone(),
@@ -296,6 +300,10 @@ mod tests {
             .withf(|company_id, blocks, _| company_id == &node_id_test() && blocks.len() == 1)
             .once()
             .returning(|_, _, _| Ok(1));
+        processor
+            .expect_persist_invite_keys()
+            .once()
+            .returning(|_, _| Ok(()));
 
         // store events
         chain_event_store
@@ -351,6 +359,10 @@ mod tests {
             .withf(|company_id, blocks, _| company_id == &node_id_test() && blocks.len() == 3)
             .once()
             .returning(|_, _, _| Ok(3));
+        processor
+            .expect_persist_invite_keys()
+            .once()
+            .returning(|_, _| Ok(()));
 
         // store events
         chain_event_store
@@ -394,6 +406,10 @@ mod tests {
             .withf(|company_id, blocks, _| company_id == &node_id_test() && blocks.len() == 3)
             .times(2)
             .returning(|_, _, _| Ok(3));
+        processor
+            .expect_persist_invite_keys()
+            .once()
+            .returning(|_, _| Ok(()));
 
         // process blocks
         processor
@@ -456,6 +472,10 @@ mod tests {
             })
             .once()
             .returning(|_, _, _| Ok(()));
+        processor
+            .expect_persist_invite_keys()
+            .once()
+            .returning(|_, _| Ok(()));
 
         // only persist the accepted events
         chain_event_store
@@ -544,6 +564,10 @@ mod tests {
             })
             .once()
             .returning(|_, _, _| Ok(()));
+        processor
+            .expect_persist_invite_keys()
+            .once()
+            .returning(|_, _| Ok(()));
 
         // metadata also B only
         let selected_event_ids: HashSet<String> = [

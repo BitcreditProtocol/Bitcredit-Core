@@ -501,6 +501,29 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
         }
         Ok(prepared.chain.blocks().len())
     }
+
+    async fn persist_invite_keys(&self, bill_id: &BillId, keys: &BcrKeys) -> Result<()> {
+        if bill_id.network() != self.bitcoin_network
+            || *bill_id != BillId::new(keys.pub_key(), self.bitcoin_network)
+        {
+            return Err(Error::Blockchain(
+                "Invalid bill invite id or keys".to_string(),
+            ));
+        }
+
+        let mut tx = self
+            .transaction_mgr
+            .begin()
+            .await
+            .map_err(|e| Error::Persistence(e.to_string()))?;
+        tx.save_bill_keys(bill_id, keys)
+            .await
+            .map_err(|e| Error::Persistence(e.to_string()))?;
+        tx.commit()
+            .await
+            .map_err(|e| Error::Persistence(e.to_string()))?;
+        Ok(())
+    }
 }
 
 #[derive(Clone)]
