@@ -1,3 +1,7 @@
+# 0.6.1
+
+* TBD
+
 # 0.6.0
 
 * Remove `bcr-ebill-wasm` - the PWA version of this is now deprecated, the last published version is 0.5.16 (and potential hotfixes)

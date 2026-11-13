@@ -3,12 +3,12 @@ name = "bcr_ebill_flutter_ffi"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [lib]
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
-android_logger = {version = "0.15"}
 anyhow = {workspace = true}
 async-trait.workspace = true
 async-broadcast.workspace = true
@@ -36,3 +36,7 @@ uuid.workspace = true
 
 [lints.rust]
 unexpected_cfgs = {level = "warn", check-cfg = ['cfg(frb_expand)']}
+
+
+[target.'cfg(target_os = "android")'.dependencies]
+android_logger = { version = "0.15" }

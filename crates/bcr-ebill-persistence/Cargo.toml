@@ -3,6 +3,7 @@ name = "bcr-ebill-persistence"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [lib]
 doctest = false
@@ -29,7 +30,6 @@ time.workspace = true
 tokio.workspace = true
 bitcoin.workspace = true
 url.workspace = true
-arc-swap = "1.7"
 sqlx.workspace = true
 
 [dev-dependencies]
