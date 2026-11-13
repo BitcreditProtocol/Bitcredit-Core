@@ -1,4 +1,4 @@
-use std::{str::FromStr, sync::Arc};
+use std::{str::FromStr, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
@@ -35,6 +35,7 @@ struct BillInviteCandidate {
     accepted_event_count: usize,
 }
 
+const MAX_ATTEMPTS: usize = 5;
 #[async_trait]
 impl NotificationHandlerApi for BillInviteEventHandler {
     fn handles_event(&self, event_type: &EventType) -> bool {
@@ -59,78 +60,28 @@ impl NotificationHandlerApi for BillInviteEventHandler {
         // persist invite keys
         self.processor.persist_invite_keys(&chain_id, &keys).await?;
 
-        let chain_data = match self.processor.resolve_chain(&chain_id, &keys).await {
-            Ok(chains) => chains,
-            Err(e) => {
-                error!("Could not extract chain data for invite event {event:?}: {e}");
-                return Ok(());
-            }
-        };
-
-        let mut candidates = Vec::new();
-        // Validate every Nostr branch before persisting any of them
-        for (chain_index, data) in chain_data.iter().enumerate() {
-            let mut blocks: Vec<BillBlock> = data
-                .iter()
-                .filter_map(|event_container| match &event_container.block {
-                    BlockData::Bill(block) => Some(block.clone()),
-                    _ => None,
-                })
-                .collect();
-            if blocks.is_empty() {
-                continue;
-            }
-            let accepted_count = match self
-                .processor
-                .valid_chain_prefix_len(&chain_id, &blocks, &keys)
+        // retry chain onboarding in case the events are not available yet
+        for attempt in 0..MAX_ATTEMPTS {
+            match self
+                .try_process_chain(&chain_id, &keys, &event, &decoded)
                 .await
             {
-                Ok(count) if count > 0 => count,
-                Ok(_) => continue,
-                Err(e) => {
-                    debug!(
-                        "Ignoring bill invite chain candidate with no valid prefix for {chain_id}: {e}"
-                    );
-                    continue;
+                Ok(true) => return Ok(()),
+                Ok(false) => {
+                    debug!("Bill Chain not available yet, attempt {attempt}");
                 }
-            };
+                Err(e) => {
+                    warn!("Failed resolving bill chain {chain_id}: {e}");
+                }
+            }
 
-            // truncate blocks and metadata
-            blocks.truncate(accepted_count);
-            candidates.push(BillInviteCandidate {
-                chain_index,
-                blocks,
-                accepted_event_count: accepted_count,
-            });
+            if attempt + 1 < MAX_ATTEMPTS {
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
         }
 
-        // select best chain
-        candidates.sort_by(|a, b| compare_block_chains(&a.blocks, &b.blocks));
-        let Some(selected) = candidates.into_iter().next() else {
-            debug!("No valid bill chain candidate found for invite {chain_id}");
-            return Ok(());
-        };
+        warn!("Failed to onboard bill chain {chain_id} after retrying");
 
-        let selected_chain_index = selected.chain_index;
-        let accepted_event_count = selected.accepted_event_count;
-
-        // only persist the winning candidate
-        self.processor
-            .process_chain_data(&chain_id, selected.blocks, Some(keys))
-            .await?;
-
-        // we are onboarded to the chain so store all valid Nostr chain data
-        if let Err(e) = self
-            .store_events(
-                &decoded.data.chain_id,
-                decoded.data.chain_type,
-                &chain_data[selected_chain_index],
-                accepted_event_count,
-            )
-            .await
-        {
-            error!("Error storing bill chain events: {e}");
-        }
         Ok(())
     }
 }
@@ -170,6 +121,88 @@ impl BillInviteEventHandler {
             }
         }
         Ok(())
+    }
+
+    async fn try_process_chain(
+        &self,
+        chain_id: &BillId,
+        keys: &BcrKeys,
+        event: &EventEnvelope,
+        decoded: &Event<ChainInvite>,
+    ) -> Result<bool> {
+        let chain_data = match self.processor.resolve_chain(chain_id, keys).await {
+            Ok(chains) => chains,
+            Err(e) => {
+                error!("Could not extract chain data for invite event {event:?}: {e}");
+                return Ok(false);
+            }
+        };
+
+        let mut candidates = Vec::new();
+        // Validate every Nostr branch before persisting any of them
+        for (chain_index, data) in chain_data.iter().enumerate() {
+            let mut blocks: Vec<BillBlock> = data
+                .iter()
+                .filter_map(|event_container| match &event_container.block {
+                    BlockData::Bill(block) => Some(block.clone()),
+                    _ => None,
+                })
+                .collect();
+            if blocks.is_empty() {
+                continue;
+            }
+            let accepted_count = match self
+                .processor
+                .valid_chain_prefix_len(chain_id, &blocks, keys)
+                .await
+            {
+                Ok(count) if count > 0 => count,
+                Ok(_) => continue,
+                Err(e) => {
+                    debug!(
+                        "Ignoring bill invite chain candidate with no valid prefix for {chain_id}: {e}"
+                    );
+                    continue;
+                }
+            };
+
+            // truncate blocks and metadata
+            blocks.truncate(accepted_count);
+            candidates.push(BillInviteCandidate {
+                chain_index,
+                blocks,
+                accepted_event_count: accepted_count,
+            });
+        }
+
+        // select best chain
+        candidates.sort_by(|a, b| compare_block_chains(&a.blocks, &b.blocks));
+        let Some(selected) = candidates.into_iter().next() else {
+            debug!("No valid bill chain candidate found for invite {chain_id}");
+            return Ok(false);
+        };
+
+        let selected_chain_index = selected.chain_index;
+        let accepted_event_count = selected.accepted_event_count;
+
+        // only persist the winning candidate
+        self.processor
+            .process_chain_data(chain_id, selected.blocks, Some(keys.clone()))
+            .await?;
+
+        // we are onboarded to the chain so store all valid Nostr chain data
+        if let Err(e) = self
+            .store_events(
+                &decoded.data.chain_id,
+                decoded.data.chain_type,
+                &chain_data[selected_chain_index],
+                accepted_event_count,
+            )
+            .await
+        {
+            error!("Error storing bill chain events: {e}");
+        }
+        Ok(true)
     }
 }
 
