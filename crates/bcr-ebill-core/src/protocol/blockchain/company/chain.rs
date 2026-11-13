@@ -173,10 +173,7 @@ impl CompanyBlockchain {
                 }
 
                 // check it wasn't removed afterwards
-                if self.was_removed_after_block(node_id, &block_id, company_keys)? {
-                    return Ok(false);
-                }
-                Ok(true)
+                Ok(!self.was_removed_after_block(node_id, &block_id, company_keys)?)
             }
             // node id was never invited
             None => Ok(false),
@@ -338,10 +335,7 @@ impl CompanyBlockchain {
                 }
 
                 // check it wasn't removed afterwards
-                if self.was_removed_after_block(node_id, &block_id, company_keys)? {
-                    return Ok(false);
-                }
-                Ok(true)
+                Ok(!self.was_removed_after_block(node_id, &block_id, company_keys)?)
             }
             // node id was never accepted - check if they are the creator
             None => {
@@ -380,10 +374,7 @@ impl CompanyBlockchain {
             Some(b) => {
                 let block_id = b.id();
                 // check it wasn't removed afterwards
-                if self.was_removed_after_block(node_id, &block_id, company_keys)? {
-                    return Ok(false);
-                }
-                Ok(true)
+                Ok(!self.was_removed_after_block(node_id, &block_id, company_keys)?)
             }
             // node id was never a confirmed signatory
             None => Ok(false),

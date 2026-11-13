@@ -1,5 +1,5 @@
 [workspace.package]
-version = "0.6.0"
+version = "0.6.1"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/BitcreditProtocol/Bitcredit-Core"
@@ -44,7 +44,6 @@ bip39 = { version = "3", features = ["rand"] }
 ecies = { version = "0.2", default-features = false, features = ["pure"] }
 nostr = { version = "0.45", features = ["nip59"] }
 nostr-sdk = { version = "0.45" }
-getrandom = "0.4.3"
 async-broadcast = "0.7.2"
 rstest = "0.28"
 reqwest = { version = "0.13", default-features = false }
