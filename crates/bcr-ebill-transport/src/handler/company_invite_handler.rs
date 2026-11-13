@@ -40,6 +40,7 @@ struct CompanyInviteCandidate {
     accepted_event_count: usize,
 }
 
+const MAX_ATTEMPTS: usize = 5;
 #[async_trait]
 impl NotificationHandlerApi for CompanyInviteEventHandler {
     fn handles_event(&self, event_type: &EventType) -> bool {
@@ -69,24 +70,26 @@ impl NotificationHandlerApi for CompanyInviteEventHandler {
 
         let handler = self.clone();
         // retry chain onboarding in case the events are not available yet
-        tokio::spawn(async move {
-            for attempt in 0..20 {
-                match handler
-                    .try_process_chain(&company_id, &keys, &event, &decoded)
-                    .await
-                {
-                    Ok(true) => return,
-                    Ok(false) => {
-                        debug!("Company Chain not available yet, attempt {attempt}");
-                    }
-                    Err(e) => {
-                        warn!("Failed resolving company chain {company_id}: {e}");
-                    }
+        for attempt in 0..MAX_ATTEMPTS {
+            match handler
+                .try_process_chain(&company_id, &keys, &event, &decoded)
+                .await
+            {
+                Ok(true) => return Ok(()),
+                Ok(false) => {
+                    debug!("Company Chain not available yet, attempt {attempt}");
                 }
+                Err(e) => {
+                    warn!("Failed resolving company chain {company_id}: {e}");
+                }
+            }
+
+            if attempt + 1 < MAX_ATTEMPTS {
                 tokio::time::sleep(Duration::from_millis(500)).await;
             }
-            warn!("Failed to onboard company chain {company_id} after retrying");
-        });
+        }
+
+        warn!("Failed to onboard company chain {company_id} after retrying");
 
         Ok(())
     }

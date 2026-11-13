@@ -35,6 +35,7 @@ struct BillInviteCandidate {
     accepted_event_count: usize,
 }
 
+const MAX_ATTEMPTS: usize = 5;
 #[async_trait]
 impl NotificationHandlerApi for BillInviteEventHandler {
     fn handles_event(&self, event_type: &EventType) -> bool {
@@ -59,26 +60,27 @@ impl NotificationHandlerApi for BillInviteEventHandler {
         // persist invite keys
         self.processor.persist_invite_keys(&chain_id, &keys).await?;
 
-        let handler = self.clone();
         // retry chain onboarding in case the events are not available yet
-        tokio::spawn(async move {
-            for attempt in 0..20 {
-                match handler
-                    .try_process_chain(&chain_id, &keys, &event, &decoded)
-                    .await
-                {
-                    Ok(true) => return,
-                    Ok(false) => {
-                        debug!("Bill Chain not available yet, attempt {attempt}");
-                    }
-                    Err(e) => {
-                        warn!("Failed resolving bill chain {chain_id}: {e}");
-                    }
+        for attempt in 0..MAX_ATTEMPTS {
+            match self
+                .try_process_chain(&chain_id, &keys, &event, &decoded)
+                .await
+            {
+                Ok(true) => return Ok(()),
+                Ok(false) => {
+                    debug!("Bill Chain not available yet, attempt {attempt}");
                 }
+                Err(e) => {
+                    warn!("Failed resolving bill chain {chain_id}: {e}");
+                }
+            }
+
+            if attempt + 1 < MAX_ATTEMPTS {
                 tokio::time::sleep(Duration::from_millis(500)).await;
             }
-            warn!("Failed to onboard bill chain {chain_id} after retrying");
-        });
+        }
+
+        warn!("Failed to onboard bill chain {chain_id} after retrying");
 
         Ok(())
     }
