@@ -9,7 +9,7 @@ use futures::stream::FuturesUnordered;
 use futures::{StreamExt, stream};
 use log::{error, info, warn};
 use std::{collections::HashSet, sync::Arc, time::Duration};
-use tokio::sync::Notify;
+use tokio::sync::{Mutex, Notify};
 use tokio::{sync::watch, time::MissedTickBehavior};
 
 const MAX_PARALLEL_DELIVERIES: usize = 8;
@@ -25,6 +25,7 @@ pub struct NostrPropagationService {
     transport: Arc<dyn TransportClientApi>,
     bitcoin_network: bitcoin::Network,
     retry_wakeup: Arc<Notify>,
+    delivery_write_lock: Arc<Mutex<()>>, // don't overload the DB
 }
 
 impl NostrPropagationService {
@@ -38,6 +39,7 @@ impl NostrPropagationService {
             transport,
             bitcoin_network,
             retry_wakeup: Arc::new(Notify::new()),
+            delivery_write_lock: Arc::new(Mutex::new(())),
         }
     }
 
@@ -157,6 +159,8 @@ impl NostrPropagationService {
                 delivery.event.id, delivery.relay_url, self.bitcoin_network
             ))),
         };
+        // serialize db writes only
+        let _write_guard = self.delivery_write_lock.lock().await;
         match result {
             Ok(()) => {
                 self.store

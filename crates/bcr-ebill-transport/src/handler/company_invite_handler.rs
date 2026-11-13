@@ -1,4 +1,4 @@
-use std::{str::FromStr, sync::Arc};
+use std::{str::FromStr, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
@@ -67,88 +67,26 @@ impl NotificationHandlerApi for CompanyInviteEventHandler {
             .persist_invite_keys(&company_id, &keys)
             .await?;
 
-        let Ok(chain_data) = resolve_event_chains(
-            self.transport.clone(),
-            &decoded.data.chain_id,
-            decoded.data.chain_type,
-            &Some(keys.clone()),
-        )
-        .await
-        else {
-            error!("Could not extract chain data for company invite event {event:?}");
-            return Ok(());
-        };
-
-        let mut candidates = Vec::new();
-
-        // Validate every Nostr branch before persisting any of them
-        for (chain_index, data) in chain_data.iter().enumerate() {
-            trace!(
-                "Processing company chain candidate with {} raw events",
-                data.len()
-            );
-            let mut blocks: Vec<CompanyBlock> = data
-                .iter()
-                .filter_map(|event_container| match &event_container.block {
-                    BlockData::Company(block) => Some(block.clone()),
-                    _ => None,
-                })
-                .collect();
-
-            if blocks.is_empty() {
-                continue;
-            }
-
-            let accepted_count = match self
-                .processor
-                .valid_chain_prefix_len(&company_id, &blocks, &keys)
-                .await
-            {
-                Ok(count) if count > 0 => count,
-                Ok(_) => continue,
-                Err(e) => {
-                    debug!(
-                        "Ignoring company invite candidate with no valid prefix for {company_id}: {e}"
-                    );
-                    continue;
+        let handler = self.clone();
+        // retry chain onboarding in case the events are not available yet
+        tokio::spawn(async move {
+            for attempt in 0..20 {
+                match handler
+                    .try_process_chain(&company_id, &keys, &event, &decoded)
+                    .await
+                {
+                    Ok(true) => return,
+                    Ok(false) => {
+                        debug!("Company Chain not available yet, attempt {attempt}");
+                    }
+                    Err(e) => {
+                        warn!("Failed resolving company chain {company_id}: {e}");
+                    }
                 }
-            };
-
-            // truncate blocks and metadata
-            blocks.truncate(accepted_count);
-            candidates.push(CompanyInviteCandidate {
-                chain_index,
-                blocks,
-                accepted_event_count: accepted_count,
-            });
-        }
-
-        // select best chain
-        candidates.sort_by(|a, b| compare_block_chains(&a.blocks, &b.blocks));
-        let Some(selected) = candidates.into_iter().next() else {
-            debug!("No valid company chain candidate found for invite {company_id}");
-            return Ok(());
-        };
-
-        let selected_chain_index = selected.chain_index;
-        let accepted_event_count = selected.accepted_event_count;
-        // only persist the winning candidate
-        self.processor
-            .process_chain_data(&company_id, selected.blocks, Some(keys))
-            .await?;
-
-        // we are onboarded to the chain so store all valid Nostr chain data
-        if let Err(e) = self
-            .store_events(
-                &decoded.data.chain_id,
-                decoded.data.chain_type,
-                &chain_data[selected_chain_index],
-                accepted_event_count,
-            )
-            .await
-        {
-            error!("Error storing chain events: {e}");
-        }
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+            warn!("Failed to onboard company chain {company_id} after retrying");
+        });
 
         Ok(())
     }
@@ -191,6 +129,98 @@ impl CompanyInviteEventHandler {
             }
         }
         Ok(())
+    }
+
+    async fn try_process_chain(
+        &self,
+        company_id: &NodeId,
+        keys: &BcrKeys,
+        event: &EventEnvelope,
+        decoded: &Event<ChainInvite>,
+    ) -> Result<bool> {
+        let Ok(chain_data) = resolve_event_chains(
+            self.transport.clone(),
+            &decoded.data.chain_id,
+            decoded.data.chain_type,
+            &Some(keys.clone()),
+        )
+        .await
+        else {
+            error!("Could not extract chain data for company invite event {event:?}");
+            return Ok(false);
+        };
+
+        let mut candidates = Vec::new();
+
+        // Validate every Nostr branch before persisting any of them
+        for (chain_index, data) in chain_data.iter().enumerate() {
+            trace!(
+                "Processing company chain candidate with {} raw events",
+                data.len()
+            );
+            let mut blocks: Vec<CompanyBlock> = data
+                .iter()
+                .filter_map(|event_container| match &event_container.block {
+                    BlockData::Company(block) => Some(block.clone()),
+                    _ => None,
+                })
+                .collect();
+
+            if blocks.is_empty() {
+                continue;
+            }
+
+            let accepted_count = match self
+                .processor
+                .valid_chain_prefix_len(company_id, &blocks, keys)
+                .await
+            {
+                Ok(count) if count > 0 => count,
+                Ok(_) => continue,
+                Err(e) => {
+                    debug!(
+                        "Ignoring company invite candidate with no valid prefix for {company_id}: {e}"
+                    );
+                    continue;
+                }
+            };
+
+            // truncate blocks and metadata
+            blocks.truncate(accepted_count);
+            candidates.push(CompanyInviteCandidate {
+                chain_index,
+                blocks,
+                accepted_event_count: accepted_count,
+            });
+        }
+
+        // select best chain
+        candidates.sort_by(|a, b| compare_block_chains(&a.blocks, &b.blocks));
+        let Some(selected) = candidates.into_iter().next() else {
+            debug!("No valid company chain candidate found for invite {company_id}");
+            return Ok(false);
+        };
+
+        let selected_chain_index = selected.chain_index;
+        let accepted_event_count = selected.accepted_event_count;
+        // only persist the winning candidate
+        self.processor
+            .process_chain_data(company_id, selected.blocks, Some(keys.clone()))
+            .await?;
+
+        // we are onboarded to the chain so store all valid Nostr chain data
+        if let Err(e) = self
+            .store_events(
+                &decoded.data.chain_id,
+                decoded.data.chain_type,
+                &chain_data[selected_chain_index],
+                accepted_event_count,
+            )
+            .await
+        {
+            error!("Error storing chain events: {e}");
+        }
+        Ok(true)
     }
 }
 
