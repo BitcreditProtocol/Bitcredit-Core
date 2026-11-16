@@ -105,9 +105,9 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "ammonia"
-version = "4.2.4"
+version = "4.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f45dfa685e1ec33b1bf1a3b93b8047cbdbef41b6040deebbe6bea7720a45574"
+checksum = "b34ca49e407c06daac53f0c4debe8ff5df9cc2a4e9369d164a5d86ef8c219319"
 dependencies = [
  "cssparser",
  "html5ever",
@@ -5180,9 +5180,9 @@ dependencies = [
 
 [[package]]
 name = "uuid"
-version = "1.29.0"
+version = "1.29.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a0e2d11620c50695fe12bbbfde96b3477fe606e7284c22d505c12ce51214514"
+checksum = "bed99139f7dac9b5cfe5f17be4d66dc7079a34dee1d74bcc77217119240e267c"
 dependencies = [
  "getrandom 0.4.3",
  "js-sys",
