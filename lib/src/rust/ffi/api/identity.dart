@@ -52,11 +52,6 @@ Future<void> switch_({required SwitchIdentity payload}) =>
 Future<SeedPhrase> seedBackup() =>
     RustLib.instance.api.crateFfiApiIdentitySeedBackup();
 
-Future<void> seedRecover({required SeedPhrase seedPhrasePayload}) => RustLib
-    .instance
-    .api
-    .crateFfiApiIdentitySeedRecover(seedPhrasePayload: seedPhrasePayload);
-
 Future<void> shareContactDetails({required ShareContactTo shareContactTo}) =>
     RustLib.instance.api.crateFfiApiIdentityShareContactDetails(
       shareContactTo: shareContactTo,
@@ -83,3 +78,6 @@ Future<List<IdentityEmailConfirmationFfi>> getEmailConfirmations() =>
 
 Future<PropagationStatusFfi?> propagationStatus() =>
     RustLib.instance.api.crateFfiApiIdentityPropagationStatus();
+
+Future<IncomingChainQueueStatusFfi> incomingQueueStatus() =>
+    RustLib.instance.api.crateFfiApiIdentityIncomingQueueStatus();

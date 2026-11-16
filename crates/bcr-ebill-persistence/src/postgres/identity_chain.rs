@@ -37,6 +37,14 @@ impl IdentityChainStoreApi for PostgresIdentityChainStore {
     async fn get_chain(&self) -> Result<IdentityBlockchain> {
         let rows: Vec<IdentityBlockRow> =
             sqlx::query_as(SELECT_CHAIN).fetch_all(&self.pool).await?;
+
+        if rows.is_empty() {
+            return Err(Error::NoSuchEntity(
+                "identity chain".to_string(),
+                String::default(),
+            ));
+        }
+
         let blocks: Vec<IdentityBlock> = rows
             .into_iter()
             .map(TryInto::try_into)

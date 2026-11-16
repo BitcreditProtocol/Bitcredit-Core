@@ -71,6 +71,7 @@ pub enum EbillFfiErrorCode {
     NoConfirmedEmailForIdentIdentity,
     NoFileForFileUploadId,
     NotFound,
+    InvalidIncomingBlock,
     Internal,
     ExternalApi,
     Crypto,
@@ -220,6 +221,9 @@ fn notification_service_error_data(e: NotificationServiceError) -> EbillFfiError
         NotificationServiceError::Validation(e) => validation_error_data(e),
         NotificationServiceError::ExternalApi(e) => err_500(e, EbillFfiErrorCode::ExternalApi),
         NotificationServiceError::NotFound => err_404(e, EbillFfiErrorCode::NotFound),
+        NotificationServiceError::InvalidIncomingBlock(e) => {
+            err_500(e, EbillFfiErrorCode::InvalidIncomingBlock)
+        }
     }
 }
 

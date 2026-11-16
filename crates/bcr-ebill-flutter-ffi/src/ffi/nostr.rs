@@ -5,6 +5,7 @@ use bcr_ebill_core::protocol::Timestamp;
 use flutter_rust_bridge::JoinHandle;
 use log::{debug, info, warn};
 use std::{sync::Arc, time::Duration};
+use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 /// Minimum time between contact data publish checks to avoid excessive network calls
@@ -89,35 +90,14 @@ pub(super) fn start_subscription(
                 },
             };
 
-            // wait for nostr consumer to fail and restart, or cancel the whole process
-            tokio::select! {
-                _ = cancel.cancelled() => {
-                    info!("[{network}] Nostr consumer cancelled");
-                    handle.shutdown().await;
-                    state.set_transport_connected(false);
-                    info!("[{network}] Nostr consumer shutdown completed");
-                    break;
-                }
-
-                _ = async {
-                    while let Some(result) = handle.join_next().await {
-                        match result {
-                            Ok(()) => {
-                                info!("[{network}] Nostr consumer task shutdown with success");
-                            }
-                            Err(e) if e.is_cancelled() => {
-                                info!("[{network}] Nostr consumer task was cancelled");
-                            }
-                            Err(e) => {
-                                warn!("[{network}] Nostr consumer task shutdown with error: {e}");
-                            }
-                        }
-                    }
-                } => {
-                    state.set_transport_connected(false);
-                    warn!("[{network}] Nostr consumer stopped, reconnecting in {reconnect_interval_seconds} seconds...");
-                }
+            let cancelled = supervise_consumer_tasks(&mut handle, &cancel, &network).await;
+            state.set_transport_connected(false);
+            if cancelled {
+                break;
             }
+            warn!(
+                "[{network}] Nostr consumer stopped, reconnecting in {reconnect_interval_seconds} seconds..."
+            );
 
             // reconnect or cancel
             tokio::select! {
@@ -125,7 +105,6 @@ pub(super) fn start_subscription(
                     info!("[{network}] Nostr reconnect cancelled");
                     break;
                 }
-
                 _ = tokio::time::sleep(Duration::from_secs(reconnect_interval_seconds)) => {}
             }
         }
@@ -179,4 +158,99 @@ async fn ensure_transport_contact_data_published(
         .contact_transport()
         .ensure_nostr_contact(default_mint_node_id)
         .await;
+}
+
+/// All consumer tasks form one supervised group
+/// An unexpected exit of any member requires restarting
+/// the entire group. Never start a replacement group
+/// while tasks from the previous group are still active.
+async fn supervise_consumer_tasks(
+    tasks: &mut JoinSet<()>,
+    cancel: &CancellationToken,
+    network: &str,
+) -> bool {
+    let cancelled = tokio::select! {
+        biased;
+        _ = cancel.cancelled() => {
+            info!("[{network}] Nostr consumer cancelled");
+            true
+        }
+        result = tasks.join_next() => {
+            match result {
+                Some(Ok(())) => {
+                    warn!(
+                        "[{network}] Nostr consumer task exited unexpectedly"
+                    );
+                }
+                Some(Err(e)) => {
+                    warn!(
+                        "[{network}] Nostr consumer task failed: {e}"
+                    );
+                }
+                None => {
+                    warn!(
+                        "[{network}] No Nostr consumer tasks remain"
+                    );
+                }
+            }
+            false
+        }
+    };
+    // Abort and join every remaining task before returning
+    tasks.shutdown().await;
+    info!("[{network}] Nostr consumer shutdown completed");
+    cancelled || cancel.is_cancelled()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn consumer_restarts_when_one_task_exits() {
+        let cancel = CancellationToken::new();
+        let mut tasks = JoinSet::new();
+        // One task exits while another would run forever
+        tasks.spawn(async {});
+        tasks.spawn(std::future::pending::<()>());
+        let cancelled = tokio::time::timeout(
+            Duration::from_secs(2),
+            supervise_consumer_tasks(&mut tasks, &cancel, "testnet"),
+        )
+        .await
+        .expect("Supervisor waited for every task to exit");
+        assert!(!cancelled);
+        assert!(tasks.is_empty());
+    }
+
+    #[tokio::test]
+    async fn consumer_cancellation_joins_all_tasks() {
+        let cancel = CancellationToken::new();
+        let mut tasks = JoinSet::new();
+        for _ in 0..4 {
+            tasks.spawn(std::future::pending::<()>());
+        }
+        cancel.cancel();
+        let cancelled = supervise_consumer_tasks(&mut tasks, &cancel, "testnet").await;
+        assert!(cancelled);
+        assert!(tasks.is_empty());
+    }
+
+    #[tokio::test]
+    async fn consumer_restarts_after_worker_panic() {
+        let cancel = CancellationToken::new();
+        let mut tasks = JoinSet::new();
+        tasks.spawn(async {
+            panic!("Simulated worker failure");
+        });
+        tasks.spawn(std::future::pending::<()>());
+        let cancelled = tokio::time::timeout(
+            Duration::from_secs(2),
+            supervise_consumer_tasks(&mut tasks, &cancel, "testnet"),
+        )
+        .await
+        .unwrap();
+        assert!(!cancelled);
+        assert!(tasks.is_empty());
+    }
 }

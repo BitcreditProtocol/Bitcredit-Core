@@ -1,15 +1,26 @@
 use crate::{
     Error, Result,
-    handler::public_chain_helpers::{
-        BlockData, chain_matches_local, compare_block_chains, find_first_difference, is_fork_block,
-        resolve_event_chains, resolve_fork,
+    handler::{
+        IncomingChainApplyResult,
+        incoming_chain_application::{
+            BlockPosition, block_position, classify_verified_application_result, deferred_position,
+            map_block_signer_error, map_chain_action_validation_error, map_remote_block_data_error,
+            preferred_extension, valid_fork_step, validate_incoming_block_integrity,
+            validate_remote_plaintext,
+        },
+        public_chain_helpers::{
+            BlockData, chain_matches_local, compare_block_chains, find_first_difference,
+            resolve_event_chains,
+        },
     },
 };
 use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_api::{
     Config,
-    service::transport_service::{ResyncMode, transport_client::TransportClientApi},
+    service::transport_service::{
+        InvalidIncomingBlock, ResyncMode, transport_client::TransportClientApi,
+    },
 };
 use bcr_ebill_core::{
     application::contact::Contact,
@@ -18,7 +29,7 @@ use bcr_ebill_core::{
         blockchain::{
             Block,
             bill::ContactType,
-            identity::{IdentityType, IdentityValidateActionData},
+            identity::{IdentityOpCode, IdentityType, IdentityValidateActionData},
         },
         crypto::BcrKeys,
         event::{ChainInvite, Event},
@@ -40,7 +51,8 @@ use bcr_ebill_core::{
     protocol::{BlockId, EditOptionalFieldMode},
 };
 use bcr_ebill_persistence::{
-    ContactStoreApi, NostrChainEventStoreApi, traits::transaction::TransactionManagerApi,
+    ContactStoreApi, Error as PersistenceError, NostrChainEventStoreApi,
+    traits::transaction::TransactionManagerApi,
 };
 use bcr_ebill_persistence::{
     FileReferenceStoreApi,
@@ -115,36 +127,6 @@ pub struct IdentityChainEventProcessor {
 
 #[async_trait]
 impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
-    async fn process_chain_data(
-        &self,
-        node_id: &NodeId,
-        blocks: Vec<IdentityBlock>,
-        keys: Option<BcrKeys>,
-    ) -> Result<()> {
-        // check that incoming identity blocks are of the same network that we use
-        if node_id.network() != self.bitcoin_network {
-            warn!("Received identity blocks for node {node_id} for a different network");
-            return Err(Error::Blockchain(format!(
-                "Received identity blocks for node {node_id} for a different network"
-            )));
-        }
-
-        if let Ok(mut existing_chain) = self.blockchain_store.get_chain().await {
-            self.add_identity_blocks(node_id, &mut existing_chain, blocks, false)
-                .await
-        } else {
-            match keys {
-                Some(keys) => self.add_new_chain(blocks, &keys).await,
-                _ => {
-                    error!("Received identity blocks for unknown identity {node_id}");
-                    Err(Error::Blockchain(
-                        "Received identity blocks for unknown identity".to_string(),
-                    ))
-                }
-            }
-        }
-    }
-
     fn validate_chain_event_and_sender(
         &self,
         node_id: &NodeId,
@@ -154,6 +136,11 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
     }
 
     async fn resync_chain(&self, mode: ResyncMode) -> Result<()> {
+        if matches!(mode, ResyncMode::Normal) {
+            return Err(Error::Blockchain(
+                "Normal identity resync uses the durable incoming catch-up pipeline".into(),
+            ));
+        }
         match (
             self.blockchain_store.get_chain().await,
             self.identity_store.get_full().await,
@@ -315,32 +302,14 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
                         );
                         continue;
                     }
-                    let replace_from = match mode {
-                        ResyncMode::Normal => {
-                            let (is_preferred, fork_point) =
-                                resolve_fork(existing_chain.blocks(), prepared.chain.blocks());
-                            if !is_preferred {
-                                continue;
-                            }
-                            fork_point
-                        }
-                        // In this mode, we want to find the point where the local chain diverges from the Nostr chain
-                        ResyncMode::NostrAuthoritative => {
-                            let difference = find_first_difference(
-                                existing_chain.blocks(),
-                                prepared.chain.blocks(),
-                            );
-                            if difference == Some(BlockId::first()) {
-                                saw_authoritative_genesis_mismatch = true;
-                                continue;
-                            }
-                            difference
-                        }
-                        ResyncMode::OnlyMissingMetadata { .. } => {
-                            // metadata-only resync handled above
-                            return Ok(());
-                        }
-                    };
+                    let replace_from =
+                        find_first_difference(existing_chain.blocks(), prepared.chain.blocks());
+
+                    if replace_from == Some(BlockId::first()) {
+                        saw_authoritative_genesis_mismatch = true;
+                        continue;
+                    }
+
                     candidates.push((data_index, prepared, replace_from));
                 }
 
@@ -353,15 +322,13 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
                 let Some((selected_data_index, prepared, replace_from)) =
                     candidates.into_iter().next()
                 else {
-                    if matches!(mode, ResyncMode::NostrAuthoritative)
-                        && saw_authoritative_genesis_mismatch
-                    {
+                    if saw_authoritative_genesis_mismatch {
                         return Err(Error::Blockchain(
                             "Nostr-authoritative resync could not find a valid identity chain with matching genesis".to_string(),
                         ));
                     }
                     debug!(
-                        "finished identity chain resync for {} - no preferred valid remote chain found",
+                        "finished identity chain resync for {} - no valid remote chain found",
                         identity.node_id
                     );
                     return Ok(());
@@ -523,20 +490,126 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
         }
     }
 
-    fn valid_chain_prefix_len(
+    async fn apply_verified_block(
         &self,
         node_id: &NodeId,
-        blocks: &[IdentityBlock],
-        keys: &BcrKeys,
-    ) -> Result<usize> {
-        let prepared = self.prepare_identity_chain_valid_prefix(blocks, keys)?;
-        if &prepared.node_id != node_id {
-            return Err(Error::Blockchain(format!(
-                "Identity chain belongs to {}, expected {}",
-                prepared.node_id, node_id,
-            )));
+        block: IdentityBlock,
+        keys: BcrKeys,
+    ) -> Result<IncomingChainApplyResult> {
+        if node_id.network() != self.bitcoin_network {
+            return Ok(IncomingChainApplyResult::Rejected(
+                "Identity belongs to another network".into(),
+            ));
         }
-        Ok(prepared.chain.blocks().len())
+        if let Err(e) = validate_incoming_block_integrity(&block) {
+            return classify_verified_application_result(Err(e));
+        }
+        // get chain
+        let existing = match self.blockchain_store.get_chain().await {
+            Ok(chain) => Some(chain),
+            Err(PersistenceError::NoSuchEntity(_, _)) => None,
+            Err(e) => return Err(Error::Persistence(e.to_string())),
+        };
+        // calculate status of the block
+        let position = block_position(existing.as_ref(), &block);
+
+        // replay child-chain recovery effects
+        if position == BlockPosition::AlreadyApplied
+            && matches!(
+                block.op_code,
+                IdentityOpCode::CreateCompany | IdentityOpCode::SignPersonBill
+            )
+        {
+            // The canonical block may have committed before its child-chain keys were persisted
+            let payload = block
+                .get_block_data(&keys)
+                .map_err(|e| Error::Blockchain(e.to_string()))?;
+            if let Some(effect) = Self::child_chain_recovery_effect(&payload) {
+                self.process_post_commit_effects(node_id, vec![effect])
+                    .await?;
+            }
+        }
+
+        // if it's not "Next" - return status
+        if let Some(outcome) = deferred_position(position) {
+            return Ok(outcome);
+        }
+        if existing.is_none() {
+            if block.op_code != IdentityOpCode::Create {
+                return classify_verified_application_result(Err(
+                    InvalidIncomingBlock::UnexpectedOperation(
+                        "Identity genesis must be Create".into(),
+                    )
+                    .into(),
+                ));
+            }
+            let payload = match block.get_block_data(&keys) {
+                Ok(payload) => payload,
+                Err(e) => {
+                    return classify_verified_application_result(Err(map_remote_block_data_error(
+                        e,
+                    )));
+                }
+            };
+            match payload {
+                IdentityBlockPayload::Create(data) if &data.node_id == node_id => {}
+                IdentityBlockPayload::Create(_) => {
+                    return classify_verified_application_result(Err(
+                        InvalidIncomingBlock::WrongChain.into(),
+                    ));
+                }
+                _ => {
+                    return classify_verified_application_result(Err(
+                        InvalidIncomingBlock::UnexpectedOperation(
+                            "Identity genesis payload must be Create".into(),
+                        )
+                        .into(),
+                    ));
+                }
+            }
+        }
+
+        // attempt to apply
+        let result = match existing {
+            Some(mut chain) => {
+                self.add_identity_blocks(node_id, &mut chain, vec![block], &keys)
+                    .await
+            }
+            None => self.add_new_chain(vec![block], &keys).await,
+        };
+        classify_verified_application_result(result)
+    }
+
+    async fn preferred_verified_branch(
+        &self,
+        node_id: &NodeId,
+        blocks: &[(usize, IdentityBlock)],
+        keys: &BcrKeys,
+    ) -> Result<Vec<usize>> {
+        let local = match self.blockchain_store.get_chain().await {
+            Ok(chain) => Some(chain),
+            Err(PersistenceError::NoSuchEntity(_, _)) => None,
+            Err(e) => return Err(Error::Persistence(e.to_string())),
+        };
+        let identity = if local.is_some() {
+            Some(
+                self.identity_store
+                    .get()
+                    .await
+                    .map_err(|e| Error::Persistence(e.to_string()))?,
+            )
+        } else {
+            None
+        };
+        preferred_extension::<IdentityBlockchain, _>(local.as_ref(), blocks, |path| {
+            std::future::ready(self.verified_extension_len(
+                node_id,
+                local.as_ref().zip(identity.as_ref()),
+                &path,
+                keys,
+            ))
+        })
+        .await
     }
 }
 
@@ -734,14 +807,8 @@ impl IdentityChainEventProcessor {
         node_id: &NodeId,
         chain: &mut IdentityBlockchain,
         blocks: Vec<IdentityBlock>,
-        from_resync: bool,
+        keys: &BcrKeys,
     ) -> Result<()> {
-        let keys = self
-            .identity_store
-            .get_key_pair()
-            .await
-            .map_err(|e| Error::Persistence(e.to_string()))?;
-
         let mut identity = self
             .identity_store
             .get()
@@ -749,51 +816,23 @@ impl IdentityChainEventProcessor {
             .map_err(|e| Error::Persistence(e.to_string()))?;
 
         let mut block_height = chain.get_latest_block().id;
-        for block in blocks.iter() {
+        for block in &blocks {
             if block.id <= block_height {
-                if blocks.len() == 1 && !from_resync {
-                    let latest = chain.get_latest_block();
-                    if is_fork_block(latest, block) {
-                        info!(
-                            "Split chain detected for identity {node_id} at height {} - resyncing",
-                            block.id
-                        );
-                        self.resync_chain(ResyncMode::Normal).await?;
-                        // resync potentially changed the complete chain - don't continue
-                        return Ok(());
-                    }
+                if chain
+                    .blocks()
+                    .iter()
+                    .any(|existing| existing.id == block.id && existing.hash() == block.hash())
+                {
+                    continue;
                 }
-                info!(
-                    "Skipping identity block with id {block_height} for {node_id} as we already have it"
-                );
-                continue;
+                return Err(Error::Blockchain(format!(
+                    "Conflicting identity block {} for {node_id}",
+                    block.id,
+                )));
             }
-            match self
-                .add_identity_block(node_id, &keys, &mut identity, chain, block)
-                .await
-            {
-                Ok(_) => {
-                    block_height = block.id;
-                }
-                Err(e) => {
-                    // if we received a single block (normal block populate) and we are missing blocks, we try to resync
-                    if blocks.len() == 1
-                        && !from_resync
-                        && BlockId::next_from_previous_block_id(&chain.get_latest_block().id)
-                            < block.id
-                    {
-                        info!(
-                            "Received invalid block {} for identity {node_id} - missing blocks - try to resync",
-                            block.id
-                        );
-                        self.resync_chain(ResyncMode::Normal).await?;
-                        // resync potentially changed the complete chain - don't continue
-                        return Ok(());
-                    }
-                    error!("Error adding block for identity {node_id}: {e}");
-                    return Err(e);
-                }
-            }
+            self.add_identity_block(node_id, keys, &mut identity, chain, block)
+                .await?;
+            block_height = block.id;
         }
         debug!("Updated identity {node_id} with data from new blocks");
         Ok(())
@@ -808,18 +847,14 @@ impl IdentityChainEventProcessor {
         keys: &BcrKeys,
         identity_id: &NodeId,
     ) -> Result<IdentityBlockchain> {
+        validate_remote_plaintext(block, keys)?;
         let block_id = block.id;
         // verify signature and signer of the block and get data to validate
-        let verify_and_get_signer = match block.verify_and_get_signer(keys) {
-            Ok(d) => d,
-            Err(e) => {
-                error!(
-                    "Received invalid block {block_id} for identity {identity_id} - could not verify signature from block data signer"
-                );
-                return Err(Error::Blockchain(e.to_string()));
-            }
-        };
-        if let Err(e) = (IdentityValidateActionData {
+        let verify_and_get_signer = block
+            .verify_and_get_signer(keys)
+            .map_err(map_block_signer_error)?;
+
+        (IdentityValidateActionData {
             blockchain: chain.to_owned(),
             id: identity_id.clone(),
             op: block.op_code().clone(),
@@ -827,18 +862,15 @@ impl IdentityChainEventProcessor {
             identity_proof_data: verify_and_get_signer.identity_proof_data,
         })
         .validate()
-        {
-            error!(
-                "Received invalid block {block_id} for identity {identity_id}, identity action validation failed: {e}"
-            );
-            return Err(Error::Blockchain(e.to_string()));
-        }
+        .map_err(map_chain_action_validation_error)?;
+
         let mut candidate_chain = chain.clone();
         if !candidate_chain.try_add_block(block.clone()) {
             error!("Received invalid identity block");
-            return Err(Error::Blockchain(
-                "Received invalid identity block".to_string(),
-            ));
+            return Err(InvalidIncomingBlock::InvalidAction(
+                "Received invalid identity block".into(),
+            )
+            .into());
         }
         Ok(candidate_chain)
     }
@@ -923,6 +955,12 @@ impl IdentityChainEventProcessor {
                     company_key,
                 } => {
                     let company_keys = BcrKeys::from_private_key(&company_key);
+                    if company_id != NodeId::new(company_keys.pub_key(), self.bitcoin_network) {
+                        error!(
+                            "Cannot recover company {company_id}: key does not match company ID"
+                        );
+                        continue;
+                    }
                     let invite = ChainInvite::company(company_id.to_string(), company_keys);
                     self.company_invite_handler
                         .handle_event(
@@ -935,6 +973,10 @@ impl IdentityChainEventProcessor {
                 }
                 IdentityPostCommitEffect::RestoreBill { bill_id, bill_key } => {
                     let bill_keys = BcrKeys::from_private_key(&bill_key);
+                    if bill_id != BillId::new(bill_keys.pub_key(), self.bitcoin_network) {
+                        error!("Cannot recover bill {bill_id}: key does not match bill ID");
+                        continue;
+                    }
                     let invite = ChainInvite::bill(bill_id.to_string(), bill_keys);
                     self.bill_invite_handler
                         .handle_event(Event::new_bill(invite).try_into()?, node_id, None, None)
@@ -976,7 +1018,7 @@ impl IdentityChainEventProcessor {
             self.validate_identity_block_for_chain(chain, block, keys, &identity.node_id)?;
         let data = block
             .get_block_data(keys)
-            .map_err(|e| Error::Blockchain(e.to_string()))?;
+            .map_err(map_remote_block_data_error)?;
         let mut candidate_identity = identity.clone();
         let mut identity_changed = false;
         let mut email_confirmation = None;
@@ -1020,22 +1062,14 @@ impl IdentityChainEventProcessor {
                     data.signatory.clone(),
                 ));
             }
-            IdentityBlockPayload::CreateCompany(data) => {
-                post_commit_effects.push(IdentityPostCommitEffect::RestoreCompany {
-                    company_id: data.company_id.clone(),
-                    company_key: data.company_key,
-                });
-            }
-            IdentityBlockPayload::SignPersonalBill(data) if data.operation == BillOpCode::Issue => {
-                if let Some(bill_key) = data.bill_key {
-                    post_commit_effects.push(IdentityPostCommitEffect::RestoreBill {
-                        bill_id: data.bill_id.clone(),
-                        bill_key,
-                    });
-                }
-            }
             _ => {}
         }
+
+        // capture post-commit effects
+        if let Some(effect) = Self::child_chain_recovery_effect(&data) {
+            post_commit_effects.push(effect);
+        }
+
         Ok((
             PreparedIdentityBlock {
                 block_id: block.id,
@@ -1049,46 +1083,112 @@ impl IdentityChainEventProcessor {
         ))
     }
 
-    /// Validates all blocks in the given chain and returns the the chain with create block and the
-    /// created identity and node id. Will return an error if one of the blocks is invalid.
     fn get_valid_chain(
         &self,
         blocks: Vec<IdentityBlock>,
         keys: &BcrKeys,
     ) -> Result<(NodeId, Identity, IdentityBlockchain)> {
-        match IdentityBlockchain::new_from_blocks(blocks) {
-            Ok(chain) if chain.is_chain_valid() => {
-                let first_block = chain.get_first_block();
-                // create block is where we build up the company from
-                let payload = match first_block
-                    .get_block_data(keys)
-                    .map_err(|e| Error::Blockchain(e.to_string()))?
-                {
-                    IdentityBlockPayload::Create(payload) => payload,
-                    _ => {
-                        error!(
-                            "First block of newly received identity chain is not a Create block"
-                        );
-                        return Err(Error::Blockchain(
-                            "First block of newly received identity chain is not a Create block"
-                                .to_string(),
-                        ));
-                    }
-                };
+        let chain =
+            IdentityBlockchain::new_from_blocks(blocks).map_err(map_remote_block_data_error)?;
+        if !chain.is_chain_valid() {
+            return Err(
+                InvalidIncomingBlock::InvalidAction("Invalid identity chain".into()).into(),
+            );
+        }
+        let first_block = chain.get_first_block();
+        if first_block.op_code != IdentityOpCode::Create {
+            return Err(InvalidIncomingBlock::UnexpectedOperation(
+                "Identity genesis must be Create".into(),
+            )
+            .into());
+        }
+        validate_remote_plaintext(first_block, keys)?;
+        let payload = first_block
+            .get_block_data(keys)
+            .map_err(map_remote_block_data_error)?;
+        let IdentityBlockPayload::Create(payload) = payload else {
+            return Err(InvalidIncomingBlock::UnexpectedOperation(
+                "Identity genesis payload must be Create".into(),
+            )
+            .into());
+        };
+        first_block
+            .verify_and_get_signer(keys)
+            .map_err(map_block_signer_error)?;
+        let identity = Identity::from_block_data(payload);
+        let node_id = identity.node_id.clone();
+        let return_chain = IdentityBlockchain::new_from_blocks(vec![first_block.clone()])
+            .map_err(map_remote_block_data_error)?;
+        Ok((node_id, identity, return_chain))
+    }
 
-                // initialize identity and chain from first block
-                let identity = Identity::from_block_data(payload);
-                let node_id = identity.node_id.clone();
-                let return_chain = IdentityBlockchain::new_from_blocks(vec![first_block.clone()])
-                    .map_err(|e| Error::Blockchain(e.to_string()))?;
-                Ok((node_id, identity, return_chain))
+    fn verified_extension_len(
+        &self,
+        node_id: &NodeId,
+        existing: Option<(&IdentityBlockchain, &Identity)>,
+        blocks: &[IdentityBlock],
+        keys: &BcrKeys,
+    ) -> Result<usize> {
+        let Some(first) = blocks.first() else {
+            return Ok(0);
+        };
+        let (mut chain, mut identity, mut len) = match existing {
+            Some((chain, identity)) => {
+                if &identity.node_id != node_id {
+                    return Ok(0);
+                }
+                (chain.clone(), identity.clone(), 0)
             }
-            _ => {
-                error!("Newly received identity chain is not valid");
-                Err(Error::Blockchain(
-                    "Newly received identity chain is not valid".to_string(),
-                ))
+            None => {
+                if first.op_code != IdentityOpCode::Create {
+                    return Ok(0);
+                }
+                let Some((id, identity, chain)) =
+                    valid_fork_step(self.get_valid_chain(vec![first.clone()], keys))?
+                else {
+                    return Ok(0);
+                };
+                if &id != node_id {
+                    return Ok(0);
+                }
+                (chain, identity, 1)
             }
+        };
+        for block in blocks.iter().skip(len) {
+            if !block.validate_with_previous(chain.get_latest_block()) {
+                break;
+            }
+            let Some((_, next_chain, next_identity)) =
+                valid_fork_step(self.prepare_identity_block(&chain, &identity, block, keys))?
+            else {
+                break;
+            };
+            chain = next_chain;
+            identity = next_identity;
+            len += 1;
+        }
+        Ok(len)
+    }
+
+    /// Recoverable child-chain references contained in an already validated identity block
+    fn child_chain_recovery_effect(
+        payload: &IdentityBlockPayload,
+    ) -> Option<IdentityPostCommitEffect> {
+        match payload {
+            IdentityBlockPayload::CreateCompany(data) => {
+                Some(IdentityPostCommitEffect::RestoreCompany {
+                    company_id: data.company_id.clone(),
+                    company_key: data.company_key,
+                })
+            }
+            IdentityBlockPayload::SignPersonalBill(data) if data.operation == BillOpCode::Issue => {
+                data.bill_key
+                    .map(|bill_key| IdentityPostCommitEffect::RestoreBill {
+                        bill_id: data.bill_id.clone(),
+                        bill_key,
+                    })
+            }
+            _ => None,
         }
     }
 }
@@ -1101,6 +1201,7 @@ pub mod tests {
         MockPersistenceTransactionApiMock, MockTransactionManagerApiMock, transaction_manager_with,
         update_identity_block_with_name,
     };
+    use crate::handler::{IncomingChainApplyResult, IncomingChainDependency};
     use crate::test_utils::{MockContactStore, signed_identity_proof_test, test_cfg, test_ts};
     use crate::{
         handler::{
@@ -1115,9 +1216,18 @@ pub mod tests {
         test_utils::{MockFileReferenceStore, MockNotificationJsonTransport},
         transport::create_public_chain_event,
     };
+    use bcr_common::core::BillId;
     use bcr_common::core::NodeId;
-    use bcr_ebill_api::service::transport_service::ResyncMode;
+    use bcr_ebill_api::service::transport_service::{Error, ResyncMode};
     use bcr_ebill_core::protocol::event::{Event, EventEnvelope, IdentityBlockEvent};
+    use bcr_ebill_core::protocol::{
+        BlockId,
+        blockchain::{
+            bill::BillOpCode,
+            identity::{IdentityCreateCompanyBlockData, IdentitySignPersonBillBlockData},
+        },
+        event::ChainInvite,
+    };
     use bcr_ebill_core::{
         application::identity::Identity,
         protocol::blockchain::{
@@ -1132,34 +1242,6 @@ pub mod tests {
     use mockall::predicate::eq;
     use nostr::event::FinalizeEvent;
     use std::sync::Arc;
-
-    #[tokio::test]
-    async fn test_create_event_handler() {
-        let (
-            chain_store,
-            store,
-            contact,
-            company_invite,
-            bill_invite,
-            chain_event_store,
-            transport,
-            contact_store,
-        ) = create_mocks();
-        IdentityChainEventProcessor::new(
-            Arc::new(chain_store),
-            Arc::new(store),
-            Arc::new(MockFileReferenceStore::new()),
-            Arc::new(company_invite),
-            Arc::new(bill_invite),
-            Arc::new(contact),
-            Arc::new(chain_event_store),
-            Arc::new(transport),
-            Arc::new(contact_store),
-            Arc::new(MockTransactionManagerApiMock::new()),
-            bitcoin::Network::Testnet,
-            Arc::new(test_cfg()),
-        );
-    }
 
     #[tokio::test]
     async fn test_validate_chain_event_and_sender_invalid_on_no_keys_or_chain() {
@@ -1313,12 +1395,6 @@ pub mod tests {
             .returning(move || Ok(chain.clone()))
             .once();
 
-        // we have a chain so get the keys
-        store
-            .expect_get_key_pair()
-            .returning(move || Ok(keys.clone()))
-            .once();
-
         // get the current identity state
         let expected_identity = identity.clone();
         store
@@ -1357,14 +1433,16 @@ pub mod tests {
             Arc::new(test_cfg()),
         );
 
-        handler
-            .process_chain_data(&identity.node_id, vec![update_block], None)
+        let result = handler
+            .apply_verified_block(&identity.node_id, update_block, keys)
             .await
-            .expect("Process chain data should be handled");
+            .unwrap();
+
+        assert_eq!(result, IncomingChainApplyResult::Applied);
     }
 
     #[tokio::test]
-    async fn test_recovers_chain_on_missing_blocks() {
+    async fn test_rejects_missing_blocks_without_resync() {
         let (
             mut chain_store,
             mut store,
@@ -1398,101 +1476,21 @@ pub mod tests {
         let data = update_identity_block_with_name(Some(Name::new("another_name").unwrap()));
         let update_block = get_identity_update_block(full_chain.get_latest_block(), &keys, &data);
 
-        let event1 = generate_test_event(
-            &keys,
-            None,
-            None,
-            as_event_payload(&full.identity.node_id, skipped_chain.get_first_block()),
-            &full.identity.node_id,
-        );
-
-        let event1_proof = generate_test_event(
-            &keys,
-            Some(event1.clone()),
-            Some(event1.clone()),
-            as_event_payload(&full.identity.node_id, skipped_chain.get_latest_block()),
-            &full.identity.node_id,
-        );
-
-        let event2 = generate_test_event(
-            &keys,
-            Some(event1_proof.clone()),
-            Some(event1.clone()),
-            as_event_payload(&full.identity.node_id, &skipped_block),
-            &full.identity.node_id,
-        );
-
-        let event3 = generate_test_event(
-            &keys,
-            Some(event2.clone()),
-            Some(event1.clone()),
-            as_event_payload(&full.identity.node_id, &update_block),
-            &full.identity.node_id,
-        );
-
-        let nostr_chain = vec![
-            event1.clone(),
-            event1_proof.clone(),
-            event2.clone(),
-            event3.clone(),
-        ];
-
         // checks if we already have the chain two times with one call for the chain resync
         chain_store
             .expect_get_chain()
             .returning(move || Ok(skipped_chain.clone()))
-            .times(2);
+            .times(1);
 
         // we have a chain so get the keys
-        store
-            .expect_get_key_pair()
-            .returning(move || Ok(keys.clone()))
-            .once();
+        let apply_keys = keys.clone();
 
-        // get the current identity state
-        let expected_identity = identity.clone();
-        store
-            .expect_get()
-            .returning(move || Ok(expected_identity.clone()))
-            .once();
+        store.expect_get_full().never();
 
-        // chain resync gets the full identity
-        let full_id = full.clone();
-        store
-            .expect_get_full()
-            .returning(move || Ok(full_id.clone()));
+        transport.expect_resolve_public_chain().never();
 
-        // and queries the chain from the transport
-        transport
-            .expect_resolve_public_chain()
-            .with(
-                eq(full.identity.node_id.to_string()),
-                eq(BlockchainType::Identity),
-            )
-            .returning(move |_, _| Ok(nostr_chain.clone()))
-            .once();
-
-        chain_event_store
-            .expect_remove_chain_events()
-            .returning(|_, _| Ok(()));
-
-        chain_event_store
-            .expect_add_chain_event()
-            .returning(|_| Ok(()))
-            .times(0..);
-
-        let expected_final_name = Name::new("another_name").unwrap();
-        let mut tx = MockPersistenceTransactionApiMock::new();
-        tx.expect_append_identity_blocks()
-            .withf(|expected_latest, blocks| expected_latest.is_some() && blocks.len() == 2)
-            .returning(|_, _| Ok(()))
-            .once();
-        tx.expect_save_identity()
-            .withf(move |identity| identity.name == expected_final_name)
-            .returning(|_| Ok(()))
-            .once();
-        tx.expect_commit().return_once(|| Ok(()));
-        let transaction_mgr = transaction_manager_with(tx);
+        chain_event_store.expect_remove_chain_events().never();
+        chain_event_store.expect_add_chain_event().never();
 
         let handler = IdentityChainEventProcessor::new(
             Arc::new(chain_store),
@@ -1504,15 +1502,20 @@ pub mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(contact_store),
-            Arc::new(transaction_mgr),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
 
-        handler
-            .process_chain_data(&identity.node_id, vec![update_block], None)
+        let outcome = handler
+            .apply_verified_block(&identity.node_id, update_block, apply_keys)
             .await
-            .expect("Process chain data should be handled");
+            .unwrap();
+
+        assert_eq!(
+            outcome,
+            IncomingChainApplyResult::Deferred(IncomingChainDependency::MissingPredecessor,),
+        );
     }
 
     fn as_event_payload(id: &NodeId, block: &IdentityBlock) -> EventEnvelope {
@@ -1583,10 +1586,6 @@ pub mod tests {
             .once();
 
         // we have a chain so get the keys
-        store
-            .expect_get_key_pair()
-            .returning(move || Ok(keys.clone()))
-            .once();
         let expected_hash = identity_proof_block.hash.clone();
         let mut tx = MockPersistenceTransactionApiMock::new();
         tx.expect_append_identity_blocks()
@@ -1616,10 +1615,12 @@ pub mod tests {
             Arc::new(test_cfg()),
         );
 
-        handler
-            .process_chain_data(&identity.node_id, vec![identity_proof_block], None)
+        let result = handler
+            .apply_verified_block(&identity.node_id, identity_proof_block, keys)
             .await
-            .expect("Process chain data should be handled");
+            .unwrap();
+
+        assert_eq!(result, IncomingChainApplyResult::Applied);
     }
 
     pub fn get_identity_create_block(identity: Identity, keys: &BcrKeys) -> IdentityBlock {
@@ -2038,7 +2039,7 @@ pub mod tests {
             Arc::new(test_cfg()),
         );
         handler
-            .resync_chain(ResyncMode::Normal)
+            .resync_chain(ResyncMode::NostrAuthoritative)
             .await
             .expect("second valid candidate should be used");
     }
@@ -2376,8 +2377,177 @@ pub mod tests {
             Arc::new(test_cfg()),
         );
         handler
-            .resync_chain(ResyncMode::Normal)
+            .resync_chain(ResyncMode::NostrAuthoritative)
             .await
             .expect("resync should recover valid blocks before an invalid remote tail");
+    }
+
+    #[tokio::test]
+    async fn test_processor_normal_resync_is_disabled() {
+        let (
+            chain_store,
+            store,
+            contact,
+            company_invite,
+            bill_invite,
+            event_store,
+            mut transport,
+            contact_store,
+        ) = create_mocks();
+        transport.expect_resolve_public_chain().never();
+        let handler = IdentityChainEventProcessor::new(
+            Arc::new(chain_store),
+            Arc::new(store),
+            Arc::new(MockFileReferenceStore::new()),
+            Arc::new(company_invite),
+            Arc::new(bill_invite),
+            Arc::new(contact),
+            Arc::new(event_store),
+            Arc::new(transport),
+            Arc::new(contact_store),
+            Arc::new(MockTransactionManagerApiMock::new()),
+            bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
+        );
+        let result = handler.resync_chain(ResyncMode::Normal).await;
+        assert!(matches!(result, Err(Error::Blockchain(_))));
+    }
+
+    #[tokio::test]
+    async fn identity_replays_child_chain_recovery_for_committed_blocks() {
+        let (
+            mut chain_store,
+            store,
+            contact,
+            mut company_invite,
+            mut bill_invite,
+            chain_event_store,
+            transport,
+            contact_store,
+        ) = create_mocks();
+        let full = get_baseline_identity();
+        let node_id = full.identity.node_id.clone();
+        let keys = full.key_pair.clone();
+        let genesis = get_identity_create_block(full.identity, &keys);
+        let signed_proof = signed_identity_proof_test();
+        let proof = get_identity_proof_block(
+            &genesis,
+            &keys,
+            &IdentityProofBlockData {
+                proof: signed_proof.0,
+                data: signed_proof.1,
+            },
+        );
+        let network = bitcoin::Network::Testnet;
+        let company_keys = BcrKeys::new();
+        let company_id = NodeId::new(company_keys.pub_key(), network);
+        let company_block = IdentityBlock::create_block_for_create_company(
+            &proof,
+            &IdentityCreateCompanyBlockData {
+                company_id: company_id.clone(),
+                company_key: company_keys.get_private_key(),
+                block_hash: Sha256Hash::new("company genesis"),
+            },
+            &keys,
+            test_ts(),
+        )
+        .unwrap();
+
+        let bill_keys = BcrKeys::new();
+        let bill_id = BillId::new(bill_keys.pub_key(), network);
+        let bill_block = IdentityBlock::create_block_for_sign_person_bill(
+            &company_block,
+            &IdentitySignPersonBillBlockData {
+                bill_id: bill_id.clone(),
+                block_id: BlockId::first(),
+                block_hash: Sha256Hash::new("bill genesis"),
+                operation: BillOpCode::Issue,
+                bill_key: Some(bill_keys.get_private_key()),
+            },
+            &keys,
+            test_ts(),
+        )
+        .unwrap();
+
+        // Simulate the state after the parent blocks committed but before their post-commit effects completed
+        let chain = IdentityBlockchain::new_from_blocks(vec![
+            genesis,
+            proof,
+            company_block.clone(),
+            bill_block.clone(),
+        ])
+        .unwrap();
+        assert!(chain.is_chain_valid());
+        chain_store
+            .expect_get_chain()
+            .times(4)
+            .returning(move || Ok(chain.clone()));
+        let expected_recipient = node_id.clone();
+        let mut company_attempts = 0;
+        company_invite.expect_handle_event().times(2).returning(
+            move |envelope, recipient, _, _| {
+                assert_eq!(recipient, &expected_recipient);
+                let event = Event::<ChainInvite>::try_from(envelope).unwrap();
+                assert_eq!(event.data.chain_type, BlockchainType::Company,);
+                assert_eq!(event.data.chain_id, company_id.to_string(),);
+                assert_eq!(event.data.keys.private_key, company_keys.get_private_key(),);
+                company_attempts += 1;
+                if company_attempts == 1 {
+                    Err(Error::Persistence(
+                        "Temporary company recovery failure".into(),
+                    ))
+                } else {
+                    Ok(())
+                }
+            },
+        );
+
+        let expected_recipient = node_id.clone();
+        let mut bill_attempts = 0;
+        bill_invite
+            .expect_handle_event()
+            .times(2)
+            .returning(move |envelope, recipient, _, _| {
+                assert_eq!(recipient, &expected_recipient);
+                let event = Event::<ChainInvite>::try_from(envelope).unwrap();
+                assert_eq!(event.data.chain_type, BlockchainType::Bill,);
+                assert_eq!(event.data.chain_id, bill_id.to_string(),);
+                assert_eq!(event.data.keys.private_key, bill_keys.get_private_key(),);
+                bill_attempts += 1;
+                if bill_attempts == 1 {
+                    Err(Error::Persistence("Temporary bill recovery failure".into()))
+                } else {
+                    Ok(())
+                }
+            });
+
+        let processor = IdentityChainEventProcessor::new(
+            Arc::new(chain_store),
+            Arc::new(store),
+            Arc::new(MockFileReferenceStore::new()),
+            Arc::new(company_invite),
+            Arc::new(bill_invite),
+            Arc::new(contact),
+            Arc::new(chain_event_store),
+            Arc::new(transport),
+            Arc::new(contact_store),
+            Arc::new(MockTransactionManagerApiMock::new()),
+            network,
+            Arc::new(test_cfg()),
+        );
+
+        for block in [company_block, bill_block] {
+            // Already committed does not mean its required recovery effect has succeeded
+            let result = processor
+                .apply_verified_block(&node_id, block.clone(), keys.clone())
+                .await;
+            assert!(matches!(result, Err(Error::Persistence(_))));
+            // The same committed block can retry the effect without attempting another append
+            let result = processor
+                .apply_verified_block(&node_id, block, keys.clone())
+                .await
+                .unwrap();
+            assert_eq!(result, IncomingChainApplyResult::AlreadyApplied,);
+        }
     }
 }

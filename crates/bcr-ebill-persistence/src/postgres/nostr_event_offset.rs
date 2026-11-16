@@ -1,8 +1,9 @@
 use crate::{
-    NostrEventOffset, NostrEventOffsetStoreApi, Result,
+    Error, NostrEventOffset, NostrEventOffsetStoreApi, Result,
     sql::{
         nostr_event_offset::{
-            INSERT_EVENT, NostrEventOffsetRow, SELECT_CURRENT_OFFSET, SELECT_EVENT_ID,
+            DELETE_CATCHUP_UNTIL, IGNORE_PRIVATE_EVENT, INSERT_EVENT, NostrEventOffsetRow,
+            SELECT_CATCHUP_UNTIL, SELECT_CURRENT_OFFSET, SELECT_EVENT_ID, UPSERT_CATCHUP_UNTIL,
         },
         timestamp_from_db,
     },
@@ -57,6 +58,74 @@ impl NostrEventOffsetStoreApi for PostgresNostrEventOffsetStore {
             .await?;
         Ok(())
     }
+
+    async fn get_catchup_until(
+        &self,
+        scope: &str,
+        subject_id: &str,
+        relay: &url::Url,
+    ) -> Result<Option<u64>> {
+        let value: Option<i64> = sqlx::query_scalar(SELECT_CATCHUP_UNTIL)
+            .bind(scope)
+            .bind(subject_id)
+            .bind(relay.as_str())
+            .fetch_optional(&self.pool)
+            .await?;
+        value
+            .map(|value| {
+                u64::try_from(value)
+                    .map_err(|_| Error::InvalidData("Invalid catchup cursor".into()))
+            })
+            .transpose()
+    }
+
+    async fn set_catchup_until(
+        &self,
+        scope: &str,
+        subject_id: &str,
+        relay: &url::Url,
+        until: Option<u64>,
+    ) -> Result<()> {
+        match until {
+            Some(until) => {
+                let until = i64::try_from(until)
+                    .map_err(|_| Error::InvalidData("Catchup cursor overflow".into()))?;
+                sqlx::query(UPSERT_CATCHUP_UNTIL)
+                    .bind(scope)
+                    .bind(subject_id)
+                    .bind(relay.as_str())
+                    .bind(until)
+                    .execute(&self.pool)
+                    .await?;
+            }
+            None => {
+                sqlx::query(DELETE_CATCHUP_UNTIL)
+                    .bind(scope)
+                    .bind(subject_id)
+                    .bind(relay.as_str())
+                    .execute(&self.pool)
+                    .await?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn ignore_private_event(
+        &self,
+        event_id: &str,
+        time: Timestamp,
+        node_id: &NodeId,
+        reason: &str,
+    ) -> Result<()> {
+        sqlx::query(IGNORE_PRIVATE_EVENT)
+            .bind(event_id)
+            .bind(crate::sql::timestamp_to_db(time)?)
+            .bind(Text(node_id.clone()))
+            .bind(reason)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -96,8 +165,20 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "migrations/postgres")]
-    async fn failed_event_is_processed_and_advances_offset(pool: PgPool) {
+    async fn failed_event_is_retryable(pool: PgPool) {
         let store = PostgresNostrEventOffsetStore::new(pool);
-        nostr_event_offset::test_failed_event_is_processed_and_advances_offset(&store).await;
+        nostr_event_offset::test_failed_event_is_retryable(&store).await;
+    }
+
+    #[sqlx::test(migrations = "migrations/postgres")]
+    async fn test_catchup_cursor_lifecycle(pool: PgPool) {
+        let store = PostgresNostrEventOffsetStore::new(pool);
+        nostr_event_offset::test_catchup_cursor_lifecycle(&store).await;
+    }
+
+    #[sqlx::test(migrations = "migrations/postgres")]
+    async fn ignored_private_event_does_not_advance_offset(pool: PgPool) {
+        let store = PostgresNostrEventOffsetStore::new(pool);
+        nostr_event_offset::test_ignored_private_event_does_not_advance_offset(&store).await;
     }
 }

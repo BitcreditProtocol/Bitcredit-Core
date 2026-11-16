@@ -218,3 +218,6 @@ Future<BillSweepBTCFundsResultFfi> sweepBtcFunds({
 
 Future<PropagationStatusFfi?> propagationStatus({required String id}) =>
     RustLib.instance.api.crateFfiApiBillPropagationStatus(id: id);
+
+Future<IncomingChainQueueStatusFfi> incomingQueueStatus({required String id}) =>
+    RustLib.instance.api.crateFfiApiBillIncomingQueueStatus(id: id);

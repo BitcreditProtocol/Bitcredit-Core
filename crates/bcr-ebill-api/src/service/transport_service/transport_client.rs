@@ -1,3 +1,4 @@
+use super::{NostrContactData, Result};
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
 use bcr_ebill_core::{
@@ -5,13 +6,13 @@ use bcr_ebill_core::{
     protocol::blockchain::bill::participant::BillParticipant, protocol::crypto::BcrKeys,
     protocol::event::EventEnvelope,
 };
-
 #[cfg(test)]
 use mockall::automock;
-
-use nostr::{event::Event, filter::Filter, types::RelayUrl};
-
-use super::{NostrContactData, Result};
+use nostr::{
+    event::{Event, EventId},
+    filter::Filter,
+    types::RelayUrl,
+};
 
 #[cfg(test)]
 impl ServiceTraitBounds for MockTransportClientApi {}
@@ -69,12 +70,8 @@ pub trait TransportClientApi: ServiceTraitBounds {
     ) -> Result<Vec<Event>>;
     /// Adds a new Nostr subscription on the primary client for an added contact
     async fn add_contact_subscription(&self, contact: &NodeId) -> Result<()>;
-    /// Resolves private messages matching the filter for all local identities.
-    async fn resolve_private_events(&self, filter: Filter) -> Result<Vec<Event>>;
-
     /// Resolves events matching the given filter. The filter is passed through as-is.
     async fn resolve_events(&self, filter: Filter) -> Result<Vec<Event>>;
-
     /// Tries to decrypt a private direct message event with any of the local signers.
     /// Returns the recipient NodeId, decrypted EventEnvelope, and sender public key if successful.
     async fn try_decrypt_private_event(
@@ -117,6 +114,9 @@ pub trait TransportClientApi: ServiceTraitBounds {
     /// Checks if this client has at least one writable relay connected
     async fn has_connected_write_relay(&self) -> bool;
 
+    /// Checks if this client has at least one readable relay connected
+    async fn has_connected_read_relay(&self) -> bool;
+
     /// Adds a new identity (company keys) to the multi-identity client
     /// This will also add a subscription for direct messages to this identity
     async fn add_identity(&self, node_id: NodeId, keys: BcrKeys) -> Result<()>;
@@ -143,4 +143,18 @@ pub trait TransportClientApi: ServiceTraitBounds {
 
     /// Return writable relay urls
     async fn writable_relay_urls(&self) -> Result<Vec<url::Url>>;
+
+    /// Check if one specific relay returns this exact signed event
+    async fn event_available_on_relay(&self, event_id: EventId, relay: &url::Url) -> Result<bool>;
+
+    /// Fetch this exact signed event from one specified relay
+    async fn fetch_event_from_relay(
+        &self,
+        event_id: EventId,
+        relay: &url::Url,
+    ) -> Result<Option<Event>>;
+
+    /// Query events on one specified relay
+    async fn fetch_events_from_relay(&self, filter: Filter, relay: &url::Url)
+    -> Result<Vec<Event>>;
 }

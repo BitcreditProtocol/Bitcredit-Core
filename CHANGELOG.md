@@ -4,6 +4,27 @@
     * When we attempted to send a lot blocks at once, we ran into the SQLite connection limit - increased limit and serialized using a lock
     * For incoming chain invites, if we get an invite, there was a race where if we got the chain event at the same time as the invite, it could be that we didn't process the chain
         * Added a retry mechanism for the case where we get the chain invite second
+* Fully rebuild the Nostr Consumer system
+    * The goal is to have transparency and eventual consistency and to introduce that only events that are on a minimum amount of relays are taken into account
+    * Incoming Chain Events have to be available on a quorum of relays (> half), to be verified events.
+        * They are enqueued and checked for verification until they reach the quorum
+        * Once they are verified, they can be applied (i.e. added to local chains)
+        * When verified events are applied, it either works, or it fails with a reason (e.g. MissingPredecessor, MissingKeys) and the get requeued for later application
+        * Resync also uses this new queuing mechanism, except for `dev_mode_override_*_chain_from_nostr`, which still hard overrides the local state with the canonical state from Nostr
+    * Incoming Chain Invites persist their keys and wake up application of chain events of this chain (in case they were waiting for keys)
+    * There are asynchronous catch-up mechanisms for private messages and chain events, which regularly run and make sure we don't drop events
+    * Add `incoming_queue_status` for identity/company/bills, which gives an overview of the incoming queue stats for the given identity/company/bill
+    * Added two catch-up jobs that run regularly (every 5 minutes) and at startup
+        * Catch up chain events
+        * Catch up private events (invites)
+    * The catch-up mechanisms (including restore) also uses paging and has no fixed limits anymore
+* Changed the way `restore` works for the Flutter API
+    * Removed `seedRecover` from the API
+    * The process is now: (can be seen in the example app)
+        * Reset the old instance & delete/clear the DB
+        * Replace the mnemonic on the client side
+        * Call `restoreEbillInstance` with the new config
+        * Call `setActiveInstance` to use this instance
 
 # 0.6.0
 

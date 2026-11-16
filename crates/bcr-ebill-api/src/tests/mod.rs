@@ -3,9 +3,7 @@
 pub mod tests {
     use crate::CourtConfig;
     use crate::service::transport_service::{self, chain_keys::ChainKeyServiceApi};
-    use crate::{
-        DbContext, DevModeConfig, MintConfig, NostrConfig, NostrContactStoreApi, PaymentConfig,
-    };
+    use crate::{DevModeConfig, MintConfig, NostrConfig, NostrContactStoreApi, PaymentConfig};
     use async_trait::async_trait;
     use bcr_common::core::{BillId, NodeId};
     use bcr_ebill_core::protocol::Address;
@@ -46,6 +44,7 @@ pub mod tests {
     use bcr_ebill_persistence::DbConfig;
     use bcr_ebill_persistence::traits::notification::EmailNotificationStoreApi;
     use bcr_ebill_persistence::traits::propagation::{
+        ApplicationWaitReason, IncomingChainQueueStatus, IncomingPropagationStoreApi,
         NostrPropagationStoreApi, PreparedPropagation,
     };
     use bcr_ebill_persistence::traits::transaction::{
@@ -63,10 +62,11 @@ pub mod tests {
         traits::mint::MintStoreApi,
         traits::nostr::{NostrChainEvent, NostrChainEventStoreApi, RelaySyncStatus, SyncStatus},
         traits::notification::NotificationFilter,
-        traits::propagation::{PendingDelivery, PropagationStatus, PropagationSubjectType},
+        traits::propagation::{
+            IncomingChainCandidate, PendingDelivery, PropagationStatus, PropagationSubjectType,
+        },
     };
     use std::path::PathBuf;
-    use std::sync::Arc;
     use std::{
         collections::{HashMap, HashSet},
         str::FromStr,
@@ -227,6 +227,7 @@ pub mod tests {
                 op_code: HashSet<BillOpCode>,
                 since: Timestamp,
             ) -> Result<Vec<BillId>>;
+            async fn get_key_ids(&self) -> Result<Vec<BillId>>;
         }
     }
 
@@ -287,6 +288,7 @@ pub mod tests {
             ) -> Result<()>;
             async fn delete_local_signatory_override(&self, id: &NodeId, signatory: &NodeId) -> Result<()>;
             async fn get_active_company_invites(&self) -> Result<HashMap<NodeId, (Company, BcrKeys)>>;
+            async fn get_key_ids(&self) -> Result<Vec<NodeId>>;
         }
     }
 
@@ -351,6 +353,26 @@ pub mod tests {
             async fn current_offset(&self, node_id: &NodeId) -> Result<Timestamp>;
             async fn is_processed(&self, event_id: &str) -> Result<bool>;
             async fn add_event(&self, data: NostrEventOffset) -> Result<()>;
+            async fn get_catchup_until(
+                &self,
+                scope: &str,
+                subject_id: &str,
+                relay: &url::Url,
+            ) -> Result<Option<u64>>;
+            async fn set_catchup_until(
+                &self,
+                scope: &str,
+                subject_id: &str,
+                relay: &url::Url,
+                until: Option<u64>,
+            ) -> Result<()>;
+            async fn ignore_private_event(
+                &self,
+                event_id: &str,
+                time: Timestamp,
+                node_id: &NodeId,
+                reason: &str,
+            ) -> Result<()>;
         }
     }
 
@@ -525,6 +547,64 @@ pub mod tests {
                 error: &str,
             ) -> Result<()>;
             async fn make_pending_deliveries_due_now(&self) -> Result<()>;
+        }
+    }
+
+    mockall::mock! {
+        pub IncomingPropagationStoreApiMock{}
+
+        impl ServiceTraitBounds for IncomingPropagationStoreApiMock{}
+
+        #[async_trait]
+        impl IncomingPropagationStoreApi for IncomingPropagationStoreApiMock {
+            async fn upsert_candidate(
+                &self,
+                candidate: &IncomingChainCandidate,
+                first_try_at: Timestamp,
+            ) -> Result<()>;
+            async fn get_due_candidates(
+                &self,
+                now: Timestamp,
+                limit: u64,
+            ) -> Result<Vec<IncomingChainCandidate>>;
+            async fn mark_applied(&self, event_id: &str) -> Result<()>;
+            async fn mark_pending_retry(
+                &self,
+                event_id: &str,
+                next_try_at: Timestamp,
+                reason: &str,
+            ) -> Result<()>;
+            async fn mark_rejected(&self, event_id: &str, reason: &str) -> Result<()>;
+            async fn mark_verified(
+                &self,
+                event_id: &str,
+                verified_at: Timestamp,
+                confirmed_relays: &[url::Url],
+            ) -> Result<()>;
+            async fn get_verified_candidates(&self, now: Timestamp, limit: u64) -> Result<Vec<IncomingChainCandidate>>;
+            async fn mark_application_deferred(
+                &self,
+                event_id: &str,
+                next_try_at: Option<Timestamp>,
+                reason: ApplicationWaitReason,
+                error: &str,
+            ) -> Result<()>;
+            async fn wake_application_for_keys(&self, chain_type: &str, chain_id: &str) -> Result<()>;
+            async fn wake_application_for_predecessor(
+                &self,
+                chain_type: &str,
+                chain_id: &str,
+            ) -> Result<()>;
+            async fn get_chain_queue_status(
+                &self,
+                chain_type: &str,
+                chain_id: &str,
+            ) -> Result<IncomingChainQueueStatus>;
+            async fn get_verified_candidates_for_chain(
+                &self,
+                chain_type: &str,
+                chain_id: &str,
+            ) -> Result<Vec<IncomingChainCandidate>>;
         }
     }
 
@@ -786,29 +866,6 @@ pub mod tests {
     impl NostrPropagationTransactionApi for MockPersistenceTransactionApiMock {
         async fn enqueue_propagation(&mut self, propagation: &PreparedPropagation) -> Result<()> {
             MockPersistenceTransactionApiMock::enqueue_propagation(self, propagation).await
-        }
-    }
-
-    #[allow(unused)]
-    pub fn get_mock_db_ctx(nostr_contact_store: Option<MockNostrContactStore>) -> DbContext {
-        DbContext {
-            contact_store: Arc::new(MockContactStoreApiMock::new()),
-            bill_store: Arc::new(MockBillStoreApiMock::new()),
-            bill_blockchain_store: Arc::new(MockBillChainStoreApiMock::new()),
-            identity_store: Arc::new(MockIdentityStoreApiMock::new()),
-            identity_chain_store: Arc::new(MockIdentityChainStoreApiMock::new()),
-            company_chain_store: Arc::new(MockCompanyChainStoreApiMock::new()),
-            company_store: Arc::new(MockCompanyStoreApiMock::new()),
-            file_upload_store: Arc::new(MockFileUploadStoreApiMock::new()),
-            file_reference_store: Arc::new(MockFileReferenceStoreApiMock::new()),
-            nostr_event_offset_store: Arc::new(MockNostrEventOffsetStoreApiMock::new()),
-            notification_store: Arc::new(MockNotificationStoreApiMock::new()),
-            email_notification_store: Arc::new(MockEmailNotificationStoreApiMock::new()),
-            nostr_contact_store: Arc::new(nostr_contact_store.unwrap_or_default()),
-            mint_store: Arc::new(MockMintStore::new()),
-            nostr_chain_event_store: Arc::new(MockNostrChainEventStore::new()),
-            transaction_mgr: Arc::new(MockTransactionManagerApiMock::new()),
-            nostr_propagation_store: Arc::new(MockNostrPropagationStoreApiMock::new()),
         }
     }
 

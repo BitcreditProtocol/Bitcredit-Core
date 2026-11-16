@@ -11,6 +11,7 @@ use nostr::{
     event::{EventBuilder, FinalizeEvent, Kind},
     key::Keys,
 };
+use std::time::Duration;
 
 use url::Url;
 use uuid::Uuid;
@@ -311,5 +312,98 @@ pub async fn test_same_second_propagations_are_ordered_by_sequence(
             .relays
             .iter()
             .all(|relay| relay.accepted_at.is_some())
+    );
+}
+
+pub async fn test_unreadable_outgoing_deliveries_do_not_block_batches(
+    store: &dyn NostrPropagationStoreApi,
+    manager: &dyn TransactionManagerApi,
+    other_key_manager: &dyn TransactionManagerApi,
+) {
+    let mut unreadable = sample_propagation();
+    unreadable.messages[0].id = "00000000-0000-4000-8000-000000000000".into();
+    let mut healthy = sample_propagation();
+    healthy.messages[0].id = "ffffffff-ffff-4fff-8fff-ffffffffffff".into();
+    healthy.subject_id = "healthy-bill".into();
+    healthy.messages[0].chain_id = Some(healthy.subject_id.clone());
+
+    // Write the unreadable propagation with another key
+    let mut tx = other_key_manager.begin().await.unwrap();
+    tx.enqueue_propagation(&unreadable).await.unwrap();
+    tx.commit().await.unwrap();
+
+    // Write a healthy propagation using the correct key
+    let mut tx = manager.begin().await.unwrap();
+    tx.enqueue_propagation(&healthy).await.unwrap();
+    tx.commit().await.unwrap();
+    store.make_pending_deliveries_due_now().await.unwrap();
+    let now = Timestamp::now();
+    // The oldest batch contains both unreadable relay deliveries. Both receive future retry deadlines
+    assert!(
+        store
+            .get_pending_deliveries(now, 2)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    // The next batch contains the healthy deliveries
+    let due = store.get_pending_deliveries(now, 2).await.unwrap();
+    assert_eq!(due.len(), 2);
+    assert!(
+        due.iter()
+            .all(|delivery| { delivery.propagation_id == healthy.id })
+    );
+    let status = store
+        .get_propagation(&unreadable.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(status.messages[0].relays.iter().all(|relay| {
+        relay.accepted_at.is_none()
+            && relay.attempts == 1
+            && relay.next_try_at == now + Duration::from_secs(300)
+            && relay
+                .last_error
+                .as_deref()
+                .is_some_and(|error| error.contains("Unreadable persisted outgoing delivery"))
+    }));
+    // Also exercise the immediate propagation reader
+    store.make_pending_deliveries_due_now().await.unwrap();
+    assert!(
+        store
+            .get_pending_deliveries_for_propagation(&unreadable.id, now,)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let due = store
+        .get_pending_deliveries_for_propagation(&healthy.id, now)
+        .await
+        .unwrap();
+    assert_eq!(due.len(), 2);
+    // Healthy deliveries can still be acknowledged
+    for delivery in due {
+        store
+            .mark_relay_accepted(&delivery.message_id, &delivery.relay_url, now)
+            .await
+            .unwrap();
+    }
+    assert!(
+        store
+            .get_pending_deliveries(now, 10)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let status = store
+        .get_propagation(&unreadable.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        status.messages[0]
+            .relays
+            .iter()
+            .all(|relay| { relay.accepted_at.is_none() && relay.attempts == 2 })
     );
 }

@@ -1,6 +1,6 @@
-use std::sync::Arc;
-
+use crate::transport::{decrypt_or_decode_public_chain_event, unwrap_public_chain_event};
 use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
+use bcr_ebill_api::service::transport_service::{Error, Result};
 use bcr_ebill_core::protocol::{
     BlockId, Sha256Hash, Timestamp,
     blockchain::{
@@ -14,9 +14,7 @@ use nostr::{
     event::EventId,
     nips::nip10::{Marker, Nip10Tag},
 };
-
-use crate::transport::{decrypt_or_decode_public_chain_event, unwrap_public_chain_event};
-use bcr_ebill_api::service::transport_service::{Error, Result};
+use std::sync::Arc;
 
 /// Compares two chains for sorting. Ordering is:
 /// 1. Length descending (longer chain wins)
@@ -65,42 +63,6 @@ pub fn compare_block_chains<B: Block>(a: &[B], b: &[B]) -> std::cmp::Ordering {
         })
 }
 
-/// Compares two unpacked chains for sorting, fork detection and fork point extraction. Returns
-/// whether remote chain should be preferred over local chain and if remote is a fork an optional
-/// fork point. When this function is changed we also need to change the `compare_chains` function
-/// above as it determines the order in which remote chains are tested.
-/// Precedence is:
-/// 1. Longer chain wins
-/// 2. Earlier tip  wins
-/// 3. Fork point at divergent hash
-pub fn resolve_fork<B: Block>(local: &[B], remote: &[B]) -> (bool, Option<BlockId>) {
-    let remote_preferred = compare_block_chains(remote, local) == std::cmp::Ordering::Less;
-
-    if !remote_preferred {
-        return (false, None);
-    }
-
-    for (i, local_block) in local.iter().enumerate() {
-        if let Some(remote_block) = remote.get(i) {
-            if local_block.hash() != remote_block.hash() {
-                let prev_hash_valid = if i == 0 {
-                    false
-                } else {
-                    remote_block.previous_hash() == local[i - 1].hash()
-                };
-                if prev_hash_valid {
-                    return (true, Some(local_block.id()));
-                }
-                return (false, None);
-            }
-        } else {
-            return (false, None);
-        }
-    }
-
-    (true, None)
-}
-
 /// Finds the first difference between two chains and returns the block height of the differing block
 pub fn find_first_difference<T: Block>(local: &[T], remote: &[T]) -> Option<BlockId> {
     for (local_block, remote_block) in local.iter().zip(remote.iter()) {
@@ -127,17 +89,6 @@ pub fn chain_matches_local<T: Block>(local: &[T], remote: &[T]) -> bool {
         .iter()
         .zip(remote.iter())
         .all(|(local, remote)| local.id() == remote.id() && local.hash() == remote.hash())
-}
-
-/// Determines if the remote block can be considered a fork point in the chain:
-/// - same id
-/// - different hash
-/// - lower timestamp or lower hash
-pub fn is_fork_block<T: Block>(local: &T, remote: &T) -> bool {
-    remote.id() == local.id()
-        && remote.hash() != local.hash()
-        && (remote.timestamp() < local.timestamp()
-            || (remote.timestamp() == local.timestamp() && remote.hash() < local.hash()))
 }
 
 /// Will query the transport for the public chain events and build up as many chains as needed for
@@ -570,21 +521,6 @@ mod tests {
         assert!(chains[0][0].block.get_block_hash() <= chains[1][0].block.get_block_hash());
     }
 
-    #[test]
-    fn test_sort_single_chain_unchanged() {
-        let ts = Timestamp::new(1731593928).unwrap();
-        let block = make_test_block(BlockId::first(), Sha256Hash::new("genesis"), ts);
-        let block_hash = block.hash.clone();
-        let chain = vec![make_event_container(block)];
-
-        let mut chains = vec![chain];
-        sort_chains(&mut chains);
-
-        assert_eq!(chains.len(), 1);
-        assert_eq!(chains[0].len(), 1);
-        assert_eq!(chains[0][0].block.get_block_hash(), block_hash);
-    }
-
     fn make_test_chain_with_timestamps(timestamps: &[u64]) -> Vec<BillBlock> {
         let mut blocks = Vec::new();
         let mut prev_hash = Sha256Hash::new("genesis");
@@ -597,196 +533,6 @@ mod tests {
             blocks.push(block);
         }
         blocks
-    }
-
-    #[test]
-    fn test_resolve_fork_remote_longer_no_divergence() {
-        let shared = make_test_chain_with_timestamps(&[1000]);
-        let local = shared.clone();
-        let mut remote = shared.clone();
-        remote.push(make_test_block(
-            BlockId::next_from_previous_block_id(&shared[0].id()),
-            shared[0].hash.clone(),
-            Timestamp::new(1001).unwrap(),
-        ));
-        let (is_preferred, fork_point) = resolve_fork(&local, &remote);
-        assert!(is_preferred);
-        assert_eq!(fork_point, None);
-    }
-
-    #[test]
-    fn test_resolve_fork_local_longer_returns_not_preferred() {
-        let shared = make_test_chain_with_timestamps(&[1000]);
-        let mut local = shared.clone();
-        let remote = shared.clone();
-        local.push(make_test_block(
-            BlockId::next_from_previous_block_id(&shared[0].id()),
-            shared[0].hash.clone(),
-            Timestamp::new(1001).unwrap(),
-        ));
-        let (is_preferred, fork_point) = resolve_fork(&local, &remote);
-        assert!(!is_preferred);
-        assert_eq!(fork_point, None);
-    }
-
-    #[test]
-    fn test_resolve_fork_equal_length_earlier_remote_timestamp() {
-        let shared = make_test_chain_with_timestamps(&[1000]);
-        let mut local = shared.clone();
-        let mut remote = shared.clone();
-        local.push(make_test_block(
-            BlockId::next_from_previous_block_id(&shared[0].id()),
-            shared[0].hash.clone(),
-            Timestamp::new(2000).unwrap(),
-        ));
-        remote.push(make_test_block(
-            BlockId::next_from_previous_block_id(&shared[0].id()),
-            shared[0].hash.clone(),
-            Timestamp::new(1500).unwrap(),
-        ));
-        let (is_preferred, fork_point) = resolve_fork(&local, &remote);
-        assert!(is_preferred);
-        assert_eq!(fork_point, Some(local[1].id()));
-    }
-
-    #[test]
-    fn test_resolve_fork_equal_length_later_remote_timestamp() {
-        let shared = make_test_chain_with_timestamps(&[1000]);
-        let mut local = shared.clone();
-        let mut remote = shared.clone();
-        local.push(make_test_block(
-            BlockId::next_from_previous_block_id(&shared[0].id()),
-            shared[0].hash.clone(),
-            Timestamp::new(1500).unwrap(),
-        ));
-        remote.push(make_test_block(
-            BlockId::next_from_previous_block_id(&shared[0].id()),
-            shared[0].hash.clone(),
-            Timestamp::new(2000).unwrap(),
-        ));
-        let (is_preferred, fork_point) = resolve_fork(&local, &remote);
-        assert!(!is_preferred);
-        assert_eq!(fork_point, None);
-    }
-
-    #[test]
-    fn test_resolve_fork_identical_chains_not_preferred() {
-        let local = make_test_chain_with_timestamps(&[1000, 1500, 2000]);
-        let remote = local.clone();
-        let (is_preferred, fork_point) = resolve_fork(&local, &remote);
-        assert!(!is_preferred);
-        assert_eq!(fork_point, None);
-    }
-
-    #[test]
-    fn test_resolve_fork_genesis_divergence_not_preferred() {
-        let local = make_test_chain_with_timestamps(&[1000]);
-        let remote = make_test_chain_with_timestamps(&[1001]);
-        let (is_preferred, fork_point) = resolve_fork(&local, &remote);
-        assert!(!is_preferred);
-        assert_eq!(fork_point, None);
-    }
-
-    #[test]
-    fn test_resolve_fork_middle_divergence() {
-        let shared = make_test_chain_with_timestamps(&[1000, 1500]);
-        let mut local = shared.clone();
-        let mut remote = shared.clone();
-        local.push(make_test_block(
-            BlockId::next_from_previous_block_id(&shared[1].id()),
-            shared[1].hash.clone(),
-            Timestamp::new(2000).unwrap(),
-        ));
-        remote.push(make_test_block(
-            BlockId::next_from_previous_block_id(&shared[1].id()),
-            shared[1].hash.clone(),
-            Timestamp::new(1800).unwrap(),
-        ));
-        let (is_preferred, fork_point) = resolve_fork(&local, &remote);
-        assert!(is_preferred);
-        assert_eq!(fork_point, Some(local[2].id()));
-    }
-
-    #[test]
-    fn test_resolve_fork_empty_local_remote_preferred() {
-        let local: Vec<BillBlock> = vec![];
-        let remote = make_test_chain_with_timestamps(&[1000, 1500]);
-        let (is_preferred, fork_point) = resolve_fork(&local, &remote);
-        assert!(is_preferred);
-        assert_eq!(fork_point, None);
-    }
-
-    #[test]
-    fn test_resolve_fork_empty_remote_not_preferred() {
-        let local = make_test_chain_with_timestamps(&[1000, 1500]);
-        let remote: Vec<BillBlock> = vec![];
-        let (is_preferred, fork_point) = resolve_fork(&local, &remote);
-        assert!(!is_preferred);
-        assert_eq!(fork_point, None);
-    }
-
-    #[test]
-    fn test_resolve_fork_both_empty_not_preferred() {
-        let local: Vec<BillBlock> = vec![];
-        let remote: Vec<BillBlock> = vec![];
-        let (is_preferred, fork_point) = resolve_fork(&local, &remote);
-        assert!(!is_preferred);
-        assert_eq!(fork_point, None);
-    }
-
-    #[test]
-    fn test_resolve_fork_hash_tiebreaker() {
-        let shared = make_test_chain_with_timestamps(&[1000]);
-        let mut local = shared.clone();
-        let mut remote = shared.clone();
-        local.push(make_test_block(
-            BlockId::next_from_previous_block_id(&shared[0].id()),
-            shared[0].hash.clone(),
-            Timestamp::new(1500).unwrap(),
-        ));
-        remote.push(make_test_block(
-            BlockId::next_from_previous_block_id(&shared[0].id()),
-            shared[0].hash.clone(),
-            Timestamp::new(1500).unwrap(),
-        ));
-        let (is_preferred, fork_point) = resolve_fork(&local, &remote);
-        if remote[1].hash < local[1].hash {
-            assert!(is_preferred);
-            assert_eq!(fork_point, Some(local[1].id()));
-        } else {
-            assert!(!is_preferred);
-            assert_eq!(fork_point, None);
-        }
-    }
-
-    #[test]
-    fn test_resolve_fork_remote_shorter_at_divergence_not_preferred() {
-        let shared = make_test_chain_with_timestamps(&[1000, 1500]);
-        let mut local = shared.clone();
-        let remote = shared.clone();
-        local.push(make_test_block(
-            BlockId::next_from_previous_block_id(&shared[1].id()),
-            shared[1].hash.clone(),
-            Timestamp::new(2000).unwrap(),
-        ));
-        let (is_preferred, fork_point) = resolve_fork(&local, &remote);
-        assert!(!is_preferred);
-        assert_eq!(fork_point, None);
-    }
-
-    #[test]
-    fn test_resolve_fork_single_vs_two_blocks_extension() {
-        let shared = make_test_chain_with_timestamps(&[1000]);
-        let local = shared.clone();
-        let mut remote = shared.clone();
-        remote.push(make_test_block(
-            BlockId::next_from_previous_block_id(&shared[0].id()),
-            shared[0].hash.clone(),
-            Timestamp::new(1000).unwrap(),
-        ));
-        let (is_preferred, fork_point) = resolve_fork(&local, &remote);
-        assert!(is_preferred);
-        assert_eq!(fork_point, None);
     }
 
     #[test]

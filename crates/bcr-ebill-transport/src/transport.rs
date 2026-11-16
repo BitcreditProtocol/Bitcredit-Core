@@ -206,7 +206,7 @@ pub fn create_public_chain_event(
     Ok(event)
 }
 
-fn extract_event_envelope(rumor: UnsignedEvent) -> Option<EventEnvelope> {
+pub(crate) fn extract_event_envelope(rumor: UnsignedEvent) -> Option<EventEnvelope> {
     if rumor.kind == Kind::PrivateDirectMessage
         && let Ok(data) = base58::decode(rumor.content.as_str())
         && let Ok(envelope) = borsh::from_slice::<EventEnvelope>(&data)

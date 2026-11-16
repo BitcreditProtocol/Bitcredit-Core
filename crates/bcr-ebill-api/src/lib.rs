@@ -12,7 +12,7 @@ use bcr_ebill_persistence::{
         identity::{IdentityChainStoreApi, IdentityStoreApi},
         mint::MintStoreApi,
         notification::EmailNotificationStoreApi,
-        propagation::NostrPropagationStoreApi,
+        propagation::{IncomingPropagationStoreApi, NostrPropagationStoreApi},
         transaction::TransactionManagerApi,
     },
 };
@@ -155,6 +155,7 @@ pub struct DbContext {
     pub nostr_chain_event_store: Arc<dyn NostrChainEventStoreApi>,
     pub transaction_mgr: Arc<dyn TransactionManagerApi>,
     pub nostr_propagation_store: Arc<dyn NostrPropagationStoreApi>,
+    pub incoming_propagation_store: Arc<dyn IncomingPropagationStoreApi>,
 }
 
 /// Creates a new instance of the DbContext with the given configuration
@@ -239,6 +240,10 @@ pub async fn get_db_context(
     let nostr_propagation_store: Arc<dyn NostrPropagationStoreApi> =
         Arc::new(database.nostr_propagation_store(encryption_context.clone()));
 
+    #[cfg(any(feature = "sqlite", feature = "postgres"))]
+    let incoming_propagation_store: Arc<dyn IncomingPropagationStoreApi> =
+        Arc::new(database.incoming_propagation_store(encryption_context.clone()));
+
     Ok(DbContext {
         contact_store,
         bill_store,
@@ -257,5 +262,6 @@ pub async fn get_db_context(
         nostr_chain_event_store,
         transaction_mgr,
         nostr_propagation_store,
+        incoming_propagation_store,
     })
 }

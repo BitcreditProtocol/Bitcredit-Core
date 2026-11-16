@@ -1,7 +1,14 @@
+use crate::ffi::{
+    data::{bill::LightBitcreditBillFfi, company::CompanyFfi, contact::ContactFfi},
+    error::EbillFfiError,
+};
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
 use bcr_ebill_api::service::file_upload_service::{
     UploadFileHandler, detect_content_type_for_bytes,
+};
+use bcr_ebill_api::service::transport_service::propagation::{
+    OutgoingChainQuorum, PropagationThreshold, evaluate_outgoing_chain_quorum,
 };
 use bcr_ebill_core::{
     application::{
@@ -14,12 +21,10 @@ use bcr_ebill_core::{
     },
 };
 use bcr_ebill_persistence::traits::notification::NotificationFilter;
-use bcr_ebill_persistence::traits::propagation::PropagationStatus;
+use bcr_ebill_persistence::traits::propagation::{IncomingChainQueueStatus, PropagationStatus};
 use bitcoin::hashes::sha256::Hash as Sha256HexHash;
 use flutter_rust_bridge::frb;
 use std::str::FromStr;
-
-use crate::ffi::data::{bill::LightBitcreditBillFfi, company::CompanyFfi, contact::ContactFfi};
 
 pub mod bill;
 pub mod company;
@@ -433,6 +438,30 @@ pub struct PropagationStatusFfi {
     pub created_at: u64,
     pub messages: Vec<PropagationMessageFfi>,
     pub last_block: Option<PropagationBlockInfoFfi>,
+    pub quorum: Option<PropagationQuorumFfi>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PropagationQuorumFfi {
+    pub propagated: bool,
+    pub required_acks: u64,
+    pub total_relays: u64,
+    pub confirmed_relays: Vec<String>,
+}
+
+impl From<OutgoingChainQuorum> for PropagationQuorumFfi {
+    fn from(value: OutgoingChainQuorum) -> Self {
+        Self {
+            propagated: value.is_propagated(),
+            required_acks: value.required as u64,
+            total_relays: value.total_relays as u64,
+            confirmed_relays: value
+                .confirmed_relays
+                .into_iter()
+                .map(|relay| relay.to_string())
+                .collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -486,7 +515,21 @@ impl From<PropagationStatus> for PropagationStatusFfi {
                 })
                 .collect(),
             last_block: None,
+            quorum: None,
         }
+    }
+}
+
+impl PropagationStatusFfi {
+    pub(crate) fn with_quorum(
+        status: PropagationStatus,
+        configured_relays: &[url::Url],
+        policy: PropagationThreshold,
+    ) -> Result<Self, EbillFfiError> {
+        let quorum = evaluate_outgoing_chain_quorum(&status, configured_relays, policy)?;
+        let mut response = Self::from(status);
+        response.quorum = quorum.map(Into::into);
+        Ok(response)
     }
 }
 
@@ -501,6 +544,37 @@ impl From<PropagationBlockInfo> for PropagationBlockInfoFfi {
         Self {
             block_height: value.block_height,
             block_type: value.block_type,
+        }
+    }
+}
+
+/// Incoming Nostr events already discovered for one chain
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IncomingChainQueueStatusFfi {
+    pub pending: u64,
+    pub verified: u64,
+    pub applied: u64,
+    pub rejected: u64,
+    // Subsets of verified:
+    pub ready_to_apply: u64,
+    pub missing_keys: u64,
+    pub missing_predecessor: u64,
+    pub transient_application_failures: u64,
+    pub conflicting_forks: u64,
+}
+
+impl From<IncomingChainQueueStatus> for IncomingChainQueueStatusFfi {
+    fn from(status: IncomingChainQueueStatus) -> Self {
+        Self {
+            pending: status.pending,
+            verified: status.verified,
+            applied: status.applied,
+            rejected: status.rejected,
+            ready_to_apply: status.ready_to_apply,
+            missing_keys: status.missing_keys,
+            missing_predecessor: status.missing_predecessor,
+            transient_application_failures: status.transient_application_failures,
+            conflicting_forks: status.conflicting_forks,
         }
     }
 }

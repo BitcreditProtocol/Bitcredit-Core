@@ -1,4 +1,5 @@
 use crate::{
+    Error,
     tests::{
         tests::{empty_address, node_id_test, private_key_test, test_ts},
         transaction_test_utils::{remove_company_blocks_from_height, seed_company_blocks},
@@ -89,6 +90,10 @@ where
     S: CompanyChainStoreApi + ?Sized,
 {
     let id = node_id_test();
+    assert!(matches!(
+        store.get_chain(&id).await,
+        Err(Error::NoSuchEntity(..))
+    ));
 
     assert!(get_latest_block(store, &id).await.is_err());
 

@@ -7,6 +7,7 @@ use crate::{
         identity::SqliteIdentityStore, identity_chain::SqliteIdentityChainStore,
         mint::SqliteMintStore, nostr_chain_event::SqliteNostrChainEventStore,
         nostr_contact_store::SqliteNostrStore, nostr_event_offset::SqliteNostrEventOffsetStore,
+        nostr_incoming_propagation::SqliteIncomingPropagationStore,
         nostr_propagation::SqliteNostrPropagationStore, notification::SqliteNotificationStore,
         transaction::SqliteTransactionManager,
     },
@@ -30,6 +31,7 @@ pub mod mint;
 pub mod nostr_chain_event;
 pub mod nostr_contact_store;
 pub mod nostr_event_offset;
+pub mod nostr_incoming_propagation;
 pub mod nostr_propagation;
 pub mod notification;
 pub mod transaction;
@@ -158,6 +160,13 @@ impl SqlitePersistence {
         encryption_ctx: Arc<EncryptionContext>,
     ) -> SqliteNostrPropagationStore {
         SqliteNostrPropagationStore::new(self.pool.clone(), encryption_ctx)
+    }
+
+    pub fn incoming_propagation_store(
+        &self,
+        encryption_ctx: Arc<EncryptionContext>,
+    ) -> SqliteIncomingPropagationStore {
+        SqliteIncomingPropagationStore::new(self.pool.clone(), encryption_ctx)
     }
 }
 

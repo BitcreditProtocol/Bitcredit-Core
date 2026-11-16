@@ -20,7 +20,7 @@ use bcr_ebill_api::{
 };
 use bcr_ebill_transport::{
     NostrClient, NostrConsumer,
-    chain_keys::{ChainKeyService, ChainKeyServiceApi},
+    chain_keys::ChainKeyService,
     create_nostr_clients, create_nostr_consumer, create_transport_service,
     push_notification::{PushApi, PushService},
 };
@@ -43,7 +43,6 @@ pub struct Context {
     pub nostr_consumer: NostrConsumer,
     pub transport_service: Arc<dyn TransportServiceApi>,
     pub push_service: Arc<dyn PushApi>,
-    pub chain_key_service: Arc<dyn ChainKeyServiceApi>,
     pub mint_client: Arc<dyn MintClientApi>,
     pub cfg: Arc<Config>,
 }
@@ -145,6 +144,7 @@ impl Context {
             db.bill_store.clone(),
             db.company_store.clone(),
             db.identity_store.clone(),
+            cfg.bitcoin_network(),
         ));
 
         let nostr_consumer = create_nostr_consumer(
@@ -176,7 +176,6 @@ impl Context {
             nostr_consumer,
             transport_service,
             push_service,
-            chain_key_service,
             mint_client,
             cfg,
         })

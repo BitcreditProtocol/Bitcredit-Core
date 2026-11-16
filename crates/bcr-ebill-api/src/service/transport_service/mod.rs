@@ -8,6 +8,7 @@ mod block_transport;
 pub mod chain_keys;
 mod contact_transport;
 mod notification_transport;
+pub mod propagation;
 pub mod restore;
 mod transport;
 pub mod transport_client;
@@ -77,6 +78,9 @@ pub enum Error {
     /// errors if something couldn't be found
     #[error("not found")]
     NotFound,
+
+    #[error("Invalid incoming block: {0}")]
+    InvalidIncomingBlock(#[from] InvalidIncomingBlock),
 }
 
 impl From<ProtocolValidationError> for Error {
@@ -116,6 +120,27 @@ impl From<bcr_ebill_core::protocol::ProtocolError> for Error {
     fn from(e: bcr_ebill_core::protocol::ProtocolError) -> Self {
         Error::Message(e.to_string())
     }
+}
+
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
+pub enum InvalidIncomingBlock {
+    #[error("invalid block hash")]
+    InvalidHash,
+
+    #[error("invalid block signature")]
+    InvalidSignature,
+
+    #[error("block belongs to a different chain")]
+    WrongChain,
+
+    #[error("unexpected block operation: {0}")]
+    UnexpectedOperation(String),
+
+    #[error("block signature does not match claimed signer: {0}")]
+    InvalidSigner(String),
+
+    #[error("invalid chain action: {0}")]
+    InvalidAction(String),
 }
 
 /// A container for collecting contact data from nostr

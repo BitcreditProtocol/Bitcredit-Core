@@ -1,23 +1,43 @@
+use crate::chain_keys::KnownChain;
+use crate::transport::extract_event_envelope;
 use crate::{
     chain_keys::ChainKeyServiceApi,
     handler::{FileMetadataProcessorApi, NotificationHandlerApi},
+    incoming_verification::IncomingPropagationVerifier,
     transport::{
-        chain_filter, create_public_chain_event, decrypt_or_decode_public_chain_event,
-        unwrap_direct_message, unwrap_public_chain_event,
+        chain_filter, create_public_chain_event, unwrap_direct_message, unwrap_public_chain_event,
     },
 };
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
+use bcr_ebill_api::{
+    constants::NOSTR_MAX_RELAYS,
+    service::{
+        contact_service::ContactServiceApi,
+        file_server_service::resolve_blossom_servers,
+        transport_service::{
+            Error, NostrConfig, NostrContactData, Result,
+            propagation::RelayQuorumSnapshot,
+            transport_client::{PreparedPrivateNostrEvent, TransportClientApi},
+        },
+    },
+};
+use bcr_ebill_core::{application::ServiceTraitBounds, protocol::event::EventEnvelope};
 use bcr_ebill_core::{
     application::nostr_contact::{NostrContact, TrustLevel},
     protocol::{
         Timestamp,
         blockchain::{BlockchainType, bill::participant::BillParticipant},
         crypto::BcrKeys,
+        event::EventType,
     },
 };
+use bcr_ebill_persistence::{NostrEventOffset, NostrEventOffsetStoreApi, NostrStoreApi};
 use bitcoin::base58;
+use futures::StreamExt;
 use log::{debug, error, info, trace, warn};
+use nostr::message::SubscriptionId;
+use nostr::nips::nip59::UnwrappedGift;
 use nostr::{
     event::{Event, EventBuilder, EventId, FinalizeEvent, Kind, Tag},
     filter::{Filter, SingleLetterTag},
@@ -25,7 +45,6 @@ use nostr::{
     nips::{
         nip01::Metadata,
         nip17::PrivateDirectMessageBuilder,
-        nip19::ToBech32,
         nip65::{RelayList, RelayMetadata, extract_relay_list},
     },
     types::url::RelayUrl,
@@ -41,23 +60,9 @@ use std::{
     sync::atomic::AtomicBool,
     time::Duration,
 };
-
-use bcr_ebill_api::{
-    constants::NOSTR_MAX_RELAYS,
-    service::{
-        contact_service::ContactServiceApi,
-        file_server_service::resolve_blossom_servers,
-        transport_service::{
-            Error, NostrConfig, NostrContactData, Result,
-            transport_client::{PreparedPrivateNostrEvent, TransportClientApi},
-        },
-    },
-};
-use bcr_ebill_core::{application::ServiceTraitBounds, protocol::event::EventEnvelope};
-use bcr_ebill_persistence::{NostrEventOffset, NostrEventOffsetStoreApi, NostrStoreApi};
-use futures::StreamExt;
-
+use tokio::sync::broadcast;
 use tokio::task::JoinSet;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SortOrder {
     Asc,
@@ -67,6 +72,14 @@ pub enum SortOrder {
 const BLOSSOM_SERVER_LIST_KIND: Kind = Kind::Custom(10063);
 const FILE_METADATA_KIND: Kind = Kind::Custom(1063);
 const DM_BACKFILL_LIMIT: usize = 1000;
+const DM_RESTORE_MAX_RECIPIENTS: usize = 128;
+/// DM catch-up
+const DM_CATCHUP_INTERVAL: Duration = Duration::from_secs(5 * 60);
+const DM_CATCHUP_PAGE_SIZE: usize = 256;
+const DM_CATCHUP_MAX_PAGES_PER_RELAY: usize = 10;
+const DM_CATCHUP_SIGNERS_PER_PASS: usize = 4;
+const DM_CATCHUP_QUERY_TIMEOUT: Duration = Duration::from_secs(10);
+const DM_CATCHUP_SCOPE: &str = "giftwrap";
 
 /// Check the output of sending an event to Nostr relays.
 /// Logs warnings for individual relay failures and returns an error if no relay
@@ -112,6 +125,7 @@ pub struct NostrClient {
     relay_ack_threshold: usize,
     nostr_contact_store: Option<Arc<dyn NostrStoreApi>>, // Keep for backwards compatibility
     nostr_store: Option<Arc<dyn NostrStoreApi>>,
+    primary_node_id: NodeId,
 }
 
 impl NostrClient {
@@ -128,6 +142,7 @@ impl NostrClient {
         if identities.is_empty() {
             return Err(Error::Message("At least one identity required".to_string()));
         }
+        let primary_node_id = identities[0].0.clone();
         // Use first identity to construct the underlying Client
         let first_keys = &identities[0].1;
         let client = Client::builder()
@@ -162,6 +177,7 @@ impl NostrClient {
             relay_ack_threshold: relay_ack_threshold.max(1),
             nostr_contact_store: nostr_store.clone(), // Keep for backwards compatibility
             nostr_store,
+            primary_node_id,
         })
     }
 
@@ -557,6 +573,16 @@ impl NostrClient {
             target_relays,
         })
     }
+
+    async fn subscribe_named(&self, id: &str, filter: Filter) -> Result<()> {
+        self.client
+            .subscribe(filter)
+            .with_id(SubscriptionId::new(id))
+            .await
+            .map_err(|e| Error::Network(e.to_string()))?;
+
+        Ok(())
+    }
 }
 
 impl ServiceTraitBounds for NostrClient {}
@@ -711,22 +737,6 @@ impl TransportClientApi for NostrClient {
         debug!("adding nostr subscription for contact {node_id}");
         self.subscribe(Filter::new().author(node_id.npub())).await?;
         Ok(())
-    }
-
-    async fn resolve_private_events(&self, filter: Filter) -> Result<Vec<nostr::event::Event>> {
-        let kinds = vec![Kind::GiftWrap];
-        // Subscribe with all public keys from all identities
-        let pubkeys: Vec<PublicKey> = self
-            .signers
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .keys()
-            .map(|node_id| node_id.npub())
-            .collect();
-        let filter = filter.clone().pubkeys(pubkeys).kinds(kinds);
-        Ok(self
-            .fetch_events(filter, Some(SortOrder::Asc), None)
-            .await?)
     }
 
     async fn resolve_events(&self, filter: Filter) -> Result<Vec<nostr::event::Event>> {
@@ -1072,6 +1082,12 @@ impl TransportClientApi for NostrClient {
         })
     }
 
+    async fn has_connected_read_relay(&self) -> bool {
+        self.client.relays().await.values().any(|relay| {
+            relay.status() == RelayStatus::Connected && relay.capabilities().can_read()
+        })
+    }
+
     async fn writable_relay_urls(&self) -> Result<Vec<url::Url>> {
         let relays = self.client.relays().await;
         let mut urls = relays
@@ -1088,6 +1104,39 @@ impl TransportClientApi for NostrClient {
         }
         Ok(urls)
     }
+
+    async fn event_available_on_relay(&self, event_id: EventId, relay: &url::Url) -> Result<bool> {
+        Ok(self
+            .fetch_event_from_relay(event_id, relay)
+            .await?
+            .is_some())
+    }
+
+    async fn fetch_event_from_relay(
+        &self,
+        event_id: EventId,
+        relay: &url::Url,
+    ) -> Result<Option<Event>> {
+        let events = self
+            .fetch_events(
+                Filter::new().id(event_id).limit(1),
+                None,
+                Some(vec![relay.clone()]),
+            )
+            .await?;
+        Ok(events
+            .into_iter()
+            .find(|event| event.id == event_id && event.verify().is_ok()))
+    }
+
+    async fn fetch_events_from_relay(
+        &self,
+        filter: Filter,
+        relay: &url::Url,
+    ) -> Result<Vec<Event>> {
+        self.fetch_events(filter, None, Some(vec![relay.clone()]))
+            .await
+    }
 }
 
 #[derive(Clone)]
@@ -1098,6 +1147,9 @@ pub struct NostrConsumer {
     offset_store: Arc<dyn NostrEventOffsetStoreApi>,
     chain_key_service: Arc<dyn ChainKeyServiceApi>,
     file_metadata_processor: Arc<dyn FileMetadataProcessorApi>,
+    incoming_verifier: Option<(Arc<IncomingPropagationVerifier>, RelayQuorumSnapshot)>,
+    catchup_hints: Option<broadcast::Sender<KnownChain>>,
+    dm_processing_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl NostrConsumer {
@@ -1117,7 +1169,24 @@ impl NostrConsumer {
             chain_key_service,
             offset_store,
             file_metadata_processor,
+            incoming_verifier: None,
+            catchup_hints: None,
+            dm_processing_lock: Arc::new(tokio::sync::Mutex::new(())),
         }
+    }
+
+    pub fn with_incoming_verifier(
+        mut self,
+        verifier: Arc<IncomingPropagationVerifier>,
+        snapshot: RelayQuorumSnapshot,
+    ) -> Self {
+        self.incoming_verifier = Some((verifier, snapshot));
+        self
+    }
+
+    pub fn with_catchup_hints(mut self, hints: broadcast::Sender<KnownChain>) -> Self {
+        self.catchup_hints = Some(hints);
+        self
     }
 
     pub async fn start(&self) -> Result<JoinSet<()>> {
@@ -1126,8 +1195,17 @@ impl NostrConsumer {
         let event_handlers = self.event_handlers.clone();
         let contact_service = self.contact_service.clone();
         let offset_store = self.offset_store.clone();
-        let chain_key_store = self.chain_key_service.clone();
         let file_metadata_processor = self.file_metadata_processor.clone();
+        let incoming_verifier = self.incoming_verifier.clone();
+        let incoming_for_chain_events = incoming_verifier.clone();
+        let chain_keys_for_catchup = self.chain_key_service.clone();
+        let dm_processing_lock = self.dm_processing_lock.clone();
+        let dm_catchup_client = self.client.clone();
+        let dm_catchup_offsets = self.offset_store.clone();
+        let dm_catchup_handlers = self.event_handlers.clone();
+        let dm_catchup_lock = self.dm_processing_lock.clone();
+
+        let catchup_hints = self.catchup_hints.as_ref().map(|sender| sender.subscribe());
 
         let mut tasks = JoinSet::new();
 
@@ -1165,7 +1243,8 @@ impl NostrConsumer {
         let mut notifications = client.client.notifications();
 
         client
-            .subscribe(
+            .subscribe_named(
+                "bitcr-incoming-private",
                 Filter::new()
                     .pubkeys(local_pubkeys.clone())
                     .kinds(vec![Kind::GiftWrap])
@@ -1184,7 +1263,8 @@ impl NostrConsumer {
         info!("Subscribing to public Nostr events");
 
         client
-            .subscribe(
+            .subscribe_named(
+                "bitcr-incoming-public",
                 Filter::new()
                     .authors(contacts)
                     .kinds(vec![
@@ -1206,39 +1286,38 @@ impl NostrConsumer {
         tasks.spawn(async move {
             let result: Result<()> = async {
                 while let Some(note) = notifications.next().await {
-                    let event_handlers = event_handlers.clone();
-                    let offset_store = offset_store.clone();
-                    let chain_key_store = chain_key_store.clone();
-                    let file_metadata_processor = file_metadata_processor.clone();
-                    let client = client.clone();
-
                     let ClientNotification::Event { event, .. } = note else {
                         continue;
                     };
 
-                    if !should_process(event.clone(), &offset_store, Some(earliest_offset)).await {
+                    // handle private events - e.g. chain invites, notifications
+                    if event.kind == Kind::GiftWrap {
+                        if let Err(e) = process_private_event(
+                            client.as_ref(),
+                            event.as_ref(),
+                            &offset_store,
+                            &event_handlers,
+                            dm_processing_lock.as_ref(),
+                        )
+                        .await
+                        {
+                            warn!("Private event {} was not fully processed: {e}", event.id);
+                        }
+
                         continue;
                     }
 
-                    // Determine which local identity should receive this event
-                    match determine_recipient(&event, &client).await {
-                        Ok((recipient_node_id, signer)) => {
-                            let (success, time) = process_event(
-                                event.clone(),
-                                signer,
-                                recipient_node_id.clone(),
-                                chain_key_store,
-                                &event_handlers,
-                                file_metadata_processor,
-                            )
-                            .await?;
-                            // store the new event offset for the recipient identity
-                            add_offset(&offset_store, event.id, time, success, &recipient_node_id)
-                                .await;
-                        }
-                        Err(e) => {
-                            debug!("Could not determine recipient for event {}: {e}", event.id);
-                        }
+                    // handle public events - e.g. chain events
+                    if let Err(e) = process_public_event(
+                        event.as_ref(),
+                        client.as_ref(),
+                        incoming_for_chain_events.as_ref(),
+                        &offset_store,
+                        file_metadata_processor.as_ref(),
+                    )
+                    .await
+                    {
+                        warn!("Public event {} was not fully processed: {e}", event.id,);
                     }
                 }
 
@@ -1249,6 +1328,32 @@ impl NostrConsumer {
             if let Err(e) = result {
                 error!("Nostr notification handler failed: {e}");
             }
+        });
+
+        // start incoming events verifier
+        if let Some((verifier, snapshot)) = incoming_verifier {
+            let catchup_verifier = verifier.clone();
+
+            tasks.spawn(async move {
+                verifier.run_loop().await;
+            });
+
+            tasks.spawn(async move {
+                catchup_verifier
+                    .run_catchup_loop(chain_keys_for_catchup, snapshot, catchup_hints)
+                    .await;
+            });
+        }
+
+        // start private message background catch-up loop
+        tasks.spawn(async move {
+            run_private_catchup_loop(
+                dm_catchup_client,
+                dm_catchup_offsets,
+                dm_catchup_handlers,
+                dm_catchup_lock,
+            )
+            .await;
         });
 
         Ok(tasks)
@@ -1266,7 +1371,6 @@ pub async fn determine_recipient(
     match event.kind {
         Kind::GiftWrap => {
             let keys_to_try = prioritized_signers_for_event(event, &client.signers);
-
             for (node_id, nostr_keys) in keys_to_try {
                 // Try to unwrap the message with one of our signers
                 if unwrap_direct_message(event, &nostr_keys).await.is_some() {
@@ -1328,142 +1432,167 @@ fn prioritized_signers_for_event(
     keys_to_try
 }
 
-/// Detects event types and routes them to the correct handler.
-pub async fn process_event(
-    event: Box<Event>,
-    signer: Arc<Keys>,
-    client_id: NodeId,
-    chain_key_store: Arc<dyn ChainKeyServiceApi>,
-    event_handlers: &[Arc<dyn NotificationHandlerApi>],
-    file_metadata_processor: Arc<dyn FileMetadataProcessorApi>,
-) -> Result<(bool, Timestamp)> {
-    let (success, time) = match event.kind {
-        Kind::GiftWrap => {
-            trace!("Received encrypted direct message: {event:?}");
-            match handle_direct_message(event.clone(), &signer, &client_id, event_handlers).await {
-                Err(e) => {
-                    error!("Failed to handle direct message: {e}");
-                    (false, Timestamp::zero())
-                }
-                Ok(_) => (true, event.created_at.into()),
-            }
-        }
-        Kind::TextNote => {
-            match handle_public_event(event.clone(), &client_id, &chain_key_store, event_handlers)
-                .await
-            {
-                Err(e) => {
-                    debug!("Skipping public chain event with missing chain keys: {e}");
-                    (false, Timestamp::zero())
-                }
-                Ok(v) => {
-                    if v {
-                        (v, event.created_at.into())
-                    } else {
-                        (false, Timestamp::zero())
-                    }
-                }
-            }
-        }
-        Kind::RelayList => {
-            debug!("Received relay list from: {}", event.pubkey);
-            (true, Timestamp::zero())
-        }
-        kind if kind == BLOSSOM_SERVER_LIST_KIND => {
-            debug!("Received blossom server list from: {}", event.pubkey);
-            (true, Timestamp::zero())
-        }
-        kind if kind == FILE_METADATA_KIND => {
-            let result = file_metadata_processor
-                .process_file_metadata(event.clone(), &client_id)
-                .await;
-            if let Err(e) = result {
-                debug!("File metadata processor failed: {}", e);
-                return Ok((false, Timestamp::zero()));
-            }
-            (true, event.created_at.into())
-        }
-        Kind::Metadata => {
-            debug!("Received metadata from: {}", event.pubkey);
-            (true, Timestamp::zero())
-        }
-        _ => (true, Timestamp::zero()),
-    };
-
-    Ok((success, time))
-}
-
-pub async fn should_process(
-    event: Box<Event>,
-    offset_store: &Arc<dyn NostrEventOffsetStoreApi>,
-    since: Option<Timestamp>,
-) -> bool {
-    valid_time(event.kind, event.created_at, since)
-        && !offset_store
-            .is_processed(&event.id.to_hex())
-            .await
-            .unwrap_or(false)
-}
-
-fn valid_time(kind: Kind, created: nostr::types::Timestamp, since: Option<Timestamp>) -> bool {
-    match since {
-        Some(time) if !matches!(kind, Kind::GiftWrap) => created.as_secs() >= time.inner(),
-        _ => true,
-    }
-}
-
 pub async fn handle_direct_message(
     event: Box<Event>,
     signer: &Keys,
     client_id: &NodeId,
     event_handlers: &[Arc<dyn NotificationHandlerApi>],
 ) -> Result<()> {
-    if let Some((envelope, sender, _, _)) = unwrap_direct_message(&event, signer).await {
-        let sender_npub = sender.to_bech32();
-        let sender_pub_key = sender.to_hex();
-        debug!(
-            "Processing event: {} {} from {sender_npub:?} (hex: {sender_pub_key}) on client {client_id}",
-            envelope.event_type, envelope.version
-        );
-        handle_event(envelope, client_id, event_handlers, Some(sender), event).await?;
-    }
-    Ok(())
+    let Some((envelope, sender, _, _)) = unwrap_direct_message(&event, signer).await else {
+        return Err(Error::Message(format!(
+            "Could not decrypt GiftWrap event {}",
+            event.id
+        )));
+    };
+    debug!(
+        "Processing private event {} from {} for {}",
+        event.id,
+        sender.to_hex(),
+        client_id
+    );
+    handle_event(envelope, client_id, event_handlers, Some(sender), event).await
 }
 
-async fn handle_public_event(
-    event: Box<Event>,
-    node_id: &NodeId,
-    chain_key_store: &Arc<dyn ChainKeyServiceApi>,
+/// process a private GiftWrap event
+/// processing is serialized using a lock, because this can be called from multiple jobs
+/// Returns true when the event was newly processed
+pub(crate) async fn process_private_event(
+    client: &NostrClient,
+    event: &Event,
+    offset_store: &Arc<dyn NostrEventOffsetStoreApi>,
     handlers: &[Arc<dyn NotificationHandlerApi>],
+    processing_lock: &tokio::sync::Mutex<()>,
 ) -> Result<bool> {
-    if let Some(encoded_or_encrypted) = unwrap_public_chain_event(event.as_ref())? {
-        debug!(
-            "Received public chain event: {} {}",
-            encoded_or_encrypted.chain_type, encoded_or_encrypted.id
-        );
-        // make sure we have the correct keys for this event
-        if let Ok(Some(keys)) = chain_key_store
-            .get_chain_keys(&encoded_or_encrypted.id, encoded_or_encrypted.chain_type)
-            .await
-        {
-            let decoded = decrypt_or_decode_public_chain_event(
-                &encoded_or_encrypted.payload,
-                &Some(keys.to_owned()),
-            )?;
-            debug!("Handling public chain event: {:?}", decoded.event_type);
-            handle_event(
-                decoded.clone(),
-                node_id,
-                handlers,
-                Some(event.pubkey),
-                event.clone(),
+    // Check if the event should be processed
+    if event.kind != Kind::GiftWrap {
+        return Ok(false);
+    }
+    let _guard = processing_lock.lock().await;
+    let processed = offset_store
+        .is_processed(&event.id.to_hex())
+        .await
+        .map_err(|e| Error::Persistence(e.to_string()))?;
+    if processed {
+        return Ok(false);
+    }
+
+    event
+        .verify()
+        .map_err(|e| Error::Message(format!("Invalid GiftWrap signature: {e}")))?;
+    // Determine which identity should receive this event and whether to ignore the event because it's malformed
+    let (recipient_node_id, signer) = match determine_recipient(event, client).await {
+        Ok(recipient) => recipient,
+        Err(e) => {
+            if let Some(recipient) = malformed_private_recipient(event, client).await {
+                offset_store
+                    .ignore_private_event(
+                        &event.id.to_hex(),
+                        event.created_at.into(),
+                        &recipient,
+                        "Malformed Bitcredit envelope",
+                    )
+                    .await
+                    .map_err(|err| Error::Persistence(err.to_string()))?;
+                warn!("Ignoring malformed private event {}", event.id);
+                return Ok(false);
+            }
+            return Err(e);
+        }
+    };
+
+    // Process event with the correct identity's signer
+    handle_direct_message(
+        Box::new(event.clone()),
+        signer.as_ref(),
+        &recipient_node_id,
+        handlers,
+    )
+    .await?;
+
+    // Add event offset for the recipient identity
+    add_offset(
+        offset_store,
+        event.id,
+        event.created_at.into(),
+        true,
+        &recipient_node_id,
+    )
+    .await?;
+    Ok(true)
+}
+
+/// process a public event, such as chain events and file metadata
+async fn process_public_event(
+    event: &Event,
+    client: &NostrClient,
+    incoming: Option<&(Arc<IncomingPropagationVerifier>, RelayQuorumSnapshot)>,
+    offset_store: &Arc<dyn NostrEventOffsetStoreApi>,
+    file_metadata_processor: &dyn FileMetadataProcessorApi,
+) -> Result<()> {
+    match event.kind {
+        kind if kind == BLOSSOM_SERVER_LIST_KIND => {
+            debug!("Received blossom server list from: {}", event.pubkey);
+            return Ok(());
+        }
+        Kind::RelayList => {
+            debug!("Received relay list from: {}", event.pubkey);
+            return Ok(());
+        }
+        Kind::Metadata => {
+            debug!("Received metadata from: {}", event.pubkey);
+            return Ok(());
+        }
+        Kind::TextNote => {}
+        kind if kind == FILE_METADATA_KIND => {}
+        _ => return Ok(()),
+    }
+
+    // Deduplicate by exact event ID, not timestamp
+    let processed = offset_store
+        .is_processed(&event.id.to_hex())
+        .await
+        .unwrap_or_else(|e| {
+            warn!("Could not check event {} offset: {e}", event.id);
+            false
+        });
+
+    if processed {
+        return Ok(());
+    }
+
+    match event.kind {
+        Kind::TextNote => {
+            // Only chain events are enqueued and recorded as processed
+            enqueue_public_chain_event(
+                event,
+                incoming
+                    .map(|(verifier, snapshot)| (verifier.clone(), snapshot.clone()))
+                    .as_ref(),
+                &client.primary_node_id,
+                offset_store,
             )
             .await?;
         }
-        Ok(true)
-    } else {
-        Ok(false)
+        kind if kind == FILE_METADATA_KIND => {
+            let (node_id, _) = any_local_signer(client)?;
+            event
+                .verify()
+                .map_err(|e| Error::Message(format!("Invalid file metadata signature: {e}")))?;
+            file_metadata_processor
+                .process_file_metadata(Box::new(event.clone()), &node_id)
+                .await?;
+            add_offset(
+                offset_store,
+                event.id,
+                event.created_at.into(),
+                true,
+                &node_id,
+            )
+            .await?;
+        }
+        _ => {}
     }
+    Ok(())
 }
 
 async fn get_offset(db: &Arc<dyn NostrEventOffsetStoreApi>, node_id: &NodeId) -> Timestamp {
@@ -1480,19 +1609,92 @@ pub async fn add_offset(
     time: Timestamp,
     success: bool,
     node_id: &NodeId,
-) {
+) -> Result<()> {
+    // an unsuccessful attempt is not a processed event
+    if !success {
+        return Ok(());
+    }
     db.add_event(NostrEventOffset {
         event_id: event_id.to_hex(),
         time,
-        success,
-        node_id: node_id.to_owned(),
+        success: true,
+        node_id: node_id.clone(),
     })
     .await
-    .map_err(|e| error!("Could not store event offset: {e}"))
-    .ok();
+    .map_err(|e| Error::Persistence(e.to_string()))
 }
 
-/// Handle extracted event with given handlers.
+async fn record_offset_after_enqueue<F>(
+    event: &Event,
+    node_id: &NodeId,
+    offset_store: &Arc<dyn NostrEventOffsetStoreApi>,
+    enqueue: F,
+) -> Result<()>
+where
+    F: std::future::Future<Output = Result<()>>,
+{
+    // offset is only written once the event has actually been enqueued
+    enqueue.await?;
+    add_offset(
+        offset_store,
+        event.id,
+        event.created_at.into(),
+        true,
+        node_id,
+    )
+    .await
+}
+
+async fn enqueue_public_chain_event(
+    event: &Event,
+    incoming: Option<&(Arc<IncomingPropagationVerifier>, RelayQuorumSnapshot)>,
+    primary_node_id: &NodeId,
+    offset_store: &Arc<dyn NostrEventOffsetStoreApi>,
+) -> Result<bool> {
+    if event.kind != Kind::TextNote {
+        return Ok(false);
+    }
+    let Some(public) = unwrap_public_chain_event(event)? else {
+        return Ok(false);
+    };
+
+    if crate::chain_keys::validate_chain_id(
+        &public.id,
+        public.chain_type,
+        primary_node_id.network(),
+    )
+    .is_err()
+    {
+        debug!("Ignoring public event with invalid chain ID");
+        return Ok(false);
+    }
+
+    if public.chain_type == BlockchainType::Identity && public.id != primary_node_id.to_string() {
+        debug!("Ignoring foreign identity chain event");
+        return Ok(false);
+    }
+
+    let Some((verifier, snapshot)) = incoming else {
+        return Err(Error::Message(
+            "Incoming chain verifier not configured".into(),
+        ));
+    };
+    let chain_type = public.chain_type.to_string();
+    record_offset_after_enqueue(
+        event,
+        primary_node_id,
+        offset_store,
+        verifier.enqueue(event.clone(), &chain_type, &public.id, snapshot.clone()),
+    )
+    .await?;
+    debug!(
+        "Enqueued public chain event {} for {} {}",
+        event.id, chain_type, public.id
+    );
+    Ok(true)
+}
+
+/// Handle extracted event with given handlers
 async fn handle_event(
     event: EventEnvelope,
     node_id: &NodeId,
@@ -1500,29 +1702,49 @@ async fn handle_event(
     sender: Option<nostr::key::PublicKey>,
     original_event: Box<nostr::event::Event>,
 ) -> Result<()> {
+    // chain events are handled by the incoming verifier
+    if matches!(
+        &event.event_type,
+        EventType::BillChain | EventType::CompanyChain | EventType::IdentityChain
+    ) {
+        return Err(Error::Message(
+            "Chain events must pass incoming relay verification".into(),
+        ));
+    }
     let event_type = &event.event_type;
-    let mut times = 0;
-    for handler in handlers.iter() {
-        if handler.handles_event(event_type) {
-            match handler
-                .handle_event(
-                    event.to_owned(),
-                    node_id,
-                    sender,
-                    Some(original_event.clone()),
-                )
-                .await
-            {
-                Ok(_) => times += 1,
-                Err(e) => error!("Nostr event handler failed: {e}"),
+    let mut handled = 0;
+    let mut first_error = None;
+
+    for handler in handlers {
+        if !handler.handles_event(event_type) {
+            continue;
+        }
+        match handler
+            .handle_event(event.clone(), node_id, sender, Some(original_event.clone()))
+            .await
+        {
+            Ok(()) => handled += 1,
+            Err(e) => {
+                error!("Nostr handler failed for {event_type:?}: {e}");
+                if first_error.is_none() {
+                    first_error = Some(e);
+                }
             }
         }
     }
-    if times < 1 {
-        warn!("No handler subscribed for event: {event:?}");
-    } else {
-        trace!("{event_type:?} event handled successfully {times} times");
+
+    // one failure means that not all required processing completed
+    if let Some(e) = first_error {
+        return Err(e);
     }
+
+    if handled == 0 {
+        return Err(Error::Message(format!(
+            "No successful handler for {event_type:?}"
+        )));
+    }
+
+    trace!("{event_type:?} handled successfully {handled} times");
     Ok(())
 }
 
@@ -1534,21 +1756,525 @@ fn is_duplicate_response(reason: &str) -> bool {
         .starts_with("duplicate:")
 }
 
+//
+// PRIVATE DM CATCH UP
+//
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct PrivateCatchupStats {
+    processed: usize,
+    already_processed: usize,
+    failed: usize,
+    invalid: usize,
+    incomplete_scans: usize,
+}
+
+impl PrivateCatchupStats {
+    fn merge(&mut self, other: Self) {
+        self.processed += other.processed;
+        self.already_processed += other.already_processed;
+        self.failed += other.failed;
+        self.invalid += other.invalid;
+        self.incomplete_scans += other.incomplete_scans;
+    }
+}
+
+struct PrivatePage {
+    events: Vec<Event>,
+    // returned by the relay before validation entries - needed for pagination
+    raw_len: usize,
+    invalid: usize,
+}
+
+async fn run_private_catchup_loop(
+    client: Arc<NostrClient>,
+    offsets: Arc<dyn NostrEventOffsetStoreApi>,
+    handlers: Vec<Arc<dyn NotificationHandlerApi>>,
+    lock: Arc<tokio::sync::Mutex<()>>,
+) {
+    let mut interval = tokio::time::interval(DM_CATCHUP_INTERVAL);
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut next_signer = 0;
+    loop {
+        interval.tick().await;
+        match catch_up_private_once(
+            client.as_ref(),
+            &offsets,
+            &handlers,
+            lock.as_ref(),
+            &mut next_signer,
+        )
+        .await
+        {
+            Ok(stats) if stats != PrivateCatchupStats::default() => {
+                info!(
+                    "Private Nostr catch-up: {} processed, {} already processed, {} failed attempts, {} invalid responses, {} incomplete scans",
+                    stats.processed,
+                    stats.already_processed,
+                    stats.failed,
+                    stats.invalid,
+                    stats.incomplete_scans,
+                );
+            }
+            Ok(_) => {}
+            Err(e) => {
+                warn!("Private Nostr catch-up failed: {e}");
+            }
+        }
+    }
+}
+
+async fn connected_private_relays(client: &NostrClient) -> Result<Vec<url::Url>> {
+    let mut relays: Vec<url::Url> = client
+        .client()
+        .await?
+        .relays()
+        .await
+        .into_values()
+        .filter(|relay| relay.status() == RelayStatus::Connected)
+        .filter_map(|relay| url::Url::parse(relay.url().as_str()).ok())
+        .collect();
+    relays.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+    relays.dedup();
+    Ok(relays)
+}
+
+async fn catch_up_private_for_recipient(
+    client: &NostrClient,
+    recipient: &NodeId,
+    relays: &[url::Url],
+    offsets: &Arc<dyn NostrEventOffsetStoreApi>,
+    handlers: &[Arc<dyn NotificationHandlerApi>],
+    lock: &tokio::sync::Mutex<()>,
+) -> PrivateCatchupStats {
+    let mut stats = PrivateCatchupStats::default();
+    for relay in relays {
+        stats.merge(
+            catch_up_private_on_relay(client, relay, recipient, offsets, handlers, lock).await,
+        );
+    }
+    stats
+}
+
+async fn catch_up_private_once(
+    client: &NostrClient,
+    offsets: &Arc<dyn NostrEventOffsetStoreApi>,
+    handlers: &[Arc<dyn NotificationHandlerApi>],
+    lock: &tokio::sync::Mutex<()>,
+    next_signer: &mut usize,
+) -> Result<PrivateCatchupStats> {
+    let mut signers = client.get_all_node_ids();
+    if signers.is_empty() {
+        return Ok(PrivateCatchupStats::default());
+    }
+    signers.sort_by_key(|id| id.to_string());
+    let relays = connected_private_relays(client).await?;
+    if relays.is_empty() {
+        return Ok(PrivateCatchupStats::default());
+    }
+    // round robin signers
+    let count = signers.len().min(DM_CATCHUP_SIGNERS_PER_PASS);
+    let start = *next_signer % signers.len();
+    *next_signer = (start + count) % signers.len();
+
+    let mut stats = PrivateCatchupStats::default();
+    for index in 0..count {
+        let recipient = &signers[(start + index) % signers.len()];
+        stats.merge(
+            catch_up_private_for_recipient(client, recipient, &relays, offsets, handlers, lock)
+                .await,
+        );
+    }
+    Ok(stats)
+}
+
+/// Private-history recovery for restoration, incomplete scan is recoverable after reinitiliaztion after restore
+pub(crate) async fn catch_up_private_for_restore(
+    client: &NostrClient,
+    offsets: &Arc<dyn NostrEventOffsetStoreApi>,
+    handlers: &[Arc<dyn NotificationHandlerApi>],
+    lock: &tokio::sync::Mutex<()>,
+) -> Result<()> {
+    let relays = connected_private_relays(client).await?;
+    if relays.is_empty() {
+        warn!(
+            "Private Restore found no connected relays - catch-up will retry after reinitialization"
+        );
+        return Ok(());
+    }
+
+    let mut scanned: HashSet<NodeId> = HashSet::new();
+    let mut stats = PrivateCatchupStats::default();
+    loop {
+        // update signer list on every pass, since we can add a signer during procession
+        let pending = unscanned_private_recipients(client, &scanned);
+        if pending.is_empty() {
+            break;
+        }
+        if scanned.len() >= DM_RESTORE_MAX_RECIPIENTS {
+            warn!(
+                "Private restoration reached the {}-recipient budget",
+                DM_RESTORE_MAX_RECIPIENTS
+            );
+            stats.incomplete_scans += 1;
+            break;
+        }
+
+        // high safety budget to not spin forever
+        let remaining_budget = DM_RESTORE_MAX_RECIPIENTS - scanned.len();
+        for recipient in pending.into_iter().take(remaining_budget) {
+            scanned.insert(recipient.clone());
+            stats.merge(
+                catch_up_private_for_recipient(
+                    client, &recipient, &relays, offsets, handlers, lock,
+                )
+                .await,
+            );
+        }
+    }
+    info!(
+        "Private restoration: {} recipients scanned, {} processed, {} already processed, {} failed attempts, {} invalid responses, {} incomplete scans",
+        scanned.len(),
+        stats.processed,
+        stats.already_processed,
+        stats.failed,
+        stats.invalid,
+        stats.incomplete_scans,
+    );
+    if stats.failed > 0 || stats.incomplete_scans > 0 {
+        warn!(
+            "Private restoration partially complete - remaining history will be retried after reinitialization"
+        );
+    }
+    Ok(())
+}
+
+/// recipients that were not scanned yet
+fn unscanned_private_recipients(client: &NostrClient, scanned: &HashSet<NodeId>) -> Vec<NodeId> {
+    let mut recipients: Vec<NodeId> = client
+        .get_all_node_ids()
+        .into_iter()
+        .filter(|id| !scanned.contains(id))
+        .collect();
+    recipients.sort_by_key(|id| id.to_string());
+    recipients
+}
+/// catch up and replay private messages from one given relay
+async fn catch_up_private_on_relay(
+    client: &NostrClient,
+    relay: &url::Url,
+    recipient: &NodeId,
+    offsets: &Arc<dyn NostrEventOffsetStoreApi>,
+    handlers: &[Arc<dyn NotificationHandlerApi>],
+    lock: &tokio::sync::Mutex<()>,
+) -> PrivateCatchupStats {
+    catch_up_private_on_relay_with(
+        relay,
+        recipient,
+        offsets,
+        |since, until| fetch_private_page(client, relay, recipient, since, until),
+        |events| process_private_page(client, events, offsets, handlers, lock),
+    )
+    .await
+}
+
+async fn catch_up_private_on_relay_with<Fetch, FetchFuture, Process, ProcessFuture>(
+    relay: &url::Url,
+    recipient: &NodeId,
+    offsets: &Arc<dyn NostrEventOffsetStoreApi>,
+    fetch: Fetch,
+    process: Process,
+) -> PrivateCatchupStats
+where
+    Fetch: Fn(Option<u64>, u64) -> FetchFuture,
+    FetchFuture: std::future::Future<Output = Result<PrivatePage>>,
+    Process: Fn(Vec<Event>) -> ProcessFuture,
+    ProcessFuture: std::future::Future<Output = PrivateCatchupStats>,
+{
+    let mut stats = PrivateCatchupStats::default();
+    let saved_until = match offsets
+        .get_catchup_until(DM_CATCHUP_SCOPE, &recipient.to_string(), relay)
+        .await
+    {
+        Ok(cursor) => cursor,
+        Err(e) => {
+            warn!("Cannot load private catch-up cursor for {recipient} on {relay}: {e}");
+            stats.incomplete_scans += 1;
+            return stats;
+        }
+    };
+    // fast path if there's a cursor already - fetch the newest page immediately, so we don't have to wait for the whole catch up
+    if saved_until.is_some() {
+        let now = Timestamp::now().inner();
+        match fetch(None, now).await {
+            Ok(page) => {
+                stats.invalid += page.invalid;
+                stats.merge(process(page.events).await);
+            }
+            Err(e) => {
+                warn!("Could not refresh newest private events for {recipient} on {relay}: {e}");
+                stats.incomplete_scans += 1;
+            }
+        }
+    }
+    let mut until = saved_until.unwrap_or_else(|| Timestamp::now().inner());
+
+    for _ in 0..DM_CATCHUP_MAX_PAGES_PER_RELAY {
+        let page = match fetch(None, until).await {
+            Ok(page) => page,
+            Err(e) => {
+                warn!("Private catch-up fetch failed for {recipient} on {relay}: {e}");
+                stats.incomplete_scans += 1;
+                return stats;
+            }
+        };
+        stats.invalid += page.invalid;
+        if page.raw_len == 0 {
+            save_private_catchup_cursor(offsets, recipient, relay, None, &mut stats).await;
+            return stats;
+        }
+        let oldest = page
+            .events
+            .iter()
+            .map(|event| event.created_at.as_secs())
+            .min();
+
+        stats.merge(process(page.events).await);
+        // A short nonempty response does not necessarily mean history is exhausted.
+        // Continue from the oldest timestamp regardless of page length.
+
+        // No valid timestamp anchor - do not advance the cursor
+        let Some(oldest) = oldest else {
+            warn!(
+                "Full private-event page contained no valid pagination anchor for {recipient} on {relay}"
+            );
+            stats.incomplete_scans += 1;
+            return stats;
+        };
+
+        // re-query at the boundary so we don't skip events
+        let boundary = match fetch(Some(oldest), oldest).await {
+            Ok(page) => page,
+            Err(e) => {
+                warn!("Private catch-up boundary fetch failed for {recipient} on {relay}: {e}");
+                stats.incomplete_scans += 1;
+                return stats;
+            }
+        };
+
+        let boundary_count = boundary.raw_len;
+        stats.invalid += boundary.invalid;
+        stats.merge(process(boundary.events).await);
+
+        // if a boundary disappears, return because we can't advance
+        if boundary_count == 0 {
+            warn!(
+                "Private catch-up boundary disappeared for {recipient} on {relay}, can't advance safely"
+            );
+            stats.incomplete_scans += 1;
+            return stats;
+        }
+
+        match next_private_page_until(oldest, boundary_count) {
+            Ok(Some(next)) => {
+                if !save_private_catchup_cursor(offsets, recipient, relay, Some(next), &mut stats)
+                    .await
+                {
+                    return stats;
+                }
+                until = next;
+            }
+            Ok(None) => {
+                // Timestamp zero: catchup sweep completed
+                save_private_catchup_cursor(offsets, recipient, relay, None, &mut stats).await;
+                return stats;
+            }
+            Err(e) => {
+                warn!("Private catch-up cannot advance safely for {recipient} on {relay}: {e}");
+                stats.incomplete_scans += 1;
+                return stats;
+            }
+        }
+    }
+    debug!(
+        "Private historical scan for {recipient} on {relay} paused after {} pages - next pass will resume at until={until}",
+        DM_CATCHUP_MAX_PAGES_PER_RELAY,
+    );
+    stats.incomplete_scans += 1;
+    stats
+}
+
+fn filter_private_page(
+    events: Vec<Event>,
+    recipient: &NodeId,
+    since: Option<u64>,
+    until: u64,
+) -> Result<PrivatePage> {
+    let raw_len = events.len();
+    if raw_len > DM_CATCHUP_PAGE_SIZE {
+        return Err(Error::Network(
+            "Relay exceeded the requested private-event page size".into(),
+        ));
+    }
+    let recipient_pubkey = recipient.npub();
+    let mut accepted = Vec::with_capacity(raw_len);
+    let mut invalid = 0;
+    for event in events {
+        let timestamp = event.created_at.as_secs();
+        let valid = event.kind == Kind::GiftWrap
+            && event.verify().is_ok()
+            && event.tags.public_keys().any(|pk| pk == recipient_pubkey)
+            && timestamp <= until
+            && since.is_none_or(|lower| timestamp >= lower);
+        if valid {
+            accepted.push(event);
+        } else {
+            invalid += 1;
+            debug!(
+                "Skipping invalid or mismatched GiftWrap response {}",
+                event.id
+            );
+        }
+    }
+    Ok(PrivatePage {
+        events: accepted,
+        raw_len,
+        invalid,
+    })
+}
+
+/// fetch a page of private dms for a given recipient
+async fn fetch_private_page(
+    client: &NostrClient,
+    relay: &url::Url,
+    recipient: &NodeId,
+    since: Option<u64>,
+    until: u64,
+) -> Result<PrivatePage> {
+    let mut filter = Filter::new()
+        .pubkey(recipient.npub())
+        .kind(Kind::GiftWrap)
+        .limit(DM_CATCHUP_PAGE_SIZE)
+        .until(nostr::types::Timestamp::from_secs(until));
+    if let Some(since) = since {
+        filter = filter.since(nostr::types::Timestamp::from_secs(since));
+    }
+    let events = tokio::time::timeout(
+        DM_CATCHUP_QUERY_TIMEOUT,
+        client.fetch_events(filter, None, Some(vec![relay.clone()])),
+    )
+    .await
+    .map_err(|_| Error::Network(format!("Private-event fetch timed out on {relay}")))??;
+    let page = filter_private_page(events, recipient, since, until)?;
+    if page.invalid > 0 {
+        warn!(
+            "Relay {relay} returned {} invalid or mismatched GiftWrap events for {recipient}",
+            page.invalid
+        );
+    }
+    Ok(page)
+}
+
+/// avoid same-second pagination loss, handling the unlikely case that everything has the same timestamp
+fn next_private_page_until(oldest_timestamp: u64, boundary_count: usize) -> Result<Option<u64>> {
+    if boundary_count >= DM_CATCHUP_PAGE_SIZE {
+        return Err(Error::Network(
+            "Too many GiftWrap events share one timestamp - cannot safely advance pagination"
+                .into(),
+        ));
+    }
+    Ok(oldest_timestamp.checked_sub(1))
+}
+
+/// process a page of private dms, returning stats of what was processed
+async fn process_private_page(
+    client: &NostrClient,
+    events: Vec<Event>,
+    offsets: &Arc<dyn NostrEventOffsetStoreApi>,
+    handlers: &[Arc<dyn NotificationHandlerApi>],
+    lock: &tokio::sync::Mutex<()>,
+) -> PrivateCatchupStats {
+    let mut stats = PrivateCatchupStats::default();
+    for event in events {
+        match process_private_event(client, &event, offsets, handlers, lock).await {
+            Ok(true) => stats.processed += 1,
+            Ok(false) => {
+                stats.already_processed += 1;
+            }
+            Err(e) => {
+                stats.failed += 1;
+                warn!("Private-event catch-up could not process {}: {e}", event.id);
+            }
+        }
+    }
+    stats
+}
+
+/// save a catchup cursor for a given relay
+async fn save_private_catchup_cursor(
+    offsets: &Arc<dyn NostrEventOffsetStoreApi>,
+    recipient: &NodeId,
+    relay: &url::Url,
+    until: Option<u64>,
+    stats: &mut PrivateCatchupStats,
+) -> bool {
+    if let Err(e) = offsets
+        .set_catchup_until(DM_CATCHUP_SCOPE, &recipient.to_string(), relay, until)
+        .await
+    {
+        warn!("Could not save private catch-up cursor for {recipient} on {relay}: {e}");
+        stats.incomplete_scans += 1;
+        return false;
+    }
+    true
+}
+
+/// Returns a known recipient only when decryption succeeds but the decrypted NIP-17 message has malformed bcr-content
+async fn malformed_private_recipient(event: &Event, client: &NostrClient) -> Option<NodeId> {
+    for (node_id, signer) in prioritized_signers_for_event(event, &client.signers) {
+        let Ok(UnwrappedGift { rumor, .. }) =
+            UnwrappedGift::from_gift_wrap_async(signer.as_ref(), event).await
+        else {
+            continue;
+        };
+        // unknown rumor kinds are left retryable
+        if rumor.kind != Kind::PrivateDirectMessage {
+            continue;
+        }
+        if extract_event_envelope(rumor).is_none() {
+            return Some(node_id);
+        }
+    }
+
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::test_utils::get_mock_relay;
+    use super::PrivateCatchupStats;
+    use super::filter_private_page;
+    use super::process_private_event;
+    use super::record_offset_after_enqueue;
+    use super::unscanned_private_recipients;
+    use super::{DM_CATCHUP_PAGE_SIZE, next_private_page_until};
     use super::{NostrClient, NostrConfig, NostrConsumer, prioritized_signers_for_event};
+    use super::{PrivatePage, catch_up_private_on_relay_with};
+    use crate::handler::NotificationHandlerApi;
     use crate::nostr::is_duplicate_response;
     use crate::test_utils::{
         MockContactService, MockFileMetadataProcessor, MockNostrEventOffsetStore, TestEventPayload,
         create_test_event, get_identity_public_data,
     };
     use crate::transport::unwrap_direct_message;
+    use crate::transport::{create_public_chain_event, unwrap_public_chain_event};
     use crate::{handler::MockNotificationHandlerApi, test_utils::MockChainKeyService};
     use bcr_common::core::NodeId;
+    use bcr_ebill_api::service::transport_service::Error;
     use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
     use bcr_ebill_core::protocol::Email;
     use bcr_ebill_core::protocol::Timestamp;
+    use bcr_ebill_core::protocol::blockchain::BlockchainType;
     use bcr_ebill_core::protocol::blockchain::bill::participant::BillParticipant;
     use bcr_ebill_core::protocol::crypto::BcrKeys;
     use bcr_ebill_core::protocol::event::BillEventType;
@@ -1557,12 +2283,15 @@ mod tests {
         blockchain::bill::participant::BillAnonParticipant, event::EventEnvelope,
     };
     use bcr_ebill_persistence::NostrEventOffset;
+    use bcr_ebill_persistence::NostrEventOffsetStoreApi;
     use mockall::predicate;
     use nostr::event::Kind;
     use nostr::{
         event::{EventBuilder, FinalizeEvent, FinalizeUnsignedEvent},
         nips::nip59::GiftWrapBuilder,
     };
+    use std::collections::HashSet;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::{
         collections::HashMap,
         sync::{Arc, Mutex},
@@ -1971,88 +2700,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_nostr_consumer_receives_blossom_server_list_event() {
-        let relay = get_mock_relay().await;
-        let relay_url = url::Url::parse(&relay.url().await.to_string()).unwrap();
-
-        let sender_keys = BcrKeys::new();
-        let sender_node_id = NodeId::new(sender_keys.pub_key(), bitcoin::Network::Testnet);
-        let sender_config = NostrConfig::new(
-            sender_keys.clone(),
-            vec![relay_url.clone()],
-            vec![],
-            true,
-            sender_node_id.clone(),
-        );
-        let sender = NostrClient::default(&sender_config).await.unwrap();
-        sender.connect().await.unwrap();
-
-        let receiver_keys = BcrKeys::new();
-        let receiver_node_id = NodeId::new(receiver_keys.pub_key(), bitcoin::Network::Testnet);
-        let receiver_config = NostrConfig::new(
-            receiver_keys,
-            vec![relay_url.clone()],
-            vec![],
-            true,
-            receiver_node_id,
-        );
-        let receiver = Arc::new(NostrClient::default(&receiver_config).await.unwrap());
-
-        let mut contact_service = MockContactService::new();
-        let sender_npub = sender_node_id.npub();
-        contact_service
-            .expect_get_nostr_npubs()
-            .returning(move || Ok(vec![sender_npub]))
-            .once();
-
-        let mut offset_store = MockNostrEventOffsetStore::new();
-        offset_store
-            .expect_current_offset()
-            .returning(|_| Ok(Timestamp::zero()));
-        offset_store
-            .expect_is_processed()
-            .returning(|_| Ok(false))
-            .once();
-        offset_store
-            .expect_add_event()
-            .withf(|event: &NostrEventOffset| event.success)
-            .returning(|_| Ok(()))
-            .once();
-
-        let consumer = NostrConsumer::new(
-            receiver,
-            Arc::new(contact_service),
-            vec![],
-            Arc::new(offset_store),
-            Arc::new(MockChainKeyService::new()),
-            Arc::new(MockFileMetadataProcessor::new()),
-        );
-
-        let local = tokio::task::LocalSet::new();
-        local
-            .run_until(async move {
-                let handle = tokio::task::spawn_local(async move {
-                    consumer
-                        .start()
-                        .await
-                        .expect("failed to start nostr consumer");
-                });
-
-                sender
-                    .publish_blossom_server_list(
-                        &sender_node_id,
-                        vec![url::Url::parse("https://blossom.example.com").unwrap()],
-                    )
-                    .await
-                    .unwrap();
-
-                time::sleep(Duration::from_millis(150)).await;
-                handle.abort();
-            })
-            .await;
-    }
-
-    #[tokio::test]
     async fn test_nostr_consumer_single_client_multi_identity() {
         let relay = get_mock_relay().await;
         let url = url::Url::parse(&relay.url().await.to_string()).unwrap();
@@ -2109,7 +2756,6 @@ mod tests {
 
         // Verify consumer can start and subscribe to events for all identities
         let mut tasks = consumer.start().await.expect("failed to start consumer");
-        assert_eq!(tasks.len(), 1, "Should have single task for single client");
 
         // Clean up tasks
         tasks.abort_all();
@@ -2234,6 +2880,622 @@ mod tests {
             .send_signed_event_to_relay(&event, &relay_url)
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn incoming_chain_offset_is_saved_after_enqueue() {
+        let event = EventBuilder::new(Kind::TextNote, "test")
+            .finalize(&nostr::key::Keys::generate())
+            .unwrap();
+
+        let node_id = crate::test_utils::node_id_test();
+        let event_id = event.id.to_hex();
+        let enqueued = Arc::new(AtomicBool::new(false));
+        let check = enqueued.clone();
+
+        let mut offsets = MockNostrEventOffsetStore::new();
+        offsets
+            .expect_add_event()
+            .once()
+            .withf(move |offset| {
+                check.load(Ordering::SeqCst) && offset.success && offset.event_id == event_id
+            })
+            .returning(|_| Ok(()));
+        let offsets: Arc<dyn NostrEventOffsetStoreApi> = Arc::new(offsets);
+        let set = enqueued.clone();
+        record_offset_after_enqueue(&event, &node_id, &offsets, async move {
+            set.store(true, Ordering::SeqCst);
+            Ok(())
+        })
+        .await
+        .unwrap();
+        assert!(enqueued.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn incoming_chain_enqueue_failure_does_not_save_offset() {
+        let event = EventBuilder::new(Kind::TextNote, "test")
+            .finalize(&nostr::key::Keys::generate())
+            .unwrap();
+
+        let node_id = crate::test_utils::node_id_test();
+        let mut offsets = MockNostrEventOffsetStore::new();
+        offsets.expect_add_event().never();
+        let offsets: Arc<dyn NostrEventOffsetStoreApi> = Arc::new(offsets);
+        let result = record_offset_after_enqueue(&event, &node_id, &offsets, async {
+            Err(Error::Persistence(
+                "simulated incoming store failure".into(),
+            ))
+        })
+        .await;
+        assert!(matches!(result, Err(Error::Persistence(_))));
+    }
+
+    #[tokio::test]
+    async fn incoming_chain_offset_failure_is_reported() {
+        let event = EventBuilder::new(Kind::TextNote, "test")
+            .finalize(&nostr::key::Keys::generate())
+            .unwrap();
+        let node_id = crate::test_utils::node_id_test();
+        let mut offsets = MockNostrEventOffsetStore::new();
+        offsets.expect_add_event().once().returning(|_| {
+            Err(bcr_ebill_persistence::Error::InvalidData(
+                "offset write failed".into(),
+            ))
+        });
+        let offsets: Arc<dyn NostrEventOffsetStoreApi> = Arc::new(offsets);
+        let result =
+            record_offset_after_enqueue(&event, &node_id, &offsets, async { Ok(()) }).await;
+        assert!(matches!(
+            result,
+            Err(Error::Persistence(message))
+                if message.contains("offset write failed")
+        ));
+    }
+
+    #[test]
+    fn public_chain_event_can_be_identified_without_keys() {
+        let chain_id = crate::test_utils::bill_id_test().to_string();
+        let envelope = EventEnvelope {
+            event_type: EventType::BillChain,
+            version: "1.0".into(),
+            data: vec![],
+        };
+        let event = create_public_chain_event(
+            &chain_id,
+            envelope,
+            Timestamp::now(),
+            BlockchainType::Bill,
+            None,
+            None,
+        )
+        .unwrap()
+        .finalize(&nostr::key::Keys::generate())
+        .unwrap();
+        let parsed = unwrap_public_chain_event(&event).unwrap().unwrap();
+        assert_eq!(parsed.id, chain_id);
+        assert_eq!(parsed.chain_type, BlockchainType::Bill);
+    }
+
+    #[tokio::test]
+    async fn foreign_identity_event_is_ignored_before_enqueue() {
+        let keys = BcrKeys::new();
+        let foreign_keys = BcrKeys::new();
+        let network = bitcoin::Network::Testnet;
+        let primary_id = NodeId::new(keys.pub_key(), network);
+        let foreign_id = NodeId::new(foreign_keys.pub_key(), network);
+        let envelope = EventEnvelope {
+            event_type: EventType::IdentityChain,
+            version: "1.0".into(),
+            data: vec![],
+        };
+        let event = create_public_chain_event(
+            &foreign_id.to_string(),
+            envelope,
+            Timestamp::now(),
+            BlockchainType::Identity,
+            None,
+            None,
+        )
+        .unwrap()
+        .finalize(&foreign_keys.get_nostr_keys())
+        .unwrap();
+        let offsets: Arc<dyn NostrEventOffsetStoreApi> = Arc::new(MockNostrEventOffsetStore::new());
+
+        // No verifier is configured and no offset writes are expected. The event must be ignored first
+        assert!(
+            !super::enqueue_public_chain_event(&event, None, &primary_id, &offsets,)
+                .await
+                .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_invite_handler_is_not_hidden_by_logging() {
+        let mut logger = MockNotificationHandlerApi::new();
+        logger.expect_handles_event().returning(|_| true);
+        logger
+            .expect_handle_event()
+            .once()
+            .returning(|_, _, _, _| Ok(()));
+        let mut invite_handler = MockNotificationHandlerApi::new();
+        invite_handler
+            .expect_handles_event()
+            .returning(|event_type| event_type == &EventType::BillChainInvite);
+        invite_handler
+            .expect_handle_event()
+            .once()
+            .returning(|_, _, _, _| {
+                Err(Error::Persistence("simulated key storage failure".into()))
+            });
+        let handlers: Vec<Arc<dyn NotificationHandlerApi>> =
+            vec![Arc::new(logger), Arc::new(invite_handler)];
+        let envelope = EventEnvelope {
+            event_type: EventType::BillChainInvite,
+            version: "1.0".into(),
+            data: vec![],
+        };
+        let original = EventBuilder::new(Kind::TextNote, "test")
+            .finalize(&nostr::key::Keys::generate())
+            .unwrap();
+        let result = super::handle_event(
+            envelope,
+            &crate::test_utils::node_id_test(),
+            &handlers,
+            None,
+            Box::new(original),
+        )
+        .await;
+        assert!(matches!(result, Err(Error::Persistence(_))));
+    }
+
+    #[tokio::test]
+    async fn failed_private_event_can_be_replayed_successfully() {
+        let sender_keys = BcrKeys::new();
+        let recipient_keys = BcrKeys::new();
+        let sender_id = NodeId::new(sender_keys.pub_key(), bitcoin::Network::Testnet);
+        let recipient_id = NodeId::new(recipient_keys.pub_key(), bitcoin::Network::Testnet);
+        let relay = url::Url::parse("wss://relay.example.com").unwrap();
+        let sender = NostrClient::new(
+            vec![(sender_id.clone(), sender_keys)],
+            vec![relay.clone()],
+            vec![],
+            Duration::from_secs(2),
+            None,
+            1,
+            None,
+        )
+        .await
+        .unwrap();
+        let receiver = NostrClient::new(
+            vec![(recipient_id.clone(), recipient_keys)],
+            vec![relay],
+            vec![],
+            Duration::from_secs(2),
+            None,
+            1,
+            None,
+        )
+        .await
+        .unwrap();
+        let participant = BillParticipant::Anon(BillAnonParticipant {
+            node_id: recipient_id,
+            nostr_relays: vec![],
+        });
+        let prepared = sender
+            .prepare_private_event(
+                &sender_id,
+                &participant,
+                EventEnvelope {
+                    event_type: EventType::BillChainInvite,
+                    version: "1.0".into(),
+                    data: vec![1, 2, 3],
+                },
+            )
+            .await
+            .unwrap();
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let handler_attempts = attempts.clone();
+
+        let mut handler = MockNotificationHandlerApi::new();
+        handler
+            .expect_handles_event()
+            .returning(|kind| kind == &EventType::BillChainInvite);
+        handler
+            .expect_handle_event()
+            .times(2)
+            .returning(move |_, _, _, _| {
+                if handler_attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                    Err(Error::Persistence("temporary key store failure".into()))
+                } else {
+                    Ok(())
+                }
+            });
+
+        let handlers: Vec<Arc<dyn NotificationHandlerApi>> = vec![Arc::new(handler)];
+        let mut offsets = MockNostrEventOffsetStore::new();
+        offsets
+            .expect_is_processed()
+            .times(2)
+            .returning(|_| Ok(false));
+        // Only the successful second attempt saves an offset
+        offsets
+            .expect_add_event()
+            .once()
+            .withf(|offset| offset.success)
+            .returning(|_| Ok(()));
+        let offsets: Arc<dyn NostrEventOffsetStoreApi> = Arc::new(offsets);
+        let lock = tokio::sync::Mutex::new(());
+        let first =
+            process_private_event(&receiver, &prepared.event, &offsets, &handlers, &lock).await;
+        assert!(matches!(first, Err(Error::Persistence(_))));
+        let second = process_private_event(&receiver, &prepared.event, &offsets, &handlers, &lock)
+            .await
+            .unwrap();
+        assert!(second);
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn private_catchup_timestamp_boundary_is_safe() {
+        assert_eq!(
+            next_private_page_until(1000, DM_CATCHUP_PAGE_SIZE - 1,).unwrap(),
+            Some(999),
+        );
+        // more events at timestamp 1000
+        assert!(next_private_page_until(1000, DM_CATCHUP_PAGE_SIZE,).is_err());
+        assert_eq!(next_private_page_until(0, 1).unwrap(), None,);
+    }
+
+    #[test]
+    fn private_page_skips_invalid_events_but_keeps_valid_ones() {
+        let sender = BcrKeys::new();
+        let recipient_keys = BcrKeys::new();
+        let recipient = NodeId::new(recipient_keys.pub_key(), bitcoin::Network::Testnet);
+        let rumor = EventBuilder::new(Kind::TextNote, "test")
+            .finalize_unsigned(sender.get_nostr_keys().public_key());
+        let valid = GiftWrapBuilder::new(recipient.npub(), rumor)
+            .finalize(&sender.get_nostr_keys())
+            .unwrap();
+        let mut bad_signature = valid.clone();
+        bad_signature.content.push_str("tampered");
+        let wrong_kind = EventBuilder::new(Kind::TextNote, "not a gift wrap")
+            .finalize(&nostr::key::Keys::generate())
+            .unwrap();
+        let page = filter_private_page(
+            vec![bad_signature, valid.clone(), wrong_kind],
+            &recipient,
+            None,
+            u64::MAX,
+        )
+        .unwrap();
+        assert_eq!(page.raw_len, 3);
+        assert_eq!(page.invalid, 2);
+        assert_eq!(page.events.len(), 1);
+        assert_eq!(page.events[0].id, valid.id);
+    }
+
+    #[test]
+    fn full_invalid_private_page_has_no_safe_pagination_anchor() {
+        let recipient_keys = BcrKeys::new();
+        let recipient = NodeId::new(recipient_keys.pub_key(), bitcoin::Network::Testnet);
+        let wrong_kind = EventBuilder::new(Kind::TextNote, "wrong kind")
+            .finalize(&nostr::key::Keys::generate())
+            .unwrap();
+        let page = filter_private_page(
+            vec![wrong_kind; DM_CATCHUP_PAGE_SIZE],
+            &recipient,
+            None,
+            u64::MAX,
+        )
+        .unwrap();
+        assert_eq!(page.raw_len, DM_CATCHUP_PAGE_SIZE);
+        assert_eq!(page.invalid, DM_CATCHUP_PAGE_SIZE);
+        assert!(page.events.is_empty());
+        // A full page without usable events cannot safely determine which older timestamp to request
+        let oldest = page.events.iter().map(|e| e.created_at.as_secs()).min();
+        assert!(oldest.is_none());
+    }
+
+    #[tokio::test]
+    async fn private_catchup_resumes_from_saved_until() {
+        let keys = BcrKeys::new();
+        let recipient = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
+        let relay = url::Url::parse("wss://r1.example").unwrap();
+        let mut store = MockNostrEventOffsetStore::new();
+        store
+            .expect_get_catchup_until()
+            .once()
+            .returning(|scope, subject, _relay| {
+                assert_eq!(scope, "giftwrap");
+                assert!(!subject.is_empty());
+                Ok(Some(1000))
+            });
+        store
+            .expect_set_catchup_until()
+            .once()
+            .returning(|scope, _subject, _relay, next| {
+                assert_eq!(scope, "giftwrap");
+                assert_eq!(next, None); // Exhausted catchup resets sweep
+                Ok(())
+            });
+        let offsets: Arc<dyn NostrEventOffsetStoreApi> = Arc::new(store);
+        let calls = Arc::new(Mutex::new(Vec::<(Option<u64>, u64)>::new()));
+        let observed = calls.clone();
+        let stats = catch_up_private_on_relay_with(
+            &relay,
+            &recipient,
+            &offsets,
+            move |since, until| {
+                observed.lock().unwrap().push((since, until));
+                async {
+                    Ok(PrivatePage {
+                        events: vec![],
+                        raw_len: 0,
+                        invalid: 0,
+                    })
+                }
+            },
+            |_events| async { PrivateCatchupStats::default() },
+        )
+        .await;
+        assert_eq!(stats.incomplete_scans, 0);
+        let calls = calls.lock().unwrap();
+        assert_eq!(calls.len(), 2, "newest-page refresh + saved-cursor scan");
+        assert_eq!(calls[0].0, None);
+        assert!(
+            calls[0].1 >= 1000,
+            "first fetch refreshes the newest events"
+        );
+        assert_eq!(calls[1], (None, 1000));
+    }
+
+    #[tokio::test]
+    async fn private_catchup_does_not_advance_after_boundary_failure() {
+        let keys = BcrKeys::new();
+        let recipient = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
+        let relay = url::Url::parse("wss://r1.example").unwrap();
+        let anchor = EventBuilder::new(Kind::TextNote, "pagination anchor")
+            .finalize(&nostr::key::Keys::generate())
+            .unwrap();
+        let oldest = anchor.created_at.as_secs();
+        let saved_until = oldest + 10;
+        let mut store = MockNostrEventOffsetStore::new();
+        store
+            .expect_get_catchup_until()
+            .once()
+            .returning(move |_, _, _| Ok(Some(saved_until)));
+        // unsafe boundary must leave the previous durable cursor intact
+        store.expect_set_catchup_until().never();
+        let offsets: Arc<dyn NostrEventOffsetStoreApi> = Arc::new(store);
+        let calls = Arc::new(Mutex::new(Vec::<(Option<u64>, u64)>::new()));
+        let observed = calls.clone();
+        let stats = catch_up_private_on_relay_with(
+            &relay,
+            &recipient,
+            &offsets,
+            move |since, until| {
+                let call = {
+                    let mut requests = observed.lock().unwrap();
+                    requests.push((since, until));
+                    requests.len()
+                };
+                let event = anchor.clone();
+                async move {
+                    match call {
+                        1 => Ok(PrivatePage {
+                            events: vec![],
+                            raw_len: 0,
+                            invalid: 0,
+                        }),
+                        2 => Ok(PrivatePage {
+                            events: vec![event],
+                            raw_len: DM_CATCHUP_PAGE_SIZE,
+                            // full response with one valid anchor
+                            invalid: DM_CATCHUP_PAGE_SIZE - 1,
+                        }),
+                        3 => Err(Error::Network("boundary query failed".into())),
+                        _ => panic!("unexpected private catch-up query #{call}"),
+                    }
+                }
+            },
+            |events| async move {
+                PrivateCatchupStats {
+                    processed: events.len(),
+                    ..PrivateCatchupStats::default()
+                }
+            },
+        )
+        .await;
+        let calls = calls.lock().unwrap();
+        assert_eq!(calls.len(), 3);
+        assert_eq!(calls[1], (None, saved_until));
+        assert_eq!(calls[2], (Some(oldest), oldest));
+        assert_eq!(stats.processed, 1, "valid events retain their progress");
+        assert_eq!(stats.incomplete_scans, 1);
+    }
+
+    #[test]
+    fn private_catchup_stats_preserve_partial_success() {
+        let mut total = PrivateCatchupStats {
+            processed: 3,
+            already_processed: 5,
+            failed: 1,
+            invalid: 0,
+            incomplete_scans: 0,
+        };
+        total.merge(PrivateCatchupStats {
+            processed: 2,
+            already_processed: 0,
+            failed: 1,
+            invalid: 2,
+            incomplete_scans: 1,
+        });
+        assert_eq!(total.processed, 5);
+        assert_eq!(total.already_processed, 5);
+        assert_eq!(total.failed, 2);
+        assert_eq!(total.invalid, 2);
+        assert_eq!(total.incomplete_scans, 1);
+    }
+
+    #[tokio::test]
+    async fn restore_recipient_selection_detects_new_company_signers() {
+        let primary_keys = BcrKeys::new();
+        let company_keys = BcrKeys::new();
+        let primary_id = NodeId::new(primary_keys.pub_key(), bitcoin::Network::Testnet);
+        let company_id = NodeId::new(company_keys.pub_key(), bitcoin::Network::Testnet);
+        let client = NostrClient::new(
+            vec![(primary_id.clone(), primary_keys)],
+            vec![],
+            vec![],
+            Duration::from_secs(2),
+            None,
+            1,
+            None,
+        )
+        .await
+        .unwrap();
+        let mut scanned = HashSet::new();
+        // at first, only primary identity is available
+        assert_eq!(
+            unscanned_private_recipients(&client, &scanned),
+            vec![primary_id.clone()],
+        );
+        scanned.insert(primary_id);
+        // successful company-invite processing
+        client
+            .add_identity(company_id.clone(), company_keys)
+            .unwrap();
+        // next iteration must discover the new signer
+        assert_eq!(
+            unscanned_private_recipients(&client, &scanned),
+            vec![company_id.clone()],
+        );
+        scanned.insert(company_id);
+        assert!(unscanned_private_recipients(&client, &scanned).is_empty());
+    }
+
+    #[tokio::test]
+    async fn chain_events_never_reach_notification_handlers() {
+        let mut handler = MockNotificationHandlerApi::new();
+        // Chain events must be rejected before being dispatched
+        handler.expect_handles_event().never();
+        handler.expect_handle_event().never();
+        let handlers: Vec<Arc<dyn NotificationHandlerApi>> = vec![Arc::new(handler)];
+        let original = EventBuilder::new(Kind::TextNote, "test")
+            .finalize(&nostr::key::Keys::generate())
+            .unwrap();
+
+        let node_id = crate::test_utils::node_id_test();
+        for event_type in [
+            EventType::BillChain,
+            EventType::CompanyChain,
+            EventType::IdentityChain,
+        ] {
+            let envelope = EventEnvelope {
+                event_type,
+                version: "1.0".into(),
+                data: vec![],
+            };
+            let result = super::handle_event(
+                envelope,
+                &node_id,
+                &handlers,
+                None,
+                Box::new(original.clone()),
+            )
+            .await;
+            assert!(matches!(
+                result,
+                Err(Error::Message(message))
+                    if message.contains(
+                        "Chain events must pass incoming relay verification"
+                    )
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn private_catchup_short_pages_reach_older_events() {
+        // Fetch event at timestamp 1000
+        // Confirm the 1000 boundary, save cursor 999
+        // Fetch event at timestamp 900
+        // Confirm the 900 boundary, save cursor 899
+        // Fetch at 899, receive empty history, reset cursor
+        let keys = BcrKeys::new();
+        let recipient = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
+        let relay = url::Url::parse("wss://r1.example").unwrap();
+        let signer = nostr::key::Keys::generate();
+        let event_at = |secs: u64, content: &str| {
+            EventBuilder::new(Kind::GiftWrap, content)
+                .custom_created_at(nostr::types::Timestamp::from_secs(secs))
+                .finalize(&signer)
+                .unwrap()
+        };
+        let newer = event_at(1000, "newer");
+        let older = event_at(900, "older");
+        let writes = Arc::new(Mutex::new(Vec::<Option<u64>>::new()));
+        let writes_for_store = writes.clone();
+        let mut store = MockNostrEventOffsetStore::new();
+        store
+            .expect_get_catchup_until()
+            .once()
+            .returning(|_, _, _| Ok(None));
+        store
+            .expect_set_catchup_until()
+            .times(3)
+            .returning(move |_, _, _, until| {
+                writes_for_store.lock().unwrap().push(until);
+                Ok(())
+            });
+        let offsets: Arc<dyn NostrEventOffsetStoreApi> = Arc::new(store);
+        let queries = Arc::new(Mutex::new(Vec::<(Option<u64>, u64)>::new()));
+        let observed = queries.clone();
+        let stats = catch_up_private_on_relay_with(
+            &relay,
+            &recipient,
+            &offsets,
+            move |since, until| {
+                observed.lock().unwrap().push((since, until));
+                let events = match (since, until) {
+                    (None, t) if t >= 1000 => vec![newer.clone()],
+                    (Some(1000), 1000) => vec![newer.clone()],
+                    (None, 999) => vec![older.clone()],
+                    (Some(900), 900) => vec![older.clone()],
+                    (None, 899) => vec![],
+                    _ => panic!("Unexpected private query: {since:?}, {until}"),
+                };
+                async move {
+                    Ok(PrivatePage {
+                        raw_len: events.len(),
+                        events,
+                        invalid: 0,
+                    })
+                }
+            },
+            |events| async move {
+                PrivateCatchupStats {
+                    processed: events.len(),
+                    ..PrivateCatchupStats::default()
+                }
+            },
+        )
+        .await;
+        assert_eq!(stats.processed, 4);
+        assert_eq!(stats.incomplete_scans, 0);
+        assert_eq!(*writes.lock().unwrap(), vec![Some(999), Some(899), None],);
+        let queries = queries.lock().unwrap();
+        assert_eq!(queries.len(), 5);
+        assert!(queries[0].1 >= 1000);
+        assert_eq!(
+            &queries[1..],
+            &[
+                (Some(1000), 1000),
+                (None, 999),
+                (Some(900), 900),
+                (None, 899),
+            ],
+        );
     }
 }
 

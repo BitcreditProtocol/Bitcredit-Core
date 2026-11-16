@@ -612,28 +612,22 @@ class _HarnessPageState extends State<HarnessPage> {
         final instanceId = _activeInstance;
         final environment = _activeEnvironment;
 
-        // 1. Recover identity and account data
-        await identity_api.seedRecover(
-          seedPhrasePayload: identity_data.SeedPhrase(
-            seedPhrase: mnemonic,
-          ),
-        );
+        // 1. Reset old instance, clean up subscriptions and clear DB
+        await resetEbillInstance(instanceId: instanceId);
+        _notificationSubscriptions.remove(instanceId);
+        await environment.clearSqliteDatabase();
 
         // 2. Persist the recovered mnemonic so the new runtime uses the correct keys
         await environment.replaceMnemonic(mnemonic);
 
-        // 3. Shut down the existing instance runtime
-        await resetEbillInstance(
-          instanceId: instanceId,
-        );
 
-        // 4. Reinitialize with recovered mnemonic, existing DB, and original network configuration
-        await initEbillInstance(
+        // 3. Restore and initialize with recovered mnemonic, existing DB, and original network configuration
+        await restoreEbillInstance(
           instanceId: instanceId,
           conf: environment.toConfig(),
         );
 
-        // 5. Restore the selected instance
+        // 4. Restore the selected instance
         await setActiveInstance(
           instanceId: instanceId,
         );
@@ -1230,6 +1224,22 @@ class _HarnessPageState extends State<HarnessPage> {
 
       _button('Identity propagation status', () async {
         return identity_api.propagationStatus();
+      }),
+
+      _button('Bill incoming queue status', () async {
+        return bill_api.incomingQueueStatus(
+          id: _required(_billId, 'Bill ID'),
+        );
+      }),
+
+      _button('Company incoming queue status', () async {
+        return company_api.incomingQueueStatus(
+          id: _required(_companyId, 'Company ID'),
+        );
+      }),
+
+      _button('Identity incoming queue status', () async {
+        return identity_api.incomingQueueStatus();
       }),
 
       _button('Retry all pending now', () async {

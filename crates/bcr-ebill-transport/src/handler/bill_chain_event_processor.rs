@@ -1,14 +1,24 @@
+use super::inbound_file_anchor::{anchor_important_file, bill_file_context};
+use super::{BillChainEventProcessorApi, NostrContactProcessorApi};
+use crate::handler::IncomingChainApplyResult;
+use crate::handler::incoming_chain_application::{
+    BlockPosition, block_position, classify_verified_application_result, deferred_position,
+    map_block_signer_error, map_chain_action_validation_error, map_remote_block_data_error,
+    preferred_extension, valid_fork_step, validate_incoming_block_integrity,
+    validate_remote_plaintext,
+};
 use crate::handler::public_chain_helpers::{
-    BlockData, EventContainer, chain_matches_local, compare_block_chains, find_first_difference,
-    is_fork_block, resolve_event_chains, resolve_fork,
+    BlockData, chain_matches_local, compare_block_chains, find_first_difference,
+    resolve_event_chains,
 };
 use crate::{Error, Result};
 use async_trait::async_trait;
 use bcr_common::core::BillId;
 use bcr_ebill_api::Config;
 use bcr_ebill_api::external::mint::MintClientApi;
-use bcr_ebill_api::service::transport_service::ResyncMode;
+use bcr_ebill_api::external::{Error as ExternalError, mint::Error as MintError};
 use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
+use bcr_ebill_api::service::transport_service::{InvalidIncomingBlock, ResyncMode};
 use bcr_ebill_core::application::ServiceTraitBounds;
 use bcr_ebill_core::protocol::Validate;
 use bcr_ebill_core::protocol::blockchain::bill::BillOpCode;
@@ -24,53 +34,21 @@ use bcr_ebill_core::protocol::blockchain::bill::{
 use bcr_ebill_core::protocol::blockchain::{Block, Blockchain, BlockchainType};
 use bcr_ebill_core::protocol::crypto::{BcrKeys, btc};
 use bcr_ebill_core::protocol::{BitcoinAddress, BlockId, Sha256Hash};
+use bcr_ebill_persistence::Error as PersistenceError;
 use bcr_ebill_persistence::traits::transaction::TransactionManagerApi;
 use bcr_ebill_persistence::{
     FileReferenceStoreApi, NostrChainEventStoreApi, traits::bill::BillChainStoreApi,
     traits::bill::BillStoreApi,
 };
 use bitcoin::secp256k1::PublicKey;
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use std::collections::HashSet;
 use std::sync::Arc;
-
-use super::inbound_file_anchor::{anchor_important_file, bill_file_context};
-use super::{BillChainEventProcessorApi, NostrContactProcessorApi};
 
 impl ServiceTraitBounds for BillChainEventProcessor {}
 
 #[async_trait]
 impl BillChainEventProcessorApi for BillChainEventProcessor {
-    async fn process_chain_data(
-        &self,
-        bill_id: &BillId,
-        blocks: Vec<BillBlock>,
-        keys: Option<BcrKeys>,
-    ) -> Result<()> {
-        // check that incoming bills are of the same network that we use
-        if bill_id.network() != self.bitcoin_network {
-            warn!("Received bill blocks for bill {bill_id} for a different network");
-            return Err(Error::Blockchain(format!(
-                "Received bill blocks for bill {bill_id} for a different network"
-            )));
-        }
-
-        if let Ok(existing_chain) = self.bill_blockchain_store.get_chain(bill_id).await {
-            self.add_bill_blocks(bill_id, existing_chain, blocks, false)
-                .await
-        } else {
-            match keys {
-                Some(keys) => self.add_new_chain(blocks, &keys).await,
-                _ => {
-                    error!("Received bill blocks for unknown bill {bill_id}");
-                    Err(Error::Blockchain(
-                        "Received bill blocks for unknown bill".to_string(),
-                    ))
-                }
-            }
-        }
-    }
-
     async fn validate_chain_event_and_sender(
         &self,
         bill_id: &BillId,
@@ -93,20 +71,6 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
         }
     }
 
-    async fn resolve_chain(
-        &self,
-        bill_id: &BillId,
-        bill_keys: &BcrKeys,
-    ) -> Result<Vec<Vec<EventContainer>>> {
-        resolve_event_chains(
-            self.transport.clone(),
-            &bill_id.to_string(),
-            BlockchainType::Bill,
-            &Some(bill_keys.to_owned()),
-        )
-        .await
-    }
-
     async fn resync_chain(
         &self,
         bill_id: &BillId,
@@ -116,6 +80,12 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
         if !from_nostr {
             debug!("invalidating cache for {bill_id} without Nostr refetch");
             return self.invalidate_cache_for_bill(bill_id).await;
+        }
+
+        if matches!(mode, ResyncMode::Normal) {
+            return Err(Error::Blockchain(
+                "Normal bill resync uses the durable incoming catch-up pipeline".into(),
+            ));
         }
 
         match (
@@ -307,33 +277,13 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
                         }
                     };
 
-                    let replace_from = match mode {
-                        ResyncMode::Normal => {
-                            let (is_preferred, fork_point) =
-                                resolve_fork(existing_chain.blocks(), prepared_chain.blocks());
+                    let replace_from =
+                        find_first_difference(existing_chain.blocks(), prepared_chain.blocks());
 
-                            if !is_preferred {
-                                continue;
-                            }
-
-                            fork_point
-                        }
-                        ResyncMode::NostrAuthoritative => {
-                            let difference = find_first_difference(
-                                existing_chain.blocks(),
-                                prepared_chain.blocks(),
-                            );
-                            if difference == Some(BlockId::first()) {
-                                saw_authoritative_genesis_mismatch = true;
-                                continue;
-                            }
-                            difference
-                        }
-                        ResyncMode::OnlyMissingMetadata { .. } => {
-                            // metadata-only resync handled above
-                            return Ok(());
-                        }
-                    };
+                    if replace_from == Some(BlockId::first()) {
+                        saw_authoritative_genesis_mismatch = true;
+                        continue;
+                    }
 
                     candidates.push((data_index, prepared_chain, replace_from));
                 }
@@ -346,13 +296,11 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
                 let Some((selected_data_index, prepared_chain, replace_from)) =
                     candidates.into_iter().next()
                 else {
-                    if matches!(mode, ResyncMode::NostrAuthoritative)
-                        && saw_authoritative_genesis_mismatch
-                    {
+                    if saw_authoritative_genesis_mismatch {
                         return Err(Error::Blockchain("Nostr-authoritative resync could not find a valid bill chain with matching genesis".to_string()));
                     }
                     debug!(
-                        "finished bill chain resync for {bill_id} - no preferred valid remote chain found"
+                        "finished bill chain resync for {bill_id} - no valid remote chain found"
                     );
                     return Ok(());
                 };
@@ -486,22 +434,6 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
         Ok(())
     }
 
-    async fn valid_chain_prefix_len(
-        &self,
-        bill_id: &BillId,
-        blocks: &[BillBlock],
-        keys: &BcrKeys,
-    ) -> Result<usize> {
-        let prepared = self.prepare_bill_chain_valid_prefix(blocks, keys).await?;
-        if &prepared.bill_id != bill_id {
-            return Err(Error::Blockchain(format!(
-                "Bill chain belongs to {}, expected {}",
-                prepared.bill_id, bill_id,
-            )));
-        }
-        Ok(prepared.chain.blocks().len())
-    }
-
     async fn persist_invite_keys(&self, bill_id: &BillId, keys: &BcrKeys) -> Result<()> {
         if bill_id.network() != self.bitcoin_network
             || *bill_id != BillId::new(keys.pub_key(), self.bitcoin_network)
@@ -523,6 +455,98 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
             .await
             .map_err(|e| Error::Persistence(e.to_string()))?;
         Ok(())
+    }
+
+    async fn apply_verified_block(
+        &self,
+        bill_id: &BillId,
+        block: BillBlock,
+        keys: BcrKeys,
+    ) -> Result<IncomingChainApplyResult> {
+        if bill_id.network() != self.bitcoin_network {
+            return Ok(IncomingChainApplyResult::Rejected(
+                "Bill belongs to another network".into(),
+            ));
+        }
+        if &block.bill_id != bill_id {
+            return classify_verified_application_result(Err(
+                InvalidIncomingBlock::WrongChain.into()
+            ));
+        }
+        if let Err(e) = validate_incoming_block_integrity(&block) {
+            return classify_verified_application_result(Err(e));
+        }
+        // get chain
+        let existing = match self.bill_blockchain_store.get_chain(bill_id).await {
+            Ok(chain) => Some(chain),
+            Err(PersistenceError::NoSuchEntity(_, _)) => None,
+            Err(e) => return Err(Error::Persistence(e.to_string())),
+        };
+        // calculate status of the block
+        let position = block_position(existing.as_ref(), &block);
+        if position == BlockPosition::AlreadyApplied {
+            self.invalidate_cache_for_bill(bill_id).await?;
+        }
+        // if it's not "Next" - return status
+        if let Some(outcome) = deferred_position(position) {
+            return Ok(outcome);
+        }
+        // attempt to apply
+        let result = match existing {
+            Some(chain) => self.add_bill_blocks(bill_id, chain, vec![block]).await,
+            None => {
+                if block.op_code != BillOpCode::Issue {
+                    return classify_verified_application_result(Err(
+                        InvalidIncomingBlock::UnexpectedOperation(
+                            "Bill genesis must be Issue".into(),
+                        )
+                        .into(),
+                    ));
+                }
+                let issue: BillIssueBlockData = match block.get_decrypted_block(&keys) {
+                    Ok(issue) => issue,
+                    Err(e) => {
+                        return classify_verified_application_result(Err(
+                            map_remote_block_data_error(e),
+                        ));
+                    }
+                };
+                if &issue.id != bill_id {
+                    return classify_verified_application_result(Err(
+                        InvalidIncomingBlock::WrongChain.into(),
+                    ));
+                }
+                self.add_new_chain(vec![block], &keys).await
+            }
+        };
+        classify_verified_application_result(result)
+    }
+
+    async fn preferred_verified_branch(
+        &self,
+        bill_id: &BillId,
+        blocks: &[(usize, BillBlock)],
+        keys: &BcrKeys,
+    ) -> Result<Vec<usize>> {
+        let local = match self.bill_blockchain_store.get_chain(bill_id).await {
+            Ok(chain) => Some(chain),
+            Err(PersistenceError::NoSuchEntity(_, _)) => None,
+            Err(e) => return Err(Error::Persistence(e.to_string())),
+        };
+        let is_paid = if local.is_some() {
+            self.bill_store
+                .is_paid(bill_id)
+                .await
+                .map_err(|e| Error::Persistence(e.to_string()))?
+        } else {
+            false
+        };
+        let local = local.as_ref();
+        preferred_extension::<BillBlockchain, _>(local, blocks, |path| async move {
+            self.verified_extension_len(bill_id, local, &path, keys, is_paid)
+                .await
+        })
+        .await
     }
 }
 
@@ -579,13 +603,17 @@ impl BillChainEventProcessor {
         bill_id: &BillId,
         existing: BillBlockchain,
         blocks: Vec<BillBlock>,
-        from_resync: bool,
     ) -> Result<()> {
         let mut chain = existing;
         let bill_keys = self.bill_store.get_keys(bill_id).await.map_err(|e| {
             error!("Could not process received blocks for {bill_id} because the bill keys could not be fetched");
             Error::Persistence(e.to_string())
         })?;
+        if *bill_id != BillId::new(bill_keys.pub_key(), self.bitcoin_network) {
+            return Err(Error::Persistence(format!(
+                "Stored keys do not match bill {bill_id}"
+            )));
+        }
         let is_paid = self.bill_store.is_paid(bill_id).await.map_err(|e| {
             error!("Could not process received blocks for bill {bill_id} because getting paid status failed");
             Error::Persistence(e.to_string())
@@ -599,19 +627,20 @@ impl BillChainEventProcessor {
         for block in &blocks {
             let current_height = chain.get_latest_block().id;
             if block.id <= current_height {
-                if blocks.len() == 1 && !from_resync {
-                    let latest = chain.get_latest_block();
-                    if is_fork_block(latest, block) {
-                        info!(
-                            "Split chain detected for bill {bill_id} at height {} - resyncing",
-                            block.id
-                        );
-                        self.resync_chain(bill_id, true, ResyncMode::Normal).await?;
-                        // resync potentially changed the complete chain - don't continue
-                        return Ok(());
-                    }
+                // Exact duplicate: nothing to do
+                if chain
+                    .blocks()
+                    .iter()
+                    .any(|existing| existing.id == block.id && existing.hash() == block.hash())
+                {
+                    continue;
                 }
-                continue;
+
+                // Dont silently accept an alternative block at an already occupied height
+                return Err(Error::Blockchain(format!(
+                    "Conflicting bill block {} for bill {bill_id}",
+                    block.id,
+                )));
             }
 
             let expected_latest = chain.get_latest_block().clone();
@@ -649,27 +678,13 @@ impl BillChainEventProcessor {
                     chain = candidate_chain;
                     block_added = true;
                 }
-                Err(e) => {
-                    if blocks.len() == 1
-                        && !from_resync
-                        && BlockId::next_from_previous_block_id(&chain.get_latest_block().id)
-                            < block.id
-                    {
-                        info!(
-                            "Received invalid block {} for bill {bill_id} - missing blocks - try to resync",
-                            block.id
-                        );
-                        self.resync_chain(bill_id, true, ResyncMode::Normal).await?;
-                        // resync potentially changed the complete chain - don't continue
-                        return Ok(());
-                    }
-                    return Err(e);
-                }
+                Err(e) => return Err(e),
             }
         }
 
         // if the bill was changed, we invalidate the cache
         if block_added {
+            self.invalidate_cache_for_bill(bill_id).await?;
             // re-anchor files
             for file in &bill_first_version.files {
                 anchor_important_file(
@@ -678,9 +693,6 @@ impl BillChainEventProcessor {
                     bill_file_context(bill_id, "files"),
                 )
                 .await?;
-            }
-            if let Err(e) = self.invalidate_cache_for_bill(bill_id).await {
-                error!("Failed to invalidate cache for bill {bill_id}: {e}");
             }
             // ensure that we have all nostr contacts for the bill participants
             for node_id in chain
@@ -711,18 +723,14 @@ impl BillChainEventProcessor {
         let block_id = block.id;
 
         if block.op_code == BillOpCode::Issue {
-            return Err(Error::Blockchain(format!(
-                "Received unexpected Issue block {block_id} for existing bill {bill_id}"
-            )));
+            return Err(InvalidIncomingBlock::UnexpectedOperation(format!(
+                "Issue block {} received for existing bill {bill_id}",
+                block.id,
+            ))
+            .into());
         }
 
-        // validate plaintext hash
-        if !block.validate_plaintext_hash(&bill_keys.get_private_key()) {
-            error!("Received invalid block {block_id} for bill {bill_id} - invalid plaintext hash");
-            return Err(Error::Blockchain(format!(
-                "Received invalid block {block_id} for bill {bill_id} - invalid plaintext hash"
-            )));
-        }
+        validate_remote_plaintext(block, bill_keys)?;
 
         // keep chain before this block for validation
         let chain_before = chain.clone();
@@ -736,85 +744,20 @@ impl BillChainEventProcessor {
                 return Err(Error::Blockchain(e.to_string()));
             }
         };
-        let latest_block_before_add = chain_before.get_latest_block();
+        let latest_block_before_add = chain.get_latest_block();
 
         // validation happens against a candidate
         let mut candidate_chain = chain_before.clone();
         if !candidate_chain.try_add_block(block.clone()) {
-            error!("Received invalid block {block_id} for bill {bill_id}");
-            return Err(Error::Blockchain(format!(
-                "Received invalid block {block_id} for bill {bill_id}"
-            )));
+            return Err(InvalidIncomingBlock::InvalidAction(format!(
+                "Invalid block {block_id} for bill {bill_id}"
+            ))
+            .into());
         }
 
-        let (signer, bill_action) = match block.verify_and_get_signer(bill_keys) {
-            Ok(signer) => signer,
-            Err(e) => {
-                error!(
-                    "Received invalid block {block_id} for bill {bill_id} - could not verify signature from block data signer"
-                );
-                return Err(Error::Blockchain(e.to_string()));
-            }
-        };
-
-        // validate payment address for payment requests
-        match block.op_code() {
-            BillOpCode::RequestToPay => {
-                let data: BillRequestToPayBlockData = block
-                    .get_decrypted_block(bill_keys)
-                    .map_err(|e| Error::Blockchain(e.to_string()))?;
-                self.validate_payment_address_for_payment_request(
-                    bill_id,
-                    block.op_code().to_owned(),
-                    &block.id(),
-                    latest_block_before_add.hash(),
-                    &bill_keys.pub_key(),
-                    &signer.pub_key(),
-                    self.config.bitcoin_network(),
-                    &data.payment_data.payment_address,
-                    &holder_is_mint_for_validation,
-                )
-                .await
-                .map_err(|e| Error::Blockchain(e.to_string()))?;
-            }
-            BillOpCode::OfferToSell => {
-                let data: BillOfferToSellBlockData = block
-                    .get_decrypted_block(bill_keys)
-                    .map_err(|e| Error::Blockchain(e.to_string()))?;
-                self.validate_payment_address_for_payment_request(
-                    bill_id,
-                    block.op_code().to_owned(),
-                    &block.id(),
-                    latest_block_before_add.hash(),
-                    &bill_keys.pub_key(),
-                    &signer.pub_key(),
-                    self.config.bitcoin_network(),
-                    &data.payment_data.payment_address,
-                    &None,
-                )
-                .await
-                .map_err(|e| Error::Blockchain(e.to_string()))?;
-            }
-            BillOpCode::RequestRecourse => {
-                let data: BillRequestRecourseBlockData = block
-                    .get_decrypted_block(bill_keys)
-                    .map_err(|e| Error::Blockchain(e.to_string()))?;
-                self.validate_payment_address_for_payment_request(
-                    bill_id,
-                    block.op_code().to_owned(),
-                    &block.id(),
-                    latest_block_before_add.hash(),
-                    &bill_keys.pub_key(),
-                    &signer.pub_key(),
-                    self.config.bitcoin_network(),
-                    &data.payment_data.payment_address,
-                    &None,
-                )
-                .await
-                .map_err(|e| Error::Blockchain(e.to_string()))?;
-            }
-            _ => {} // nothing to do for non-payment-requests
-        };
+        let (signer, bill_action) = block
+            .verify_and_get_signer(bill_keys)
+            .map_err(map_block_signer_error)?;
 
         // then, validate the bill action
         let bill_parties = chain_before
@@ -834,26 +777,75 @@ impl BillChainEventProcessor {
             maturity_date: bill_first_version.maturity_date.clone(),
             bill_keys: bill_keys.clone(),
             timestamp: block.timestamp,
-            signer_node_id: signer,
+            signer_node_id: signer.clone(),
             is_paid,
-            mode: BillValidationActionMode::Deep(
-                bill_action.ok_or_else(|| {
-                    error!(
-                        "Received invalid block {block_id} for bill {bill_id} - no valid bill action returned"
-                    );
-                    Error::Blockchain(
-                        "Received invalid block for bill - no valid bill action returned"
-                            .to_string(),
-                    )
-                })?),
+            mode: BillValidationActionMode::Deep(bill_action.ok_or_else(|| {
+                InvalidIncomingBlock::InvalidAction("No valid bill action returned".into())
+            })?),
         })
         .validate()
         {
             error!(
                 "Received invalid block {block_id} for bill {bill_id}, bill action validation failed: {e}"
             );
-            return Err(Error::Blockchain(e.to_string()));
+            return Err(map_chain_action_validation_error(e));
         }
+
+        // validate payment address for payment requests
+        match block.op_code() {
+            BillOpCode::RequestToPay => {
+                let data: BillRequestToPayBlockData = block
+                    .get_decrypted_block(bill_keys)
+                    .map_err(map_remote_block_data_error)?;
+                self.validate_payment_address_for_payment_request(
+                    bill_id,
+                    block.op_code().to_owned(),
+                    &block.id(),
+                    latest_block_before_add.hash(),
+                    &bill_keys.pub_key(),
+                    &signer.pub_key(),
+                    self.config.bitcoin_network(),
+                    &data.payment_data.payment_address,
+                    &holder_is_mint_for_validation,
+                )
+                .await?;
+            }
+            BillOpCode::OfferToSell => {
+                let data: BillOfferToSellBlockData = block
+                    .get_decrypted_block(bill_keys)
+                    .map_err(map_remote_block_data_error)?;
+                self.validate_payment_address_for_payment_request(
+                    bill_id,
+                    block.op_code().to_owned(),
+                    &block.id(),
+                    latest_block_before_add.hash(),
+                    &bill_keys.pub_key(),
+                    &signer.pub_key(),
+                    self.config.bitcoin_network(),
+                    &data.payment_data.payment_address,
+                    &None,
+                )
+                .await?;
+            }
+            BillOpCode::RequestRecourse => {
+                let data: BillRequestRecourseBlockData = block
+                    .get_decrypted_block(bill_keys)
+                    .map_err(map_remote_block_data_error)?;
+                self.validate_payment_address_for_payment_request(
+                    bill_id,
+                    block.op_code().to_owned(),
+                    &block.id(),
+                    latest_block_before_add.hash(),
+                    &bill_keys.pub_key(),
+                    &signer.pub_key(),
+                    self.config.bitcoin_network(),
+                    &data.payment_data.payment_address,
+                    &None,
+                )
+                .await?;
+            }
+            _ => {} // nothing to do for non-payment-requests
+        };
 
         Ok(candidate_chain)
     }
@@ -871,13 +863,12 @@ impl BillChainEventProcessor {
         address_to_check: &BitcoinAddress,
         holder_is_mint: &Option<BillParticipant>,
     ) -> Result<()> {
-        if let Some(_mint_holder) = holder_is_mint
-            && matches!(payment_op, BillOpCode::RequestToPay)
-        {
+        if holder_is_mint.is_some() && matches!(payment_op, BillOpCode::RequestToPay) {
             if !address_to_check.is_valid_for_network(btc_network) {
-                return Err(Error::Crypto(
-                    "Wrong Network for mint payment address".to_owned(),
-                ));
+                return Err(InvalidIncomingBlock::InvalidAction(
+                    "Wrong network for mint payment address".into(),
+                )
+                .into());
             }
 
             self.mint_client
@@ -890,9 +881,18 @@ impl BillChainEventProcessor {
                 )
                 .await
                 .map_err(|e| {
-                    error!("Invalid mint payment address: {e}");
-                    Error::Crypto("Invalid mint payment address".to_owned())
+                    match e {
+                        ExternalError::ExternalMintApi(
+                            MintError::InvalidMintRequestToPayPaymentAddress,
+                        ) => InvalidIncomingBlock::InvalidAction(
+                            "Mint payment address does not match".into(),
+                        )
+                        .into(),
+                        // Unavailable mint, no betas, failed lookup, etc. - preserve the external error as retryable.
+                        other => Error::ExternalApi(other),
+                    }
                 })?;
+
             Ok(())
         } else {
             let addr = btc::get_address_to_pay(
@@ -905,15 +905,16 @@ impl BillChainEventProcessor {
                 )?,
                 btc_network,
             )?;
+
             if &addr != address_to_check {
-                Err(Error::Crypto(format!(
-                    "Payment Addresses don't match - derived: {}, to check: {}",
+                return Err(InvalidIncomingBlock::InvalidAction(format!(
+                    "Payment addresses don't match - derived: {}, to check: {}",
                     addr.assume_checked(),
                     address_to_check.clone().assume_checked(),
-                )))
-            } else {
-                Ok(())
+                ))
+                .into());
             }
+            Ok(())
         }
     }
 
@@ -976,44 +977,26 @@ impl BillChainEventProcessor {
         issue_block: &BillBlock,
         keys: &BcrKeys,
     ) -> Result<PreparedBillChain> {
-        // make sure first block is of type Issue
         if issue_block.op_code != BillOpCode::Issue {
-            error!("Newly received chain is not valid - first block is not an Issue block");
-            return Err(Error::Blockchain(
-                "Newly received chain is not valid - first block is not an Issue block".to_string(),
-            ));
+            return Err(InvalidIncomingBlock::UnexpectedOperation(
+                "Bill genesis must be Issue".into(),
+            )
+            .into());
         }
-
-        if !issue_block.validate_plaintext_hash(&keys.get_private_key()) {
-            return Err(Error::Blockchain(
-                "Newly received bill Issue block has invalid plaintext hash".to_string(),
-            ));
-        }
-
+        validate_remote_plaintext(issue_block, keys)?;
         let chain = BillBlockchain::new_from_blocks(vec![issue_block.clone()])
-            .map_err(|e| Error::Blockchain(e.to_string()))?;
-
+            .map_err(map_remote_block_data_error)?;
         if !chain.is_chain_valid() {
-            error!("Newly received chain is not valid");
-            return Err(Error::Blockchain(
-                "Newly received bill Issue block is invalid".to_string(),
-            ));
+            return Err(
+                InvalidIncomingBlock::InvalidAction("Invalid bill genesis block".into()).into(),
+            );
         }
-
         let bill_first_version = chain
             .get_first_version_bill(keys)
-            .map_err(|e| Error::Crypto(format!("Failed to decrypt new bill Issue block: {e}")))?;
-
+            .map_err(map_remote_block_data_error)?;
         issue_block
-        .verify_and_get_signer(keys)
-        .map_err(|e| {
-            error!(
-                "Received invalid block for bill {} - could not verify signature from block data signer",
-                bill_first_version.id
-            );
-            Error::Blockchain(e.to_string())
-        })?;
-
+            .verify_and_get_signer(keys)
+            .map_err(map_block_signer_error)?;
         Ok(PreparedBillChain {
             bill_id: bill_first_version.id.clone(),
             bill_first_version,
@@ -1140,11 +1123,75 @@ impl BillChainEventProcessor {
         }
         Ok(candidate_chain)
     }
+
+    async fn verified_extension_len(
+        &self,
+        bill_id: &BillId,
+        existing: Option<&BillBlockchain>,
+        blocks: &[BillBlock],
+        keys: &BcrKeys,
+        is_paid: bool,
+    ) -> Result<usize> {
+        let Some(first) = blocks.first() else {
+            return Ok(0);
+        };
+        let (mut chain, first_version, mut len) = match existing {
+            Some(chain) => {
+                let first_version = chain
+                    .get_first_version_bill(keys)
+                    .map_err(|e| Error::Blockchain(e.to_string()))?;
+                (chain.clone(), first_version, 0)
+            }
+            None => {
+                if first.op_code != BillOpCode::Issue || &first.bill_id != bill_id {
+                    return Ok(0);
+                }
+                let Some(prepared) = valid_fork_step(self.prepare_bill_issue(first, keys))? else {
+                    return Ok(0);
+                };
+                if &prepared.bill_id != bill_id {
+                    return Ok(0);
+                }
+                (prepared.chain, prepared.bill_first_version, 1)
+            }
+        };
+
+        for block in blocks.iter().skip(len) {
+            if &block.bill_id != bill_id || !block.validate_with_previous(chain.get_latest_block())
+            {
+                break;
+            }
+
+            let Some(next_chain) = valid_fork_step(
+                self.validate_block_for_chain(
+                    bill_id,
+                    &chain,
+                    &first_version,
+                    keys,
+                    block,
+                    is_paid,
+                )
+                .await,
+            )?
+            else {
+                break;
+            };
+
+            chain = next_chain;
+            len += 1;
+        }
+
+        Ok(len)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use bcr_common::core::NodeId;
+    use bcr_ebill_core::protocol::blockchain::bill::block::{
+        BillAnonParticipantBlockData, BillMintBlockData, BillPaymentBlockData,
+    };
+    use bcr_ebill_core::protocol::constants::PAYMENT_DEADLINE_SECONDS;
     use bcr_ebill_core::protocol::{
         File, Name, Sha256Hash, Timestamp,
         blockchain::bill::{
@@ -1165,9 +1212,10 @@ mod tests {
     use nostr::event::FinalizeEvent;
     use std::str::FromStr;
 
+    use crate::handler::public_chain_helpers::EventContainer;
     use crate::{
         handler::{
-            MockNostrContactProcessorApi,
+            IncomingChainDependency, MockNostrContactProcessorApi,
             test_utils::{
                 MockBillChainStore, MockBillStore, MockMintClient, MockNostrChainEventStore,
                 MockPersistenceTransactionApiMock, MockTransactionManagerApiMock, bill_id_test,
@@ -1184,23 +1232,6 @@ mod tests {
     };
 
     use super::*;
-
-    #[tokio::test]
-    async fn test_create_event_handler() {
-        let (bill_chain_store, bill_store, contact, transport, chain_event_store) = create_mocks();
-        BillChainEventProcessor::new(
-            Arc::new(bill_chain_store),
-            Arc::new(bill_store),
-            Arc::new(MockFileReferenceStore::new()),
-            Arc::new(contact),
-            Arc::new(chain_event_store),
-            Arc::new(transport),
-            Arc::new(MockMintClient::new()),
-            Arc::new(MockTransactionManagerApiMock::new()),
-            bitcoin::Network::Testnet,
-            Arc::new(test_cfg()),
-        );
-    }
 
     #[tokio::test]
     async fn test_validate_chain_event_and_sender_invalid_on_no_keys_or_chain() {
@@ -1351,10 +1382,12 @@ mod tests {
             Arc::new(test_cfg()),
         );
 
-        handler
-            .process_chain_data(&bill_id_test(), chain.blocks().clone(), Some(keys.clone()))
+        let result = handler
+            .apply_verified_block(&bill_id_test(), chain.blocks()[0].clone(), get_bill_keys())
             .await
-            .expect("Event should be handled");
+            .unwrap();
+
+        assert_eq!(result, IncomingChainApplyResult::Applied);
     }
 
     #[tokio::test]
@@ -1439,14 +1472,16 @@ mod tests {
             Arc::new(test_cfg()),
         );
 
-        handler
-            .process_chain_data(&bill_id_test(), vec![block.clone()], None)
+        let result = handler
+            .apply_verified_block(&bill_id_test(), block.clone(), get_bill_keys())
             .await
-            .expect("Event should be handled");
+            .unwrap();
+
+        assert_eq!(result, IncomingChainApplyResult::Applied);
     }
 
     #[tokio::test]
-    async fn test_recovers_chain_on_missing_blocks() {
+    async fn test_rejects_missing_blocks_without_resync() {
         let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         let mut endorsee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
@@ -1492,33 +1527,6 @@ mod tests {
         )
         .unwrap();
 
-        let event1 = generate_test_event(
-            &bcr_keys,
-            None,
-            None,
-            as_event_payload(&bill_id_test(), chain.get_latest_block()),
-            &bill_id,
-        );
-
-        let event2 = generate_test_event(
-            &bcr_keys,
-            Some(event1.clone()),
-            Some(event1.clone()),
-            as_event_payload(&bill_id_test(), &block1),
-            &bill_id,
-        );
-
-        let event3 = generate_test_event(
-            &bcr_keys,
-            Some(event2.clone()),
-            Some(event1.clone()),
-            as_event_payload(&bill_id_test(), &block2),
-            &bill_id,
-        );
-
-        // mock the nostr chain
-        let nostr_chain = vec![event1.clone(), event2.clone(), event3.clone()];
-
         let (
             mut bill_chain_store,
             mut bill_store,
@@ -1528,65 +1536,22 @@ mod tests {
         ) = create_mocks();
 
         let chain_clone = chain.clone();
-        bill_store
-            .expect_invalidate_bill_in_cache()
-            .returning(|_| Ok(()));
-        bill_store
-            .expect_is_paid()
-            .times(2)
-            .returning(|_| Ok(false));
-        bill_store
-            .expect_get_keys()
-            .times(2)
-            .returning(move |_| Ok(BcrKeys::from_private_key(&private_key_test())));
-
-        let expected_bill_id = bill_id.clone();
-        // on chain recovery we ask for the existing chain two times
         bill_chain_store
             .expect_get_chain()
-            .with(eq(expected_bill_id))
-            .times(2)
+            .with(eq(bill_id.clone()))
+            .once()
             .returning(move |_| Ok(chain_clone.clone()));
 
-        transport
-            .expect_resolve_public_chain()
-            .with(eq(bill_id.to_string()), eq(BlockchainType::Bill))
-            .returning(move |_, _| Ok(nostr_chain.clone()))
-            .once();
-        let expected_bill_id = bill_id.clone();
-        let expected_tip_hash = chain.get_latest_block().hash.clone();
-        let block1_hash = block1.hash.clone();
-        let block2_hash = block2.hash.clone();
+        let apply_keys = bcr_keys.clone();
 
-        let mut tx = MockPersistenceTransactionApiMock::new();
-        tx.expect_append_bill_blocks()
-            .withf(move |bill_id, expected_latest, blocks| {
-                bill_id == &expected_bill_id
-                    && expected_latest
-                        .as_ref()
-                        .is_some_and(|latest| latest.hash == expected_tip_hash)
-                    && blocks.len() == 2
-                    && blocks[0].hash == block1_hash
-                    && blocks[1].hash == block2_hash
-            })
-            .once()
-            .returning(|_, _, _| Ok(()));
-        tx.expect_save_bill_keys().never();
-        tx.expect_commit().once().return_once(|| Ok(()));
+        bill_store.expect_invalidate_bill_in_cache().never();
 
-        let transaction_mgr = transaction_manager_with(tx);
+        transport.expect_resolve_public_chain().never();
+
+        chain_event_store.expect_remove_chain_events().never();
+        chain_event_store.expect_add_chain_event().never();
 
         contact.expect_ensure_nostr_contact().returning(|_| ());
-
-        chain_event_store
-            .expect_remove_chain_events()
-            .returning(|_, _| Ok(()));
-
-        // issue -> block1 -> block2
-        chain_event_store
-            .expect_add_chain_event()
-            .returning(|_| Ok(()))
-            .times(3);
 
         let handler = BillChainEventProcessor::new(
             Arc::new(bill_chain_store),
@@ -1596,15 +1561,20 @@ mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
-            Arc::new(transaction_mgr),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
 
-        handler
-            .process_chain_data(&bill_id, vec![block2.clone()], None)
+        let outcome = handler
+            .apply_verified_block(&bill_id, block2, apply_keys)
             .await
-            .expect("Event should be handled");
+            .unwrap();
+
+        assert_eq!(
+            outcome,
+            IncomingChainApplyResult::Deferred(IncomingChainDependency::MissingPredecessor,),
+        );
     }
 
     fn as_event_payload(id: &BillId, block: &BillBlock) -> EventEnvelope {
@@ -1666,17 +1636,7 @@ mod tests {
         .unwrap();
         assert!(chain.try_add_block(invalid_block.clone()));
         let issue_block = chain.get_first_block().clone();
-        let (mut bill_chain_store, bill_store, mut contact, transport, _) = create_mocks();
-        bill_chain_store
-            .expect_get_chain()
-            .with(eq(bill_id_test()))
-            .once()
-            .returning(move |_| {
-                Err(bcr_ebill_persistence::Error::NoSuchEntity(
-                    "bill block".to_string(),
-                    bill_id_test().to_string(),
-                ))
-            });
+        let (bill_chain_store, bill_store, mut contact, transport, _) = create_mocks();
 
         let expected_bill_id = bill_id_test();
         let issue_hash = issue_block.hash.clone();
@@ -1722,9 +1682,7 @@ mod tests {
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
-        let result = handler
-            .process_chain_data(&bill_id_test(), chain.blocks().clone(), Some(keys))
-            .await;
+        let result = handler.add_new_chain(chain.blocks().clone(), &keys).await;
         assert!(
             result.is_ok(),
             "invalid tail must not poison a valid bill prefix"
@@ -1740,7 +1698,6 @@ mod tests {
         drawer.node_id = NodeId::new(BcrKeys::new().pub_key(), bitcoin::Network::Testnet);
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, Some(&drawer), None);
         let chain = get_genesis_chain(Some(bill.clone()));
-        let keys = get_bill_keys();
 
         let (mut bill_chain_store, bill_store, contact, transport, _) = create_mocks();
 
@@ -1768,10 +1725,14 @@ mod tests {
             Arc::new(test_cfg()),
         );
 
-        let result = handler
-            .process_chain_data(&bill_id_test(), chain.blocks().clone(), Some(keys.clone()))
+        let outcome = handler
+            .apply_verified_block(&bill_id_test(), chain.blocks()[0].clone(), get_bill_keys())
             .await;
-        assert!(result.is_err());
+
+        assert!(
+            matches!(&outcome, Ok(IncomingChainApplyResult::Rejected(_)) | Err(_)),
+            "Invalid block must not be applied: {outcome:?}"
+        );
     }
 
     #[tokio::test]
@@ -1826,10 +1787,14 @@ mod tests {
             Arc::new(test_cfg()),
         );
 
-        let result = handler
-            .process_chain_data(&bill_id_test(), vec![block.clone()], None)
+        let outcome = handler
+            .apply_verified_block(&bill_id_test(), block, get_bill_keys())
             .await;
-        assert!(result.is_err());
+
+        assert!(
+            matches!(&outcome, Ok(IncomingChainApplyResult::Rejected(_)) | Err(_)),
+            "Invalid block must not be applied: {outcome:?}"
+        );
     }
 
     #[tokio::test]
@@ -1889,10 +1854,14 @@ mod tests {
             Arc::new(test_cfg()),
         );
 
-        let result = handler
-            .process_chain_data(&bill_id_test(), vec![block.clone()], None)
+        let outcome = handler
+            .apply_verified_block(&bill_id_test(), block, get_bill_keys())
             .await;
-        assert!(result.is_err());
+
+        assert!(
+            matches!(&outcome, Ok(IncomingChainApplyResult::Rejected(_)) | Err(_)),
+            "Invalid block must not be applied: {outcome:?}"
+        );
     }
 
     #[tokio::test]
@@ -1952,11 +1921,15 @@ mod tests {
             Arc::new(test_cfg()),
         );
 
-        let result = handler
-            .process_chain_data(&bill_id_test(), vec![block.clone()], None)
-            .await;
+        let outcome = handler
+            .apply_verified_block(&bill_id_test(), block, get_bill_keys())
+            .await
+            .unwrap();
 
-        assert!(result.is_err());
+        assert_eq!(
+            outcome,
+            IncomingChainApplyResult::Deferred(IncomingChainDependency::ChainNotInitialized,),
+        );
     }
 
     #[tokio::test]
@@ -1976,19 +1949,21 @@ mod tests {
         );
         let mainnet_bill_id = BillId::new(BcrKeys::new().pub_key(), bitcoin::Network::Bitcoin);
 
-        let result = handler
-            .process_chain_data(&mainnet_bill_id, vec![], None)
-            .await;
+        let outcome = handler
+            .apply_verified_block(
+                &mainnet_bill_id,
+                get_genesis_chain(None).get_first_block().clone(),
+                get_bill_keys(),
+            )
+            .await
+            .unwrap();
 
-        assert!(result.is_err());
-        assert!(result.as_ref().unwrap_err().to_string().contains("network"));
+        assert!(matches!(outcome, IncomingChainApplyResult::Rejected(_)));
     }
 
     #[tokio::test]
-    async fn test_from_resync_prevents_recursive_resync_on_split_chain() {
+    async fn test_conflicting_bill_block_never_triggers_resync() {
         // Setup: Create a scenario where a single block would trigger split chain detection
-        // When from_resync=false, it would trigger resync_chain
-        // When from_resync=true, it should NOT trigger resync_chain (preventing loop)
         let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
@@ -2033,8 +2008,6 @@ mod tests {
             .expect_get_chain()
             .returning(move |_| Ok(chain_clone.clone()));
 
-        // CRITICAL: transport.resolve_public_chain should NEVER be called when from_resync=true
-        // This would indicate a resync is being triggered
         transport
             .expect_resolve_public_chain()
             .times(0)
@@ -2053,21 +2026,18 @@ mod tests {
             Arc::new(test_cfg()),
         );
 
-        // Call add_bill_blocks with from_resync=true
         // Should return Ok without calling resync_chain even though conditions would normally trigger it
         let result = handler
-            .add_bill_blocks(&bill_id_test(), chain, vec![split_block], true)
+            .add_bill_blocks(&bill_id_test(), chain, vec![split_block])
             .await;
 
-        // Should succeed without triggering resync (block is skipped/ignored)
-        assert!(result.is_ok());
+        // Should fail without triggering resync (block is skipped/ignored)
+        assert!(result.is_err());
     }
 
     #[tokio::test]
-    async fn test_from_resync_prevents_recursive_resync_on_missing_blocks() {
+    async fn test_missing_bill_block_never_triggers_resync() {
         // Setup: Create a scenario where validation fails due to missing predecessor
-        // When from_resync=false, it would trigger resync_chain
-        // When from_resync=true, it should return error without resync
         let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
@@ -2127,7 +2097,6 @@ mod tests {
             .expect_get_chain()
             .returning(move |_| Ok(chain_clone.clone()));
 
-        // CRITICAL: transport.resolve_public_chain should NEVER be called when from_resync=true
         transport
             .expect_resolve_public_chain()
             .times(0)
@@ -2146,10 +2115,9 @@ mod tests {
             Arc::new(test_cfg()),
         );
 
-        // Call add_bill_blocks with from_resync=true and a gapped block
         // Should return error, NOT call resync_chain
         let result = handler
-            .add_bill_blocks(&bill_id_test(), chain, vec![gapped_block], true)
+            .add_bill_blocks(&bill_id_test(), chain, vec![gapped_block])
             .await;
 
         // Should return an error (validation failed), but NOT trigger resync
@@ -2224,6 +2192,81 @@ mod tests {
             b2.timestamp + 1000,
         )
         .unwrap();
+
+        {
+            let (mut chain_store, mut bill_store, contact, transport, chain_event_store) =
+                create_mocks();
+            let local = genesis_chain.clone();
+            chain_store
+                .expect_get_chain()
+                .times(2)
+                .returning(move |_| Ok(local.clone()));
+            bill_store
+                .expect_is_paid()
+                .times(2)
+                .returning(|_| Ok(false));
+            let selector = BillChainEventProcessor::new(
+                Arc::new(chain_store),
+                Arc::new(bill_store),
+                Arc::new(MockFileReferenceStore::new()),
+                Arc::new(contact),
+                Arc::new(chain_event_store),
+                Arc::new(transport),
+                Arc::new(MockMintClient::new()),
+                Arc::new(MockTransactionManagerApiMock::new()),
+                bitcoin::Network::Testnet,
+                Arc::new(test_cfg()),
+            );
+            let selected = selector
+                .preferred_verified_branch(
+                    &bill_id,
+                    &[
+                        (2, b3.clone()),
+                        (0, a2.clone()),
+                        (1, b2.clone()),
+                        (3, a2.clone()),
+                    ],
+                    &bcr_keys,
+                )
+                .await
+                .unwrap();
+            assert_eq!(selected, vec![1, 2]);
+
+            // Build a structurally valid but protocol-invalid tail: another request to accept while B2's request is active
+            let invalid_ts = b2.timestamp + 1000;
+            let invalid_b3 = BillBlock::create_block_for_request_to_accept(
+                bill_id.clone(),
+                &b2,
+                &BillRequestToAcceptBlockData {
+                    requester: BillParticipantBlockData::Ident(payer.clone().into()),
+                    signatory: None,
+                    signing_timestamp: invalid_ts,
+                    signing_address: Some(empty_address()),
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
+                    acceptance_deadline_timestamp: invalid_ts + 2 * ACCEPT_DEADLINE_SECONDS,
+                },
+                &bcr_keys,
+                None,
+                &bcr_keys,
+                invalid_ts,
+            )
+            .unwrap();
+            let mut structural_chain = genesis_chain.clone();
+            assert!(structural_chain.try_add_block(b2.clone()));
+            assert!(structural_chain.try_add_block(invalid_b3.clone()));
+            // B -> invalid B3 must be truncated to B
+            // A then wins the earlier-timestamp tiebreak
+            let selected = selector
+                .preferred_verified_branch(
+                    &bill_id,
+                    &[(0, a2.clone()), (1, b2.clone()), (2, invalid_b3)],
+                    &bcr_keys,
+                )
+                .await
+                .unwrap();
+            assert_eq!(selected, vec![0]);
+        }
+
         let root = generate_test_event(
             &bcr_keys,
             None,
@@ -2358,7 +2401,7 @@ mod tests {
             Arc::new(test_cfg()),
         );
         handler
-            .resync_chain(&bill_id, true, ResyncMode::Normal)
+            .resync_chain(&bill_id, true, ResyncMode::NostrAuthoritative)
             .await
             .expect("best protocol-valid prefix must win");
     }
@@ -2519,7 +2562,7 @@ mod tests {
             Arc::new(test_cfg()),
         );
         handler
-            .resync_chain(&bill_id, true, ResyncMode::Normal)
+            .resync_chain(&bill_id, true, ResyncMode::NostrAuthoritative)
             .await
             .expect("invalid tail must not poison valid bill prefix");
     }
@@ -2728,124 +2771,31 @@ mod tests {
         );
 
         handler
-            .resync_chain(&bill_id, true, ResyncMode::Normal)
+            .resync_chain(&bill_id, true, ResyncMode::NostrAuthoritative)
             .await
             .expect("resync should succeed with fork resolution");
     }
 
     #[tokio::test]
-    async fn test_resync_chain_skips_non_preferred_chain() {
-        let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
-        let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
-        let bcr_keys = BcrKeys::from_private_key(&private_key_test());
-        let bill_id = BillId::new(bcr_keys.pub_key(), bitcoin::Network::Testnet);
-        let bill = get_test_bitcredit_bill(&bill_id, &payer, &payee, None, None);
-
-        let genesis_chain = get_genesis_chain(Some(bill.clone()));
-
-        let ts = genesis_chain.get_latest_block().timestamp + 1000;
-
-        let local_block = BillBlock::create_block_for_request_to_accept(
-            bill_id.clone(),
-            genesis_chain.get_latest_block(),
-            &BillRequestToAcceptBlockData {
-                requester: BillParticipantBlockData::Ident(payer.clone().into()),
-                signatory: None,
-                signing_timestamp: ts,
-                signing_address: Some(empty_address()),
-                signer_identity_proof: Some(signed_identity_proof_test().into()),
-                acceptance_deadline_timestamp: ts + 2 * ACCEPT_DEADLINE_SECONDS,
-            },
-            &bcr_keys,
-            None,
-            &bcr_keys,
-            ts + 1000,
-        )
-        .unwrap();
-
-        let mut local_chain = genesis_chain.clone();
-        local_chain.try_add_block(local_block.clone());
-
-        let remote_block = BillBlock::create_block_for_request_to_accept(
-            bill_id.clone(),
-            genesis_chain.get_latest_block(),
-            &BillRequestToAcceptBlockData {
-                requester: BillParticipantBlockData::Ident(payer.clone().into()),
-                signatory: None,
-                signing_timestamp: ts,
-                signing_address: Some(empty_address()),
-                signer_identity_proof: Some(signed_identity_proof_test().into()),
-                acceptance_deadline_timestamp: ts + 2 * ACCEPT_DEADLINE_SECONDS,
-            },
-            &bcr_keys,
-            None,
-            &bcr_keys,
-            ts + 2000,
-        )
-        .unwrap();
-
-        let event0 = generate_test_event(
-            &bcr_keys,
-            None,
-            None,
-            as_event_payload(&bill_id, genesis_chain.get_latest_block()),
-            &bill_id,
-        );
-
-        let event_remote = generate_test_event(
-            &bcr_keys,
-            Some(event0.clone()),
-            Some(event0.clone()),
-            as_event_payload(&bill_id, &remote_block),
-            &bill_id,
-        );
-
-        let nostr_events = vec![event0.clone(), event_remote.clone()];
-
-        let (mut bill_chain_store, mut bill_store, contact, mut transport, mut chain_event_store) =
-            create_mocks();
-
-        bill_store
-            .expect_invalidate_bill_in_cache()
-            .returning(|_| Ok(()));
-        bill_store.expect_is_paid().returning(|_| Ok(false));
-        bill_store
-            .expect_get_keys()
-            .returning(move |_| Ok(bcr_keys.clone()));
-
-        let local_chain_clone = local_chain.clone();
-        bill_chain_store
-            .expect_get_chain()
-            .returning(move |_| Ok(local_chain_clone.clone()));
-
-        transport
-            .expect_resolve_public_chain()
-            .with(eq(bill_id.to_string()), eq(BlockchainType::Bill))
-            .returning(move |_, _| Ok(nostr_events.clone()))
-            .once();
-
-        chain_event_store
-            .expect_remove_chain_events()
-            .returning(|_, _| Ok(()));
-
+    async fn test_processor_normal_resync_is_disabled() {
+        let (chain_store, store, contact, mut transport, event_store) = create_mocks();
+        transport.expect_resolve_public_chain().never();
         let handler = BillChainEventProcessor::new(
-            Arc::new(bill_chain_store),
-            Arc::new(bill_store),
+            Arc::new(chain_store),
+            Arc::new(store),
             Arc::new(MockFileReferenceStore::new()),
             Arc::new(contact),
-            Arc::new(chain_event_store),
+            Arc::new(event_store),
             Arc::new(transport),
             Arc::new(MockMintClient::new()),
             Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
-
         let result = handler
-            .resync_chain(&bill_id, true, ResyncMode::Normal)
+            .resync_chain(&bill_id_test(), true, ResyncMode::Normal)
             .await;
-
-        assert!(result.is_ok());
+        assert!(matches!(result, Err(Error::Blockchain(_))));
     }
 
     #[tokio::test]
@@ -3613,7 +3563,9 @@ mod tests {
             .expect_err("wrong address should fail");
 
         match err {
-            Error::Crypto(msg) => assert!(msg.contains("don't match")),
+            Error::InvalidIncomingBlock(InvalidIncomingBlock::InvalidAction(msg)) => {
+                assert!(msg.contains("don't match"))
+            }
             other => panic!("unexpected error: {other:?}"),
         }
     }
@@ -3666,7 +3618,9 @@ mod tests {
             .expect_err("different op should fail");
 
         match err {
-            Error::Crypto(msg) => assert!(msg.contains("don't match")),
+            Error::InvalidIncomingBlock(InvalidIncomingBlock::InvalidAction(msg)) => {
+                assert!(msg.contains("don't match"))
+            }
             other => panic!("unexpected error: {other:?}"),
         }
     }
@@ -4374,5 +4328,220 @@ mod tests {
             result.is_err(),
             "remote prefix with matching id/hash but different block contents must be rejected"
         );
+    }
+
+    #[tokio::test]
+    async fn bill_mint_fork_distinguishes_invalid_address_from_lookup_failure() {
+        let network = bitcoin::Network::Testnet;
+        let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
+        let payee = payer.clone();
+        let bill_keys = get_bill_keys();
+        let bill_id = BillId::new(bill_keys.pub_key(), network);
+        let bill = get_test_bitcredit_bill(&bill_id, &payer, &payee, None, None);
+        let maturity = bill.maturity_date.to_timestamp().start_of_day();
+        let sum = bill.sum.clone();
+        let mut local = get_genesis_chain(Some(bill));
+        let accept_ts = local.get_latest_block().timestamp + 1000;
+        let accept = BillBlock::create_block_for_accept(
+            bill_id.clone(),
+            local.get_latest_block(),
+            &BillAcceptBlockData {
+                accepter: payer.clone().into(),
+                signatory: None,
+                signing_timestamp: accept_ts,
+                signing_address: empty_address(),
+                signer_identity_proof: signed_identity_proof_test().into(),
+            },
+            &bill_keys,
+            None,
+            &bill_keys,
+            accept_ts,
+        )
+        .unwrap();
+        assert!(local.try_add_block(accept));
+        let mint_keys = BcrKeys::new();
+        let mint = BillParticipantBlockData::Anon(BillAnonParticipantBlockData {
+            node_id: NodeId::new(mint_keys.pub_key(), network),
+        });
+        let mint_block = |ts| {
+            BillBlock::create_block_for_mint(
+                bill_id.clone(),
+                local.get_latest_block(),
+                &BillMintBlockData {
+                    endorser: BillParticipantBlockData::Ident(payee.clone().into()),
+                    endorsee: mint.clone(),
+                    sum: sum.clone(),
+                    signatory: None,
+                    signing_timestamp: ts,
+                    signing_address: Some(empty_address()),
+                    signer_identity_proof: Some(signed_identity_proof_test().into()),
+                },
+                &bill_keys,
+                None,
+                &bill_keys,
+                ts,
+            )
+            .unwrap()
+        };
+
+        // Both are valid competing mint operations
+        // A wins the equal-length timestamp tiebreaker
+        let a = mint_block(accept_ts + 1000);
+        let b = mint_block(accept_ts + 2000);
+        let c_ts = std::cmp::max(b.timestamp + 1000, maturity);
+        let c = BillBlock::create_block_for_request_to_pay(
+            bill_id.clone(),
+            &b,
+            &BillRequestToPayBlockData {
+                requester: mint,
+                payment_data: BillPaymentBlockData {
+                    sum,
+                    payment_address: valid_payment_address_testnet(),
+                    payment_deadline: c_ts + 2 * PAYMENT_DEADLINE_SECONDS,
+                },
+                signatory: None,
+                signing_timestamp: c_ts,
+                signing_address: None,
+                signer_identity_proof: None,
+            },
+            &mint_keys,
+            None,
+            &bill_keys,
+            c_ts,
+        )
+        .unwrap();
+        let mut structural_chain = local.clone();
+        assert!(structural_chain.try_add_block(b.clone()));
+        assert!(structural_chain.try_add_block(c.clone()));
+        assert!(
+            structural_chain
+                .holder_is_mint(&bill_keys)
+                .unwrap()
+                .is_some()
+        );
+
+        let (mut chain_store, mut bill_store, contact, transport, chain_event_store) =
+            create_mocks();
+        chain_store
+            .expect_get_chain()
+            .times(3)
+            .returning(move |_| Ok(local.clone()));
+        bill_store
+            .expect_is_paid()
+            .times(3)
+            .returning(|_| Ok(false));
+
+        let mut mint_client = MockMintClient::new();
+        let mut sequence = mockall::Sequence::new();
+
+        // First selection: the mint successfully derives an address, but it does not match
+        mint_client
+            .expect_validate_payment_address_from_mint()
+            .once()
+            .in_sequence(&mut sequence)
+            .returning(
+                |_, _, _, _, _| Err(MintError::InvalidMintRequestToPayPaymentAddress.into()),
+            );
+
+        // Second selection: the mint lookup fails
+        mint_client
+            .expect_validate_payment_address_from_mint()
+            .once()
+            .in_sequence(&mut sequence)
+            .returning(|_, _, _, _, _| Err(MintError::ClowderClient.into()));
+
+        // Third selection: the mint confirms the address
+        mint_client
+            .expect_validate_payment_address_from_mint()
+            .once()
+            .in_sequence(&mut sequence)
+            .returning(|_, _, _, _, _| Ok(()));
+
+        let processor = BillChainEventProcessor::new(
+            Arc::new(chain_store),
+            Arc::new(bill_store),
+            Arc::new(MockFileReferenceStore::new()),
+            Arc::new(contact),
+            Arc::new(chain_event_store),
+            Arc::new(transport),
+            Arc::new(mint_client),
+            Arc::new(MockTransactionManagerApiMock::new()),
+            network,
+            Arc::new(test_cfg()),
+        );
+
+        let candidates = vec![(0, a), (1, b), (2, c)];
+        // Confirmed mismatch: C is invalid, so A wins against B's one-block valid prefix
+        let selected = processor
+            .preferred_verified_branch(&bill_id, &candidates, &bill_keys)
+            .await
+            .unwrap();
+        assert_eq!(selected, vec![0]);
+        // Lookup failure: do not truncate B -> C and incorrectly select A
+        let result = processor
+            .preferred_verified_branch(&bill_id, &candidates, &bill_keys)
+            .await;
+        assert!(matches!(
+            result,
+            Err(Error::ExternalApi(ExternalError::ExternalMintApi(
+                MintError::ClowderClient,
+            ),)),
+        ));
+        // Once validation succeeds, B -> C wins
+        let selected = processor
+            .preferred_verified_branch(&bill_id, &candidates, &bill_keys)
+            .await
+            .unwrap();
+        assert_eq!(selected, vec![1, 2]);
+    }
+
+    #[tokio::test]
+    async fn bill_retries_cache_invalidation_for_committed_block() {
+        let (mut chain_store, mut bill_store, contact, transport, chain_event_store) =
+            create_mocks();
+        let chain = get_genesis_chain(None);
+        let block = chain.get_latest_block().clone();
+        let bill_id = block.bill_id.clone();
+        let keys = get_bill_keys();
+        chain_store
+            .expect_get_chain()
+            .times(2)
+            .returning(move |_| Ok(chain.clone()));
+        let mut sequence = mockall::Sequence::new();
+        bill_store
+            .expect_invalidate_bill_in_cache()
+            .once()
+            .in_sequence(&mut sequence)
+            .returning(|_| {
+                Err(bcr_ebill_persistence::Error::InvalidData(
+                    "Simulated cache invalidation failure".into(),
+                ))
+            });
+        bill_store
+            .expect_invalidate_bill_in_cache()
+            .once()
+            .in_sequence(&mut sequence)
+            .returning(|_| Ok(()));
+        let processor = BillChainEventProcessor::new(
+            Arc::new(chain_store),
+            Arc::new(bill_store),
+            Arc::new(MockFileReferenceStore::new()),
+            Arc::new(contact),
+            Arc::new(chain_event_store),
+            Arc::new(transport),
+            Arc::new(MockMintClient::new()),
+            Arc::new(MockTransactionManagerApiMock::new()),
+            bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
+        );
+        let result = processor
+            .apply_verified_block(&bill_id, block.clone(), keys.clone())
+            .await;
+        assert!(matches!(result, Err(Error::Persistence(_))));
+        let result = processor
+            .apply_verified_block(&bill_id, block, keys)
+            .await
+            .unwrap();
+        assert_eq!(result, IncomingChainApplyResult::AlreadyApplied,);
     }
 }

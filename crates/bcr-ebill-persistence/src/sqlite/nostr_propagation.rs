@@ -31,6 +31,39 @@ impl SqliteNostrPropagationStore {
             encryption_ctx,
         }
     }
+
+    async fn decode_due_deliveries(
+        &self,
+        rows: Vec<PendingDeliveryRow>,
+        now: Timestamp,
+    ) -> Result<Vec<PendingDelivery>> {
+        let mut deliveries = Vec::with_capacity(rows.len());
+        for row in rows {
+            let message_id = row.message_id.clone();
+            let relay_url = row.relay_url.clone();
+            match row.decrypt(self.encryption_ctx.as_ref()) {
+                Ok(delivery) => deliveries.push(delivery),
+                Err(e) => {
+                    let reason: String = format!("Unreadable persisted outgoing delivery: {e}")
+                        .chars()
+                        .take(512)
+                        .collect();
+                    let retry_at = now + std::time::Duration::from_secs(300);
+                    log::error!(
+                        "Could not read outgoing message {message_id} for relay {relay_url}: {reason} - retry at {retry_at:?}"
+                    );
+                    sqlx::query(MARK_RELAY_FAILED)
+                        .bind(&message_id)
+                        .bind(&relay_url)
+                        .bind(timestamp_to_db(retry_at)?)
+                        .bind(&reason)
+                        .execute(&self.pool)
+                        .await?;
+                }
+            }
+        }
+        Ok(deliveries)
+    }
 }
 
 impl ServiceTraitBounds for SqliteNostrPropagationStore {}
@@ -80,9 +113,7 @@ impl NostrPropagationStoreApi for SqliteNostrPropagationStore {
             .bind(limit)
             .fetch_all(&self.pool)
             .await?;
-        rows.into_iter()
-            .map(|row| row.decrypt(self.encryption_ctx.as_ref()))
-            .collect()
+        self.decode_due_deliveries(rows, now).await
     }
 
     async fn get_pending_deliveries_for_propagation(
@@ -95,9 +126,7 @@ impl NostrPropagationStoreApi for SqliteNostrPropagationStore {
             .bind(timestamp_to_db(now)?)
             .fetch_all(&self.pool)
             .await?;
-        rows.into_iter()
-            .map(|row| row.decrypt(self.encryption_ctx.as_ref()))
-            .collect()
+        self.decode_due_deliveries(rows, now).await
     }
 
     async fn mark_relay_accepted(
@@ -297,5 +326,20 @@ mod tests {
         let store = SqliteNostrPropagationStore::new(pool, encryption_ctx);
         nostr_propagation::test_same_second_propagations_are_ordered_by_sequence(&store, &manager)
             .await;
+    }
+
+    #[sqlx::test(migrations = "migrations/sqlite")]
+    async fn unreadable_outgoing_deliveries_do_not_block_batches(pool: SqlitePool) {
+        let encryption = Arc::new(EncryptionContext::new(BcrKeys::new()));
+        let store = SqliteNostrPropagationStore::new(pool.clone(), encryption.clone());
+        let manager = SqliteTransactionManager::new(pool.clone(), encryption);
+        let other_key_manager =
+            SqliteTransactionManager::new(pool, Arc::new(EncryptionContext::new(BcrKeys::new())));
+        nostr_propagation::test_unreadable_outgoing_deliveries_do_not_block_batches(
+            &store,
+            &manager,
+            &other_key_manager,
+        )
+        .await;
     }
 }
