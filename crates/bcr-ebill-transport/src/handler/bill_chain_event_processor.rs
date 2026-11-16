@@ -1,14 +1,21 @@
+use super::inbound_file_anchor::{anchor_important_file, bill_file_context};
+use super::{BillChainEventProcessorApi, NostrContactProcessorApi};
+use crate::handler::incoming_chain_application::{
+    block_position, classify_verified_application_result, deferred_position,
+    map_block_signer_error, validate_incoming_block_integrity,
+};
 use crate::handler::public_chain_helpers::{
     BlockData, EventContainer, chain_matches_local, compare_block_chains, find_first_difference,
     is_fork_block, resolve_event_chains, resolve_fork,
 };
+use crate::handler::{IncomingChainApplyResult, MissingBlockPolicy};
 use crate::{Error, Result};
 use async_trait::async_trait;
 use bcr_common::core::BillId;
 use bcr_ebill_api::Config;
 use bcr_ebill_api::external::mint::MintClientApi;
-use bcr_ebill_api::service::transport_service::ResyncMode;
 use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
+use bcr_ebill_api::service::transport_service::{InvalidIncomingBlock, ResyncMode};
 use bcr_ebill_core::application::ServiceTraitBounds;
 use bcr_ebill_core::protocol::Validate;
 use bcr_ebill_core::protocol::blockchain::bill::BillOpCode;
@@ -24,6 +31,7 @@ use bcr_ebill_core::protocol::blockchain::bill::{
 use bcr_ebill_core::protocol::blockchain::{Block, Blockchain, BlockchainType};
 use bcr_ebill_core::protocol::crypto::{BcrKeys, btc};
 use bcr_ebill_core::protocol::{BitcoinAddress, BlockId, Sha256Hash};
+use bcr_ebill_persistence::Error as PersistenceError;
 use bcr_ebill_persistence::traits::transaction::TransactionManagerApi;
 use bcr_ebill_persistence::{
     FileReferenceStoreApi, NostrChainEventStoreApi, traits::bill::BillChainStoreApi,
@@ -33,9 +41,6 @@ use bitcoin::secp256k1::PublicKey;
 use log::{debug, error, info, warn};
 use std::collections::HashSet;
 use std::sync::Arc;
-
-use super::inbound_file_anchor::{anchor_important_file, bill_file_context};
-use super::{BillChainEventProcessorApi, NostrContactProcessorApi};
 
 impl ServiceTraitBounds for BillChainEventProcessor {}
 
@@ -56,8 +61,13 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
         }
 
         if let Ok(existing_chain) = self.bill_blockchain_store.get_chain(bill_id).await {
-            self.add_bill_blocks(bill_id, existing_chain, blocks, false)
-                .await
+            self.add_bill_blocks(
+                bill_id,
+                existing_chain,
+                blocks,
+                MissingBlockPolicy::TriggerResync,
+            )
+            .await
         } else {
             match keys {
                 Some(keys) => self.add_new_chain(blocks, &keys).await,
@@ -524,6 +534,66 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
             .map_err(|e| Error::Persistence(e.to_string()))?;
         Ok(())
     }
+
+    async fn apply_verified_block(
+        &self,
+        bill_id: &BillId,
+        block: BillBlock,
+        keys: BcrKeys,
+    ) -> Result<IncomingChainApplyResult> {
+        if bill_id.network() != self.bitcoin_network {
+            return Ok(IncomingChainApplyResult::Rejected(
+                "Bill belongs to another network".into(),
+            ));
+        }
+        if &block.bill_id != bill_id {
+            return classify_verified_application_result(Err(
+                InvalidIncomingBlock::WrongChain.into()
+            ));
+        }
+        if let Err(e) = validate_incoming_block_integrity(&block) {
+            return classify_verified_application_result(Err(e));
+        }
+        // get chain
+        let existing = match self.bill_blockchain_store.get_chain(bill_id).await {
+            Ok(chain) => Some(chain),
+            Err(PersistenceError::NoSuchEntity(_, _)) => None,
+            Err(e) => return Err(Error::Persistence(e.to_string())),
+        };
+        // calculate status of the block
+        let position = block_position(existing.as_ref(), &block);
+        // if it's not "Next" - return status
+        if let Some(outcome) = deferred_position(position) {
+            return Ok(outcome);
+        }
+        // attempt to apply
+        let result = match existing {
+            Some(chain) => {
+                self.add_bill_blocks(bill_id, chain, vec![block], MissingBlockPolicy::ReturnError)
+                    .await
+            }
+            None => {
+                if block.op_code != BillOpCode::Issue {
+                    return classify_verified_application_result(Err(
+                        InvalidIncomingBlock::UnexpectedOperation(
+                            "Bill genesis must be Issue".into(),
+                        )
+                        .into(),
+                    ));
+                }
+                let issue: BillIssueBlockData = block
+                    .get_decrypted_block(&keys)
+                    .map_err(|e| Error::Blockchain(e.to_string()))?;
+                if &issue.id != bill_id {
+                    return classify_verified_application_result(Err(
+                        InvalidIncomingBlock::WrongChain.into(),
+                    ));
+                }
+                self.add_new_chain(vec![block], &keys).await
+            }
+        };
+        classify_verified_application_result(result)
+    }
 }
 
 #[derive(Clone)]
@@ -579,7 +649,7 @@ impl BillChainEventProcessor {
         bill_id: &BillId,
         existing: BillBlockchain,
         blocks: Vec<BillBlock>,
-        from_resync: bool,
+        missing_block_policy: MissingBlockPolicy,
     ) -> Result<()> {
         let mut chain = existing;
         let bill_keys = self.bill_store.get_keys(bill_id).await.map_err(|e| {
@@ -599,7 +669,7 @@ impl BillChainEventProcessor {
         for block in &blocks {
             let current_height = chain.get_latest_block().id;
             if block.id <= current_height {
-                if blocks.len() == 1 && !from_resync {
+                if blocks.len() == 1 && missing_block_policy == MissingBlockPolicy::TriggerResync {
                     let latest = chain.get_latest_block();
                     if is_fork_block(latest, block) {
                         info!(
@@ -651,7 +721,7 @@ impl BillChainEventProcessor {
                 }
                 Err(e) => {
                     if blocks.len() == 1
-                        && !from_resync
+                        && missing_block_policy == MissingBlockPolicy::TriggerResync
                         && BlockId::next_from_previous_block_id(&chain.get_latest_block().id)
                             < block.id
                     {
@@ -711,9 +781,11 @@ impl BillChainEventProcessor {
         let block_id = block.id;
 
         if block.op_code == BillOpCode::Issue {
-            return Err(Error::Blockchain(format!(
-                "Received unexpected Issue block {block_id} for existing bill {bill_id}"
-            )));
+            return Err(InvalidIncomingBlock::UnexpectedOperation(format!(
+                "Issue block {} received for existing bill {bill_id}",
+                block.id,
+            ))
+            .into());
         }
 
         // validate plaintext hash
@@ -747,15 +819,9 @@ impl BillChainEventProcessor {
             )));
         }
 
-        let (signer, bill_action) = match block.verify_and_get_signer(bill_keys) {
-            Ok(signer) => signer,
-            Err(e) => {
-                error!(
-                    "Received invalid block {block_id} for bill {bill_id} - could not verify signature from block data signer"
-                );
-                return Err(Error::Blockchain(e.to_string()));
-            }
-        };
+        let (signer, bill_action) = block
+            .verify_and_get_signer(bill_keys)
+            .map_err(map_block_signer_error)?;
 
         // validate payment address for payment requests
         match block.op_code() {
@@ -1987,8 +2053,8 @@ mod tests {
     #[tokio::test]
     async fn test_from_resync_prevents_recursive_resync_on_split_chain() {
         // Setup: Create a scenario where a single block would trigger split chain detection
-        // When from_resync=false, it would trigger resync_chain
-        // When from_resync=true, it should NOT trigger resync_chain (preventing loop)
+        // When MissingBlockPolicy = TriggerResync, it would trigger resync_chain
+        // When MissingBlockPolicy = ReturnError, it should NOT trigger resync_chain (preventing loop)
         let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
@@ -2033,7 +2099,7 @@ mod tests {
             .expect_get_chain()
             .returning(move |_| Ok(chain_clone.clone()));
 
-        // CRITICAL: transport.resolve_public_chain should NEVER be called when from_resync=true
+        // CRITICAL: transport.resolve_public_chain should NEVER be called when MissingBlockPolicy::ReturnError
         // This would indicate a resync is being triggered
         transport
             .expect_resolve_public_chain()
@@ -2053,10 +2119,15 @@ mod tests {
             Arc::new(test_cfg()),
         );
 
-        // Call add_bill_blocks with from_resync=true
+        // Call add_bill_blocks with MissingBlockPolicy::ReturnError
         // Should return Ok without calling resync_chain even though conditions would normally trigger it
         let result = handler
-            .add_bill_blocks(&bill_id_test(), chain, vec![split_block], true)
+            .add_bill_blocks(
+                &bill_id_test(),
+                chain,
+                vec![split_block],
+                MissingBlockPolicy::ReturnError,
+            )
             .await;
 
         // Should succeed without triggering resync (block is skipped/ignored)
@@ -2066,8 +2137,8 @@ mod tests {
     #[tokio::test]
     async fn test_from_resync_prevents_recursive_resync_on_missing_blocks() {
         // Setup: Create a scenario where validation fails due to missing predecessor
-        // When from_resync=false, it would trigger resync_chain
-        // When from_resync=true, it should return error without resync
+        // When MissingBlockPolicy = TriggerResync, it would trigger resync_chain
+        // When MissingBlockPolicy = ReturnError, it should return error without resync
         let payer = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         let payee = BillIdentParticipant::new(get_baseline_identity().identity).unwrap();
         let bill = get_test_bitcredit_bill(&bill_id_test(), &payer, &payee, None, None);
@@ -2127,7 +2198,7 @@ mod tests {
             .expect_get_chain()
             .returning(move |_| Ok(chain_clone.clone()));
 
-        // CRITICAL: transport.resolve_public_chain should NEVER be called when from_resync=true
+        // CRITICAL: transport.resolve_public_chain should NEVER be called when MissingBlockPolicy::ReturnError
         transport
             .expect_resolve_public_chain()
             .times(0)
@@ -2146,10 +2217,15 @@ mod tests {
             Arc::new(test_cfg()),
         );
 
-        // Call add_bill_blocks with from_resync=true and a gapped block
+        // Call add_bill_blocks with MissingBlockPolicy::ReturnError and a gapped block
         // Should return error, NOT call resync_chain
         let result = handler
-            .add_bill_blocks(&bill_id_test(), chain, vec![gapped_block], true)
+            .add_bill_blocks(
+                &bill_id_test(),
+                chain,
+                vec![gapped_block],
+                MissingBlockPolicy::ReturnError,
+            )
             .await;
 
         // Should return an error (validation failed), but NOT trigger resync

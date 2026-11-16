@@ -1,15 +1,25 @@
 use crate::{
     Error, Result,
-    handler::public_chain_helpers::{
-        BlockData, chain_matches_local, compare_block_chains, find_first_difference, is_fork_block,
-        resolve_event_chains, resolve_fork,
+    handler::{
+        IncomingChainApplyResult, MissingBlockPolicy,
+        incoming_chain_application::{
+            block_position, classify_verified_application_result, deferred_position,
+            map_block_signer_error, map_chain_action_validation_error,
+            validate_incoming_block_integrity,
+        },
+        public_chain_helpers::{
+            BlockData, chain_matches_local, compare_block_chains, find_first_difference,
+            is_fork_block, resolve_event_chains, resolve_fork,
+        },
     },
 };
 use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_api::{
     Config,
-    service::transport_service::{ResyncMode, transport_client::TransportClientApi},
+    service::transport_service::{
+        InvalidIncomingBlock, ResyncMode, transport_client::TransportClientApi,
+    },
 };
 use bcr_ebill_core::{
     application::contact::Contact,
@@ -18,7 +28,7 @@ use bcr_ebill_core::{
         blockchain::{
             Block,
             bill::ContactType,
-            identity::{IdentityType, IdentityValidateActionData},
+            identity::{IdentityOpCode, IdentityType, IdentityValidateActionData},
         },
         crypto::BcrKeys,
         event::{ChainInvite, Event},
@@ -40,7 +50,8 @@ use bcr_ebill_core::{
     protocol::{BlockId, EditOptionalFieldMode},
 };
 use bcr_ebill_persistence::{
-    ContactStoreApi, NostrChainEventStoreApi, traits::transaction::TransactionManagerApi,
+    ContactStoreApi, Error as PersistenceError, NostrChainEventStoreApi,
+    traits::transaction::TransactionManagerApi,
 };
 use bcr_ebill_persistence::{
     FileReferenceStoreApi,
@@ -130,8 +141,22 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
         }
 
         if let Ok(mut existing_chain) = self.blockchain_store.get_chain().await {
-            self.add_identity_blocks(node_id, &mut existing_chain, blocks, false)
-                .await
+            let keys = match keys {
+                Some(keys) => keys,
+                None => self
+                    .identity_store
+                    .get_key_pair()
+                    .await
+                    .map_err(|e| Error::Persistence(e.to_string()))?,
+            };
+            self.add_identity_blocks(
+                node_id,
+                &mut existing_chain,
+                blocks,
+                &keys,
+                MissingBlockPolicy::TriggerResync,
+            )
+            .await
         } else {
             match keys {
                 Some(keys) => self.add_new_chain(blocks, &keys).await,
@@ -538,6 +563,79 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
         }
         Ok(prepared.chain.blocks().len())
     }
+
+    async fn apply_verified_block(
+        &self,
+        node_id: &NodeId,
+        block: IdentityBlock,
+        keys: BcrKeys,
+    ) -> Result<IncomingChainApplyResult> {
+        if node_id.network() != self.bitcoin_network {
+            return Ok(IncomingChainApplyResult::Rejected(
+                "Identity belongs to another network".into(),
+            ));
+        }
+        if let Err(e) = validate_incoming_block_integrity(&block) {
+            return classify_verified_application_result(Err(e));
+        }
+        // get chain
+        let existing = match self.blockchain_store.get_chain().await {
+            Ok(chain) => Some(chain),
+            Err(PersistenceError::NoSuchEntity(_, _)) => None,
+            Err(e) => return Err(Error::Persistence(e.to_string())),
+        };
+        // calculate status of the block
+        let position = block_position(existing.as_ref(), &block);
+        // if it's not "Next" - return status
+        if let Some(outcome) = deferred_position(position) {
+            return Ok(outcome);
+        }
+        if existing.is_none() {
+            if block.op_code != IdentityOpCode::Create {
+                return classify_verified_application_result(Err(
+                    InvalidIncomingBlock::UnexpectedOperation(
+                        "Identity genesis must be Create".into(),
+                    )
+                    .into(),
+                ));
+            }
+            let payload = block
+                .get_block_data(&keys)
+                .map_err(|e| Error::Blockchain(e.to_string()))?;
+            match payload {
+                IdentityBlockPayload::Create(data) if &data.node_id == node_id => {}
+                IdentityBlockPayload::Create(_) => {
+                    return classify_verified_application_result(Err(
+                        InvalidIncomingBlock::WrongChain.into(),
+                    ));
+                }
+                _ => {
+                    return classify_verified_application_result(Err(
+                        InvalidIncomingBlock::UnexpectedOperation(
+                            "Identity genesis payload must be Create".into(),
+                        )
+                        .into(),
+                    ));
+                }
+            }
+        }
+
+        // attempt to apply
+        let result = match existing {
+            Some(mut chain) => {
+                self.add_identity_blocks(
+                    node_id,
+                    &mut chain,
+                    vec![block],
+                    &keys,
+                    MissingBlockPolicy::ReturnError,
+                )
+                .await
+            }
+            None => self.add_new_chain(vec![block], &keys).await,
+        };
+        classify_verified_application_result(result)
+    }
 }
 
 #[allow(unused)]
@@ -734,14 +832,9 @@ impl IdentityChainEventProcessor {
         node_id: &NodeId,
         chain: &mut IdentityBlockchain,
         blocks: Vec<IdentityBlock>,
-        from_resync: bool,
+        keys: &BcrKeys,
+        missing_block_policy: MissingBlockPolicy,
     ) -> Result<()> {
-        let keys = self
-            .identity_store
-            .get_key_pair()
-            .await
-            .map_err(|e| Error::Persistence(e.to_string()))?;
-
         let mut identity = self
             .identity_store
             .get()
@@ -751,7 +844,7 @@ impl IdentityChainEventProcessor {
         let mut block_height = chain.get_latest_block().id;
         for block in blocks.iter() {
             if block.id <= block_height {
-                if blocks.len() == 1 && !from_resync {
+                if blocks.len() == 1 && missing_block_policy == MissingBlockPolicy::TriggerResync {
                     let latest = chain.get_latest_block();
                     if is_fork_block(latest, block) {
                         info!(
@@ -769,7 +862,7 @@ impl IdentityChainEventProcessor {
                 continue;
             }
             match self
-                .add_identity_block(node_id, &keys, &mut identity, chain, block)
+                .add_identity_block(node_id, keys, &mut identity, chain, block)
                 .await
             {
                 Ok(_) => {
@@ -778,7 +871,7 @@ impl IdentityChainEventProcessor {
                 Err(e) => {
                     // if we received a single block (normal block populate) and we are missing blocks, we try to resync
                     if blocks.len() == 1
-                        && !from_resync
+                        && missing_block_policy == MissingBlockPolicy::TriggerResync
                         && BlockId::next_from_previous_block_id(&chain.get_latest_block().id)
                             < block.id
                     {
@@ -810,16 +903,11 @@ impl IdentityChainEventProcessor {
     ) -> Result<IdentityBlockchain> {
         let block_id = block.id;
         // verify signature and signer of the block and get data to validate
-        let verify_and_get_signer = match block.verify_and_get_signer(keys) {
-            Ok(d) => d,
-            Err(e) => {
-                error!(
-                    "Received invalid block {block_id} for identity {identity_id} - could not verify signature from block data signer"
-                );
-                return Err(Error::Blockchain(e.to_string()));
-            }
-        };
-        if let Err(e) = (IdentityValidateActionData {
+        let verify_and_get_signer = block
+            .verify_and_get_signer(keys)
+            .map_err(map_block_signer_error)?;
+
+        (IdentityValidateActionData {
             blockchain: chain.to_owned(),
             id: identity_id.clone(),
             op: block.op_code().clone(),
@@ -827,12 +915,8 @@ impl IdentityChainEventProcessor {
             identity_proof_data: verify_and_get_signer.identity_proof_data,
         })
         .validate()
-        {
-            error!(
-                "Received invalid block {block_id} for identity {identity_id}, identity action validation failed: {e}"
-            );
-            return Err(Error::Blockchain(e.to_string()));
-        }
+        .map_err(map_chain_action_validation_error)?;
+
         let mut candidate_chain = chain.clone();
         if !candidate_chain.try_add_block(block.clone()) {
             error!("Received invalid identity block");

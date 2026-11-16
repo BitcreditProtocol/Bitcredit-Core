@@ -46,7 +46,8 @@ pub mod tests {
     use bcr_ebill_persistence::DbConfig;
     use bcr_ebill_persistence::traits::notification::EmailNotificationStoreApi;
     use bcr_ebill_persistence::traits::propagation::{
-        NostrPropagationStoreApi, PreparedPropagation,
+        ApplicationWaitReason, IncomingPropagationStoreApi, NostrPropagationStoreApi,
+        PreparedPropagation,
     };
     use bcr_ebill_persistence::traits::transaction::{
         BillTransactionApi, CompanyTransactionApi, IdentityTransactionApi,
@@ -63,7 +64,9 @@ pub mod tests {
         traits::mint::MintStoreApi,
         traits::nostr::{NostrChainEvent, NostrChainEventStoreApi, RelaySyncStatus, SyncStatus},
         traits::notification::NotificationFilter,
-        traits::propagation::{PendingDelivery, PropagationStatus, PropagationSubjectType},
+        traits::propagation::{
+            IncomingChainCandidate, PendingDelivery, PropagationStatus, PropagationSubjectType,
+        },
     };
     use std::path::PathBuf;
     use std::sync::Arc;
@@ -227,6 +230,7 @@ pub mod tests {
                 op_code: HashSet<BillOpCode>,
                 since: Timestamp,
             ) -> Result<Vec<BillId>>;
+            async fn get_key_ids(&self) -> Result<Vec<BillId>>;
         }
     }
 
@@ -287,6 +291,7 @@ pub mod tests {
             ) -> Result<()>;
             async fn delete_local_signatory_override(&self, id: &NodeId, signatory: &NodeId) -> Result<()>;
             async fn get_active_company_invites(&self) -> Result<HashMap<NodeId, (Company, BcrKeys)>>;
+            async fn get_key_ids(&self) -> Result<Vec<NodeId>>;
         }
     }
 
@@ -525,6 +530,54 @@ pub mod tests {
                 error: &str,
             ) -> Result<()>;
             async fn make_pending_deliveries_due_now(&self) -> Result<()>;
+        }
+    }
+
+    mockall::mock! {
+        pub IncomingPropagationStoreApiMock{}
+
+        impl ServiceTraitBounds for IncomingPropagationStoreApiMock{}
+
+        #[async_trait]
+        impl IncomingPropagationStoreApi for IncomingPropagationStoreApiMock {
+            async fn upsert_candidate(
+                &self,
+                candidate: &IncomingChainCandidate,
+                first_try_at: Timestamp,
+            ) -> Result<()>;
+            async fn get_due_candidates(
+                &self,
+                now: Timestamp,
+                limit: u64,
+            ) -> Result<Vec<IncomingChainCandidate>>;
+            async fn mark_applied(&self, event_id: &str) -> Result<()>;
+            async fn mark_pending_retry(
+                &self,
+                event_id: &str,
+                next_try_at: Timestamp,
+                reason: &str,
+            ) -> Result<()>;
+            async fn mark_rejected(&self, event_id: &str, reason: &str) -> Result<()>;
+            async fn mark_verified(
+                &self,
+                event_id: &str,
+                verified_at: Timestamp,
+                confirmed_relays: &[url::Url],
+            ) -> Result<()>;
+            async fn get_verified_candidates(&self, now: Timestamp, limit: u64) -> Result<Vec<IncomingChainCandidate>>;
+            async fn mark_application_deferred(
+                &self,
+                event_id: &str,
+                next_try_at: Option<Timestamp>,
+                reason: ApplicationWaitReason,
+                error: &str,
+            ) -> Result<()>;
+            async fn wake_application_for_keys(&self, chain_type: &str, chain_id: &str) -> Result<()>;
+            async fn wake_application_for_predecessor(
+                &self,
+                chain_type: &str,
+                chain_id: &str,
+            ) -> Result<()>;
         }
     }
 
@@ -809,6 +862,7 @@ pub mod tests {
             nostr_chain_event_store: Arc::new(MockNostrChainEventStore::new()),
             transaction_mgr: Arc::new(MockTransactionManagerApiMock::new()),
             nostr_propagation_store: Arc::new(MockNostrPropagationStoreApiMock::new()),
+            incoming_propagation_store: Arc::new(MockIncomingPropagationStoreApiMock::new()),
         }
     }
 

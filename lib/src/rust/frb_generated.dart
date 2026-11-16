@@ -5734,6 +5734,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  PropagationQuorumFfi dco_decode_box_autoadd_propagation_quorum_ffi(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_propagation_quorum_ffi(raw);
+  }
+
+  @protected
   PropagationStatusFfi dco_decode_box_autoadd_propagation_status_ffi(
     dynamic raw,
   ) {
@@ -7252,6 +7260,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  PropagationQuorumFfi? dco_decode_opt_box_autoadd_propagation_quorum_ffi(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null
+        ? null
+        : dco_decode_box_autoadd_propagation_quorum_ffi(raw);
+  }
+
+  @protected
   PropagationStatusFfi? dco_decode_opt_box_autoadd_propagation_status_ffi(
     dynamic raw,
   ) {
@@ -7560,6 +7578,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  PropagationQuorumFfi dco_decode_propagation_quorum_ffi(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return PropagationQuorumFfi(
+      propagated: dco_decode_bool(arr[0]),
+      requiredAcks: dco_decode_u_64(arr[1]),
+      totalRelays: dco_decode_u_64(arr[2]),
+      confirmedRelays: dco_decode_list_String(arr[3]),
+    );
+  }
+
+  @protected
   PropagationRelayFfi dco_decode_propagation_relay_ffi(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -7578,8 +7610,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   PropagationStatusFfi dco_decode_propagation_status_ffi(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 6)
-      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
+    if (arr.length != 7)
+      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
     return PropagationStatusFfi(
       id: dco_decode_String(arr[0]),
       subjectType: dco_decode_String(arr[1]),
@@ -7587,6 +7619,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       createdAt: dco_decode_u_64(arr[3]),
       messages: dco_decode_list_propagation_message_ffi(arr[4]),
       lastBlock: dco_decode_opt_box_autoadd_propagation_block_info_ffi(arr[5]),
+      quorum: dco_decode_opt_box_autoadd_propagation_quorum_ffi(arr[6]),
     );
   }
 
@@ -9318,6 +9351,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_propagation_block_info_ffi(deserializer));
+  }
+
+  @protected
+  PropagationQuorumFfi sse_decode_box_autoadd_propagation_quorum_ffi(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_propagation_quorum_ffi(deserializer));
   }
 
   @protected
@@ -11277,6 +11318,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  PropagationQuorumFfi? sse_decode_opt_box_autoadd_propagation_quorum_ffi(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_propagation_quorum_ffi(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   PropagationStatusFfi? sse_decode_opt_box_autoadd_propagation_status_ffi(
     SseDeserializer deserializer,
   ) {
@@ -11652,6 +11706,23 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  PropagationQuorumFfi sse_decode_propagation_quorum_ffi(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_propagated = sse_decode_bool(deserializer);
+    var var_requiredAcks = sse_decode_u_64(deserializer);
+    var var_totalRelays = sse_decode_u_64(deserializer);
+    var var_confirmedRelays = sse_decode_list_String(deserializer);
+    return PropagationQuorumFfi(
+      propagated: var_propagated,
+      requiredAcks: var_requiredAcks,
+      totalRelays: var_totalRelays,
+      confirmedRelays: var_confirmedRelays,
+    );
+  }
+
+  @protected
   PropagationRelayFfi sse_decode_propagation_relay_ffi(
     SseDeserializer deserializer,
   ) {
@@ -11683,6 +11754,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_lastBlock = sse_decode_opt_box_autoadd_propagation_block_info_ffi(
       deserializer,
     );
+    var var_quorum = sse_decode_opt_box_autoadd_propagation_quorum_ffi(
+      deserializer,
+    );
     return PropagationStatusFfi(
       id: var_id,
       subjectType: var_subjectType,
@@ -11690,6 +11764,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       createdAt: var_createdAt,
       messages: var_messages,
       lastBlock: var_lastBlock,
+      quorum: var_quorum,
     );
   }
 
@@ -13281,6 +13356,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_propagation_block_info_ffi(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_propagation_quorum_ffi(
+    PropagationQuorumFfi self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_propagation_quorum_ffi(self, serializer);
   }
 
   @protected
@@ -14963,6 +15047,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_opt_box_autoadd_propagation_quorum_ffi(
+    PropagationQuorumFfi? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_propagation_quorum_ffi(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_opt_box_autoadd_propagation_status_ffi(
     PropagationStatusFfi? self,
     SseSerializer serializer,
@@ -15277,6 +15374,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_propagation_quorum_ffi(
+    PropagationQuorumFfi self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_bool(self.propagated, serializer);
+    sse_encode_u_64(self.requiredAcks, serializer);
+    sse_encode_u_64(self.totalRelays, serializer);
+    sse_encode_list_String(self.confirmedRelays, serializer);
+  }
+
+  @protected
   void sse_encode_propagation_relay_ffi(
     PropagationRelayFfi self,
     SseSerializer serializer,
@@ -15304,6 +15413,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       self.lastBlock,
       serializer,
     );
+    sse_encode_opt_box_autoadd_propagation_quorum_ffi(self.quorum, serializer);
   }
 
   @protected

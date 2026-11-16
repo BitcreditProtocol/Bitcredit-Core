@@ -3,6 +3,9 @@ use bcr_common::core::NodeId;
 use bcr_ebill_api::service::file_upload_service::{
     UploadFileHandler, detect_content_type_for_bytes,
 };
+use bcr_ebill_api::service::transport_service::propagation::{
+    OutgoingChainQuorum, PropagationThreshold, evaluate_outgoing_chain_quorum,
+};
 use bcr_ebill_core::{
     application::{
         GeneralSearchFilterItemType, GeneralSearchResult, UploadFileResult, ValidationError,
@@ -19,7 +22,10 @@ use bitcoin::hashes::sha256::Hash as Sha256HexHash;
 use flutter_rust_bridge::frb;
 use std::str::FromStr;
 
-use crate::ffi::data::{bill::LightBitcreditBillFfi, company::CompanyFfi, contact::ContactFfi};
+use crate::ffi::{
+    data::{bill::LightBitcreditBillFfi, company::CompanyFfi, contact::ContactFfi},
+    error::EbillFfiError,
+};
 
 pub mod bill;
 pub mod company;
@@ -433,6 +439,30 @@ pub struct PropagationStatusFfi {
     pub created_at: u64,
     pub messages: Vec<PropagationMessageFfi>,
     pub last_block: Option<PropagationBlockInfoFfi>,
+    pub quorum: Option<PropagationQuorumFfi>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PropagationQuorumFfi {
+    pub propagated: bool,
+    pub required_acks: u64,
+    pub total_relays: u64,
+    pub confirmed_relays: Vec<String>,
+}
+
+impl From<OutgoingChainQuorum> for PropagationQuorumFfi {
+    fn from(value: OutgoingChainQuorum) -> Self {
+        Self {
+            propagated: value.is_propagated(),
+            required_acks: value.required as u64,
+            total_relays: value.total_relays as u64,
+            confirmed_relays: value
+                .confirmed_relays
+                .into_iter()
+                .map(|relay| relay.to_string())
+                .collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -486,7 +516,21 @@ impl From<PropagationStatus> for PropagationStatusFfi {
                 })
                 .collect(),
             last_block: None,
+            quorum: None,
         }
+    }
+}
+
+impl PropagationStatusFfi {
+    pub(crate) fn with_quorum(
+        status: PropagationStatus,
+        configured_relays: &[url::Url],
+        policy: PropagationThreshold,
+    ) -> Result<Self, EbillFfiError> {
+        let quorum = evaluate_outgoing_chain_quorum(&status, configured_relays, policy)?;
+        let mut response = Self::from(status);
+        response.quorum = quorum.map(Into::into);
+        Ok(response)
     }
 }
 

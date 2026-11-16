@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 pub trait NostrEventOffsetStoreApi: ServiceTraitBounds {
     /// Returns the current timestamp offset of our nostr subscription
     /// Will return 0 if there are no events in the store yet, otherwise
-    /// the highest timestamp of all events processed.
+    /// the highest timestamp of all events successfully processed.
     /// there is still a possibility that we get events delivered that are
     /// older than the current offset just because they were not processed
     /// or the faked timestamp on the GiftWrap event was higher than the
@@ -28,8 +28,7 @@ pub trait NostrEventOffsetStoreApi: ServiceTraitBounds {
     async fn current_offset(&self, node_id: &NodeId) -> Result<Timestamp>;
 
     /// Returns whether the given event id has been processed already. This
-    /// will return true if we never tried to process the event independent
-    /// of whether it was successful or not.
+    /// will return true if we successfully processed an event
     async fn is_processed(&self, event_id: &str) -> Result<bool>;
 
     /// Stores the given event data in the store.

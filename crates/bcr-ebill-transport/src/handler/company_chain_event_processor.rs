@@ -1,7 +1,13 @@
 use crate::{
     Error, PushApi, Result,
     handler::{
+        IncomingChainApplyResult, IncomingChainDependency, MissingBlockPolicy,
         NotificationHandlerApi,
+        incoming_chain_application::{
+            block_position, classify_verified_application_result, deferred_position,
+            map_block_signer_error, map_chain_action_validation_error,
+            validate_incoming_block_integrity,
+        },
         public_chain_helpers::{
             BlockData, chain_matches_local, compare_block_chains, find_first_difference,
             is_fork_block, resolve_event_chains, resolve_fork,
@@ -12,19 +18,26 @@ use async_trait::async_trait;
 use bcr_common::core::NodeId;
 use bcr_ebill_api::{
     Config,
-    service::transport_service::{ResyncMode, transport_client::TransportClientApi},
+    service::transport_service::{
+        InvalidIncomingBlock, ResyncMode, transport_client::TransportClientApi,
+    },
 };
 use bcr_ebill_core::{
     application::{
+        ValidationError,
         company::CompanyStatus,
         contact::Contact,
         identity::ActiveIdentityState,
         notification::{Notification, NotificationLevel, NotificationType},
     },
     protocol::{
-        EditOptionalFieldMode, EmailIdentityProofData, File, SignedIdentityProof, Timestamp,
-        Validate,
-        blockchain::{Block, bill::ContactType, company::CompanyValidateActionData},
+        EditOptionalFieldMode, EmailIdentityProofData, File, ProtocolValidationError,
+        SignedIdentityProof, Timestamp, Validate,
+        blockchain::{
+            Block,
+            bill::ContactType,
+            company::{CompanyOpCode, CompanyValidateActionData},
+        },
         crypto::BcrKeys,
         event::{ChainInvite, Event},
         file_reference::FileReferenceContext,
@@ -44,7 +57,8 @@ use bcr_ebill_core::{
     },
 };
 use bcr_ebill_persistence::{
-    ContactStoreApi, FileReferenceStoreApi, NostrChainEventStoreApi, NotificationStoreApi,
+    ContactStoreApi, Error as PersistenceError, FileReferenceStoreApi, NostrChainEventStoreApi,
+    NotificationStoreApi,
     traits::{
         company::{CompanyChainStoreApi, CompanyStoreApi},
         identity::IdentityStoreApi,
@@ -129,8 +143,14 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
             .node_id;
 
         if let Ok(mut existing_chain) = self.blockchain_store.get_chain(company_id).await {
-            self.add_company_blocks(company_id, &mut existing_chain, blocks, &identity, false)
-                .await
+            self.add_company_blocks(
+                company_id,
+                &mut existing_chain,
+                blocks,
+                &identity,
+                MissingBlockPolicy::TriggerResync,
+            )
+            .await
         } else {
             match keys {
                 Some(keys) => self.add_new_chain(blocks, &keys, &identity).await,
@@ -587,6 +607,98 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
             .map_err(|e| Error::Persistence(e.to_string()))?;
         Ok(())
     }
+
+    async fn apply_verified_block(
+        &self,
+        company_id: &NodeId,
+        block: CompanyBlock,
+        keys: BcrKeys,
+    ) -> Result<IncomingChainApplyResult> {
+        if company_id.network() != self.bitcoin_network {
+            return Ok(IncomingChainApplyResult::Rejected(
+                "Company belongs to another network".into(),
+            ));
+        }
+        if &block.company_id != company_id {
+            return classify_verified_application_result(Err(
+                InvalidIncomingBlock::WrongChain.into()
+            ));
+        }
+        if let Err(e) = validate_incoming_block_integrity(&block) {
+            return classify_verified_application_result(Err(e));
+        }
+        // get chain
+        let existing = match self.blockchain_store.get_chain(company_id).await {
+            Ok(chain) => Some(chain),
+            Err(PersistenceError::NoSuchEntity(_, _)) => None,
+            Err(e) => return Err(Error::Persistence(e.to_string())),
+        };
+        // calculate status of the block
+        let position = block_position(existing.as_ref(), &block);
+        // if it's not "Next" - return status
+        if let Some(outcome) = deferred_position(position) {
+            return Ok(outcome);
+        }
+        // attempt to apply
+        let identity = self
+            .identity_store
+            .get()
+            .await
+            .map_err(|e| Error::Persistence(e.to_string()))?
+            .node_id;
+        let result = match existing {
+            Some(mut chain) => {
+                self.add_company_blocks(
+                    company_id,
+                    &mut chain,
+                    vec![block],
+                    &identity,
+                    MissingBlockPolicy::ReturnError,
+                )
+                .await
+            }
+            None => {
+                if block.op_code != CompanyOpCode::Create {
+                    return classify_verified_application_result(Err(
+                        InvalidIncomingBlock::UnexpectedOperation(
+                            "Company genesis must be Create".into(),
+                        )
+                        .into(),
+                    ));
+                }
+                let payload = block
+                    .get_block_data(&keys)
+                    .map_err(|e| Error::Blockchain(e.to_string()))?;
+                match payload {
+                    CompanyBlockPayload::Create(data) if &data.id == company_id => {}
+                    CompanyBlockPayload::Create(_) => {
+                        return classify_verified_application_result(Err(
+                            InvalidIncomingBlock::WrongChain.into(),
+                        ));
+                    }
+                    _ => {
+                        return classify_verified_application_result(Err(
+                            InvalidIncomingBlock::UnexpectedOperation(
+                                "Company genesis payload must be Create".into(),
+                            )
+                            .into(),
+                        ));
+                    }
+                };
+                match self.add_new_chain(vec![block], &keys, &identity).await {
+                    Err(Error::Validation(ValidationError::Protocol(
+                        ProtocolValidationError::NotASignatory(_),
+                    ))) => {
+                        return Ok(IncomingChainApplyResult::Deferred(
+                            IncomingChainDependency::ChainNotInitialized,
+                        ));
+                    }
+                    other => other,
+                }
+            }
+        };
+        classify_verified_application_result(result)
+    }
 }
 
 impl CompanyChainEventProcessor {
@@ -638,7 +750,9 @@ impl CompanyChainEventProcessor {
         );
         if !we_are_signatory_or_invited {
             info!("We are not a signatory for company {company_id} so skipping chain");
-            return Ok(());
+            return Err(Error::Validation(ValidationError::Protocol(
+                ProtocolValidationError::NotASignatory(identity.to_string()),
+            )));
         }
 
         // persist atomically
@@ -763,7 +877,7 @@ impl CompanyChainEventProcessor {
         chain: &mut CompanyBlockchain,
         blocks: Vec<CompanyBlock>,
         identity: &NodeId,
-        from_resync: bool,
+        missing_block_policy: MissingBlockPolicy,
     ) -> Result<()> {
         let keys = self
             .company_store
@@ -779,7 +893,7 @@ impl CompanyChainEventProcessor {
         let mut block_height = chain.get_latest_block().id;
         for block in blocks.iter() {
             if block.id <= block_height {
-                if blocks.len() == 1 && !from_resync {
+                if blocks.len() == 1 && missing_block_policy == MissingBlockPolicy::TriggerResync {
                     let latest = chain.get_latest_block();
                     if is_fork_block(latest, block) {
                         info!(
@@ -808,7 +922,7 @@ impl CompanyChainEventProcessor {
                 Err(e) => {
                     // if we received a single block (normal block populate) and we are missing blocks, we try to resync
                     if blocks.len() == 1
-                        && !from_resync
+                        && missing_block_policy == MissingBlockPolicy::TriggerResync
                         && BlockId::next_from_previous_block_id(&chain.get_latest_block().id)
                             < block.id
                     {
@@ -839,7 +953,6 @@ impl CompanyChainEventProcessor {
         company_keys: &BcrKeys,
     ) -> Result<CompanyBlockchain> {
         let company_id = block.company_id.clone();
-        let block_id = block.id;
 
         // structural validation is only done against the clone
         let mut candidate_chain = chain.clone();
@@ -851,10 +964,9 @@ impl CompanyChainEventProcessor {
             ));
         }
 
-        let verify_and_get_signer = block.verify_and_get_signer(company_keys).map_err(|e| {
-            error!("Received invalid block {block_id} for company {company_id} - could not verify signature from block data signer");
-            Error::Blockchain(e.to_string())
-        })?;
+        let verify_and_get_signer = block
+            .verify_and_get_signer(company_keys)
+            .map_err(map_block_signer_error)?;
 
         // validation the chain before this block
         (CompanyValidateActionData {
@@ -868,14 +980,7 @@ impl CompanyChainEventProcessor {
             identity_proof_data: verify_and_get_signer.identity_proof_data,
         })
         .validate()
-        .map_err(|e| {
-            error!(
-                "Received invalid block {block_id} for company \
-             {company_id}, company action validation failed: {e}"
-            );
-
-            Error::Blockchain(e.to_string())
-        })?;
+        .map_err(map_chain_action_validation_error)?;
 
         Ok(candidate_chain)
     }

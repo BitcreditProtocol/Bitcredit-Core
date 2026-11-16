@@ -13,8 +13,9 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
 part 'data.freezed.dart';
 
+// These functions are ignored because they are not marked as `pub`: `with_quorum`
 // These functions are ignored because they have generic arguments: `try_map`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `detect_content_type`, `eq`, `extension`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `get_contents`, `len`, `name`, `try_from`, `try_from`, `try_from`, `try_from`, `try_from`, `try_from`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `detect_content_type`, `eq`, `extension`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `get_contents`, `len`, `name`, `try_from`, `try_from`, `try_from`, `try_from`, `try_from`, `try_from`
 // These functions are ignored (category: IgnoreBecauseExplicitAttribute): `parse_deadline_string`
 
 class BalanceResponse {
@@ -574,6 +575,37 @@ class PropagationMessageFfi {
           relays == other.relays;
 }
 
+class PropagationQuorumFfi {
+  final bool propagated;
+  final BigInt requiredAcks;
+  final BigInt totalRelays;
+  final List<String> confirmedRelays;
+
+  const PropagationQuorumFfi({
+    required this.propagated,
+    required this.requiredAcks,
+    required this.totalRelays,
+    required this.confirmedRelays,
+  });
+
+  @override
+  int get hashCode =>
+      propagated.hashCode ^
+      requiredAcks.hashCode ^
+      totalRelays.hashCode ^
+      confirmedRelays.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PropagationQuorumFfi &&
+          runtimeType == other.runtimeType &&
+          propagated == other.propagated &&
+          requiredAcks == other.requiredAcks &&
+          totalRelays == other.totalRelays &&
+          confirmedRelays == other.confirmedRelays;
+}
+
 class PropagationRelayFfi {
   final String relayUrl;
   final BigInt? acceptedAt;
@@ -616,6 +648,7 @@ class PropagationStatusFfi {
   final BigInt createdAt;
   final List<PropagationMessageFfi> messages;
   final PropagationBlockInfoFfi? lastBlock;
+  final PropagationQuorumFfi? quorum;
 
   const PropagationStatusFfi({
     required this.id,
@@ -624,6 +657,7 @@ class PropagationStatusFfi {
     required this.createdAt,
     required this.messages,
     this.lastBlock,
+    this.quorum,
   });
 
   @override
@@ -633,7 +667,8 @@ class PropagationStatusFfi {
       subjectId.hashCode ^
       createdAt.hashCode ^
       messages.hashCode ^
-      lastBlock.hashCode;
+      lastBlock.hashCode ^
+      quorum.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -645,7 +680,8 @@ class PropagationStatusFfi {
           subjectId == other.subjectId &&
           createdAt == other.createdAt &&
           messages == other.messages &&
-          lastBlock == other.lastBlock;
+          lastBlock == other.lastBlock &&
+          quorum == other.quorum;
 }
 
 class StatusResponse {

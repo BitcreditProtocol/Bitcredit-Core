@@ -8,6 +8,7 @@ use bcr_ebill_core::protocol::{
 };
 
 use crate::{
+    Error,
     tests::{
         tests::{empty_identity, test_ts},
         transaction_test_utils::{remove_identity_blocks_from_height, seed_identity_blocks},
@@ -60,6 +61,10 @@ pub async fn test_identity_chain<S>(transaction_manager: &dyn TransactionManager
 where
     S: IdentityChainStoreApi + ?Sized,
 {
+    assert!(matches!(
+        store.get_chain().await,
+        Err(Error::NoSuchEntity(..))
+    ));
     assert!(get_latest_block(store).await.is_err());
     let block = get_first_identity_block();
     seed_identity_blocks(transaction_manager, None, std::slice::from_ref(&block)).await;

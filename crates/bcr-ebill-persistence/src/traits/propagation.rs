@@ -201,3 +201,89 @@ pub trait NostrPropagationStoreApi: ServiceTraitBounds {
     ) -> Result<()>;
     async fn make_pending_deliveries_due_now(&self) -> Result<()>;
 }
+
+#[derive(Debug, Clone)]
+pub struct IncomingChainCandidate {
+    pub event: nostr::event::Event,
+    pub chain_type: String,
+    pub chain_id: String,
+    pub relays: Vec<url::Url>,
+    pub required_relays: usize,
+    pub attempts: u32,
+    pub application_attempts: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApplicationWaitReason {
+    MissingKeys,
+    MissingPredecessor,
+    Transient,
+    ConflictingFork,
+}
+
+impl ApplicationWaitReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::MissingKeys => "missing_keys",
+            Self::MissingPredecessor => "missing_predecessor",
+            Self::Transient => "transient",
+            Self::ConflictingFork => "conflicting_fork",
+        }
+    }
+}
+
+#[async_trait]
+pub trait IncomingPropagationStoreApi: ServiceTraitBounds {
+    /// upsert the candidate without resetting already applied events to pending
+    async fn upsert_candidate(
+        &self,
+        candidate: &IncomingChainCandidate,
+        first_try_at: Timestamp,
+    ) -> Result<()>;
+    /// fetch candidates eligible for verification
+    async fn get_due_candidates(
+        &self,
+        now: Timestamp,
+        limit: u64,
+    ) -> Result<Vec<IncomingChainCandidate>>;
+    /// candidate is valid and was appended (or was already present) in the local chain
+    async fn mark_applied(&self, event_id: &str) -> Result<()>;
+    /// verification or application cannot complete yet
+    async fn mark_pending_retry(
+        &self,
+        event_id: &str,
+        next_try_at: Timestamp,
+        reason: &str,
+    ) -> Result<()>;
+    /// permanently invalid event, not merely unavailable or missing a predecessor
+    async fn mark_rejected(&self, event_id: &str, reason: &str) -> Result<()>;
+    /// candidates is verified and can be applied
+    async fn mark_verified(
+        &self,
+        event_id: &str,
+        verified_at: Timestamp,
+        confirmed_relays: &[url::Url],
+    ) -> Result<()>;
+    /// get all verified candidates
+    async fn get_verified_candidates(
+        &self,
+        now: Timestamp,
+        limit: u64,
+    ) -> Result<Vec<IncomingChainCandidate>>;
+    /// verified event that couldn't be applied to a local chain yet (e.g. because of missing keys, or a predecessor)
+    async fn mark_application_deferred(
+        &self,
+        event_id: &str,
+        next_try_at: Option<Timestamp>,
+        reason: ApplicationWaitReason,
+        error: &str,
+    ) -> Result<()>;
+    /// when we receive keys for a verified candidate, we attempt to apply that candidate
+    async fn wake_application_for_keys(&self, chain_type: &str, chain_id: &str) -> Result<()>;
+    /// when we receive a block for a chain where we have a candidate waiting missing a predecessor, we attempt to apply that candidate
+    async fn wake_application_for_predecessor(
+        &self,
+        chain_type: &str,
+        chain_id: &str,
+    ) -> Result<()>;
+}

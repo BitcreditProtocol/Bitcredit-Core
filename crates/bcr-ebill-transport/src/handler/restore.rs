@@ -1,7 +1,12 @@
-use std::sync::Arc;
-
+use super::{
+    IdentityChainEventProcessorApi,
+    public_chain_helpers::{BlockData, EventContainer, resolve_event_chains},
+};
+use crate::handler::{DirectMessageEventProcessorApi, public_chain_helpers::compare_block_chains};
+use crate::incoming_verification::VerifiedChainIngestionApi;
 use async_trait::async_trait;
 use bcr_common::core::NodeId;
+use bcr_ebill_api::service::transport_service::propagation::RelayQuorumSnapshot;
 use bcr_ebill_api::service::transport_service::{
     Result, restore::RestoreAccountApi, transport_client::TransportClientApi,
 };
@@ -12,21 +17,15 @@ use bcr_ebill_core::{
 };
 use log::{debug, error, info};
 use nostr::filter::Filter;
-
-use crate::handler::{DirectMessageEventProcessorApi, public_chain_helpers::compare_block_chains};
-use bcr_ebill_persistence::NostrChainEventStoreApi;
-
-use super::{
-    IdentityChainEventProcessorApi,
-    public_chain_helpers::{BlockData, EventContainer, resolve_event_chains},
-};
+use std::sync::Arc;
 
 #[allow(dead_code)]
 pub struct RestoreAccountService {
     nostr: Arc<dyn TransportClientApi>,
     identity_chain_processor: Arc<dyn IdentityChainEventProcessorApi>,
     dm_processor: Arc<dyn DirectMessageEventProcessorApi>,
-    chain_event_store: Arc<dyn NostrChainEventStoreApi>,
+    verified_ingestion: Arc<dyn VerifiedChainIngestionApi>,
+    relay_snapshot: RelayQuorumSnapshot,
     keys: BcrKeys,
     node_id: NodeId,
 }
@@ -44,7 +43,8 @@ impl RestoreAccountService {
         nostr: Arc<dyn TransportClientApi>,
         identity_chain_processor: Arc<dyn IdentityChainEventProcessorApi>,
         dm_processor: Arc<dyn DirectMessageEventProcessorApi>,
-        chain_event_store: Arc<dyn NostrChainEventStoreApi>,
+        verified_ingestion: Arc<dyn VerifiedChainIngestionApi>,
+        relay_snapshot: RelayQuorumSnapshot,
         keys: BcrKeys,
         node_id: NodeId,
     ) -> Self {
@@ -52,7 +52,8 @@ impl RestoreAccountService {
             nostr,
             identity_chain_processor,
             dm_processor,
-            chain_event_store,
+            verified_ingestion,
+            relay_snapshot,
             keys,
             node_id,
         }
@@ -153,32 +154,38 @@ impl RestoreAccountService {
         };
 
         let selected_chain = &chains[selected.chain_idx];
-        let restored_block_count = selected.blocks.len();
-        self.identity_chain_processor
-            .process_chain_data(&self.node_id, selected.blocks, Some(self.keys.clone()))
+        let selected_events: Vec<nostr::event::Event> = selected_chain
+            .iter()
+            .filter(|entry| matches!(entry.block, BlockData::Identity(_)))
+            .take(selected.accepted_event_count)
+            .map(|entry| entry.event.clone())
+            .collect();
+        debug_assert_eq!(selected_events.len(), selected.blocks.len(),);
+
+        let progress = self
+            .verified_ingestion
+            .ingest_verified_chain(
+                BlockchainType::Identity,
+                &self.node_id.to_string(),
+                selected_events,
+                self.relay_snapshot.clone(),
+            )
             .await?;
 
-        for event_container in selected_chain
-            .iter()
-            .filter(|event_container| matches!(event_container.block, BlockData::Identity(_)))
-            .take(selected.accepted_event_count)
-        {
-            let event = event_container.as_chain_store_event(
-                &self.node_id.to_string(),
-                BlockchainType::Identity,
-                event_container.block.get_block_height() as usize,
+        if progress.is_complete() {
+            info!(
+                "Identity restoration complete: {} blocks applied",
+                progress.applied_prefix,
             );
-            if let Err(e) = self.chain_event_store.add_chain_event(event).await {
-                error!("Failed to store identity chain event during restore: {e}");
-            }
+        } else {
+            info!(
+                "Identity partially restored: {} of {} blocks applied, {} waiting for background recovery",
+                progress.applied_prefix,
+                progress.enqueued,
+                progress.remaining(),
+            );
         }
 
-        info!(
-            "restored identity chain from {} valid events out of {} raw events",
-            selected.accepted_event_count,
-            selected_chain.len(),
-        );
-        debug!("restored {} identity blocks", restored_block_count);
         Ok(())
     }
 
@@ -209,6 +216,18 @@ impl RestoreAccountApi for RestoreAccountService {
 mod tests {
     use std::collections::HashSet;
 
+    use super::*;
+    use crate::incoming_verification::{
+        MockVerifiedChainIngestionApi, VerifiedChainIngestionProgress,
+    };
+    use crate::{
+        handler::{
+            MockDirectMessageEventProcessorApi, MockIdentityChainEventProcessorApi,
+            test_utils::{get_baseline_identity, private_key_test},
+        },
+        test_utils::{MockNotificationJsonTransport, node_id_test, test_ts},
+        transport::create_public_chain_event,
+    };
     use bcr_ebill_core::{
         application::identity::Identity,
         protocol::Timestamp,
@@ -220,25 +239,27 @@ mod tests {
     };
     use mockall::predicate::{always, eq};
     use nostr::event::FinalizeEvent;
+    use url::Url;
 
-    use crate::{
-        handler::{
-            MockDirectMessageEventProcessorApi, MockIdentityChainEventProcessorApi,
-            test_utils::{MockNostrChainEventStore, get_baseline_identity, private_key_test},
-        },
-        test_utils::{MockNotificationJsonTransport, node_id_test, test_ts},
-        transport::create_public_chain_event,
-    };
-
-    use super::*;
+    fn test_snapshot() -> RelayQuorumSnapshot {
+        RelayQuorumSnapshot {
+            relays: vec![
+                Url::parse("wss://r1.example").unwrap(),
+                Url::parse("wss://r2.example").unwrap(),
+                Url::parse("wss://r3.example").unwrap(),
+            ],
+            required: 2,
+        }
+    }
 
     #[tokio::test]
     async fn test_service() {
         let mut nostr = MockNotificationJsonTransport::new();
         let processor = MockIdentityChainEventProcessorApi::new();
         let dm_processor = MockDirectMessageEventProcessorApi::new();
-        let chain_event_store = MockNostrChainEventStore::new();
         let keys = BcrKeys::new();
+        let mut ingestion = MockVerifiedChainIngestionApi::new();
+        ingestion.expect_ingest_verified_chain().never();
 
         nostr
             .expect_resolve_public_chain()
@@ -254,7 +275,8 @@ mod tests {
             Arc::new(nostr),
             Arc::new(processor),
             Arc::new(dm_processor),
-            Arc::new(chain_event_store),
+            Arc::new(ingestion),
+            test_snapshot(),
             keys,
             node_id_test(),
         )
@@ -272,7 +294,21 @@ mod tests {
         let mut nostr = MockNotificationJsonTransport::new();
         let mut processor = MockIdentityChainEventProcessorApi::new();
         let dm_processor = MockDirectMessageEventProcessorApi::new();
-        let mut chain_event_store = MockNostrChainEventStore::new();
+        let mut ingestion = MockVerifiedChainIngestionApi::new();
+        ingestion
+            .expect_ingest_verified_chain()
+            .once()
+            .withf(move |chain_type, _chain_id, events, snapshot| {
+                *chain_type == BlockchainType::Identity
+                    && snapshot.required == 2
+                    && events.len() == 1
+            })
+            .returning(|_, _, events, _| {
+                Ok(VerifiedChainIngestionProgress {
+                    enqueued: events.len(),
+                    applied_prefix: events.len(),
+                })
+            });
 
         let _return_events = events.clone();
         nostr
@@ -287,23 +323,13 @@ mod tests {
             .returning(|_, _| true)
             .times(events.len());
 
-        processor
-            .expect_process_chain_data()
-            .with(eq(node_id_test()), always(), eq(Some(keys.clone())))
-            .returning(|_, _, _| Ok(()))
-            .once();
+        processor.expect_process_chain_data().never();
 
         processor
             .expect_valid_chain_prefix_len()
             .with(eq(node_id_test()), always(), eq(keys.clone()))
             .returning(|_, _, _| Ok(1))
             .once();
-
-        chain_event_store
-            .expect_add_chain_event()
-            .with(always())
-            .returning(|_| Ok(()))
-            .times(events.len());
 
         nostr
             .expect_resolve_private_events()
@@ -314,7 +340,8 @@ mod tests {
             Arc::new(nostr),
             Arc::new(processor),
             Arc::new(dm_processor),
-            Arc::new(chain_event_store),
+            Arc::new(ingestion),
+            test_snapshot(),
             keys,
             node_id_test(),
         )
@@ -360,7 +387,36 @@ mod tests {
         let mut nostr = MockNotificationJsonTransport::new();
         let mut processor = MockIdentityChainEventProcessorApi::new();
         let dm_processor = MockDirectMessageEventProcessorApi::new();
-        let mut chain_event_store = MockNostrChainEventStore::new();
+        let mut ingestion = MockVerifiedChainIngestionApi::new();
+
+        let expected_event_ids: HashSet<String> = [
+            root.id.to_string(),
+            b2.id.to_string(),
+            b3.id.to_string(),
+            b4.id.to_string(),
+        ]
+        .into_iter()
+        .collect();
+
+        ingestion
+            .expect_ingest_verified_chain()
+            .once()
+            .withf(move |chain_type, _chain_id, events, snapshot| {
+                *chain_type == BlockchainType::Identity
+                    && snapshot.required == 2
+                    && events.len() == 4
+                    && events
+                        .iter()
+                        .map(|event| event.id.to_string())
+                        .collect::<HashSet<_>>()
+                        == expected_event_ids
+            })
+            .returning(|_, _, events, _| {
+                Ok(VerifiedChainIngestionProgress {
+                    enqueued: events.len(),
+                    applied_prefix: events.len(),
+                })
+            });
         nostr
             .expect_resolve_public_chain()
             .once()
@@ -380,31 +436,12 @@ mod tests {
                 other => panic!("unexpected candidate length {other}"),
             });
 
-        processor
-            .expect_process_chain_data()
-            .withf(|_, blocks, _| blocks.len() == 4)
-            .once()
-            .returning(|_, _, _| Ok(()));
-
-        let expected_event_ids: HashSet<String> = [
-            root.id.to_string(),
-            b2.id.to_string(),
-            b3.id.to_string(),
-            b4.id.to_string(),
-        ]
-        .into_iter()
-        .collect();
-        chain_event_store
-            .expect_add_chain_event()
-            .withf(move |event| expected_event_ids.contains(&event.event_id))
-            .times(4)
-            .returning(|_| Ok(()));
-
         let service = RestoreAccountService::new(
             Arc::new(nostr),
             Arc::new(processor),
             Arc::new(dm_processor),
-            Arc::new(chain_event_store),
+            Arc::new(ingestion),
+            test_snapshot(),
             keys,
             node_id_test(),
         )
@@ -444,7 +481,21 @@ mod tests {
         let mut nostr = MockNotificationJsonTransport::new();
         let mut processor = MockIdentityChainEventProcessorApi::new();
         let dm_processor = MockDirectMessageEventProcessorApi::new();
-        let mut chain_event_store = MockNostrChainEventStore::new();
+        let mut ingestion = MockVerifiedChainIngestionApi::new();
+        ingestion
+            .expect_ingest_verified_chain()
+            .once()
+            .withf(move |chain_type, _chain_id, events, snapshot| {
+                *chain_type == BlockchainType::Identity
+                    && snapshot.required == 2
+                    && events.len() == 2
+            })
+            .returning(|_, _, events, _| {
+                Ok(VerifiedChainIngestionProgress {
+                    enqueued: events.len(),
+                    applied_prefix: events.len(),
+                })
+            });
 
         nostr
             .expect_resolve_public_chain()
@@ -460,25 +511,13 @@ mod tests {
             .withf(|_, blocks, _| blocks.len() == 2)
             .once()
             .returning(|_, _, _| Ok(2));
-        processor
-            .expect_process_chain_data()
-            .withf(|_, blocks, _| blocks.len() == 2)
-            .once()
-            .returning(|_, _, _| Ok(()));
-        let accepted_ids: HashSet<String> = [root.id.to_string(), event2.id.to_string()]
-            .into_iter()
-            .collect();
-        chain_event_store
-            .expect_add_chain_event()
-            .withf(move |event| accepted_ids.contains(&event.event_id))
-            .times(2)
-            .returning(|_| Ok(()));
 
         let service = RestoreAccountService::new(
             Arc::new(nostr),
             Arc::new(processor),
             Arc::new(dm_processor),
-            Arc::new(chain_event_store),
+            Arc::new(ingestion),
+            test_snapshot(),
             keys,
             node_id_test(),
         )
@@ -488,6 +527,117 @@ mod tests {
             .restore_identity()
             .await
             .expect("valid sender prefix should still be restored");
+    }
+
+    #[tokio::test]
+    async fn restore_does_not_process_dms_before_identity_completion() {
+        let (keys, events) = generate_test_chain(1, false);
+        let mut nostr = MockNotificationJsonTransport::new();
+        nostr
+            .expect_resolve_public_chain()
+            .once()
+            .returning(move |_, _| Ok(events.clone()));
+        // DM recovery must not begin if identity restore fails
+        nostr.expect_resolve_private_events().never();
+        let mut processor = MockIdentityChainEventProcessorApi::new();
+        processor
+            .expect_validate_chain_event_and_sender()
+            .once()
+            .returning(|_, _| true);
+        processor
+            .expect_valid_chain_prefix_len()
+            .once()
+            .returning(|_, _, _| Ok(1));
+        processor.expect_process_chain_data().never();
+
+        let mut ingestion = MockVerifiedChainIngestionApi::new();
+        ingestion
+            .expect_ingest_verified_chain()
+            .once()
+            .returning(|_, _, _, _| {
+                Err(bcr_ebill_api::service::transport_service::Error::Network(
+                    "relay quorum unavailable".into(),
+                ))
+            });
+
+        let service = RestoreAccountService::new(
+            Arc::new(nostr),
+            Arc::new(processor),
+            Arc::new(MockDirectMessageEventProcessorApi::new()),
+            Arc::new(ingestion),
+            test_snapshot(),
+            keys,
+            node_id_test(),
+        )
+        .await;
+
+        let result = service.restore_account().await;
+        assert!(matches!(
+            result,
+            Err(bcr_ebill_api::service::transport_service::Error::Network(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn partial_identity_restore_still_processes_private_events() {
+        let (keys, events) = generate_test_chain(3, false);
+        let mut nostr = MockNotificationJsonTransport::new();
+        nostr
+            .expect_resolve_public_chain()
+            .once()
+            .returning(move |_, _| Ok(events.clone()));
+
+        let dm =
+            nostr::event::EventBuilder::new(nostr::event::Kind::GiftWrap, "test private event")
+                .finalize(&nostr::key::Keys::generate())
+                .unwrap();
+        nostr
+            .expect_resolve_private_events()
+            .once()
+            .returning(move |_| Ok(vec![dm.clone()]));
+
+        let mut processor = MockIdentityChainEventProcessorApi::new();
+        processor
+            .expect_validate_chain_event_and_sender()
+            .times(3)
+            .returning(|_, _| true);
+        processor
+            .expect_valid_chain_prefix_len()
+            .once()
+            .returning(|_, blocks, _| Ok(blocks.len()));
+        processor.expect_process_chain_data().never();
+
+        let mut ingestion = MockVerifiedChainIngestionApi::new();
+        ingestion
+            .expect_ingest_verified_chain()
+            .once()
+            .withf(|chain_type, _, events, _| {
+                *chain_type == BlockchainType::Identity && events.len() == 3
+            })
+            .returning(|_, _, _, _| {
+                Ok(VerifiedChainIngestionProgress {
+                    enqueued: 3,
+                    applied_prefix: 2,
+                })
+            });
+
+        let mut dm_processor = MockDirectMessageEventProcessorApi::new();
+        // DM recovery proceeds despite the third identity block being pending
+        dm_processor
+            .expect_process_direct_message()
+            .once()
+            .returning(|_| Ok(()));
+        let service = RestoreAccountService::new(
+            Arc::new(nostr),
+            Arc::new(processor),
+            Arc::new(dm_processor),
+            Arc::new(ingestion),
+            test_snapshot(),
+            keys,
+            node_id_test(),
+        )
+        .await;
+        service.restore_account().await.unwrap();
     }
 
     fn generate_test_chain(

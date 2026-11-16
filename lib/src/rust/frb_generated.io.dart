@@ -476,6 +476,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  PropagationQuorumFfi dco_decode_box_autoadd_propagation_quorum_ffi(
+    dynamic raw,
+  );
+
+  @protected
   PropagationStatusFfi dco_decode_box_autoadd_propagation_status_ffi(
     dynamic raw,
   );
@@ -974,6 +979,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   dco_decode_opt_box_autoadd_propagation_block_info_ffi(dynamic raw);
 
   @protected
+  PropagationQuorumFfi? dco_decode_opt_box_autoadd_propagation_quorum_ffi(
+    dynamic raw,
+  );
+
+  @protected
   PropagationStatusFfi? dco_decode_opt_box_autoadd_propagation_status_ffi(
     dynamic raw,
   );
@@ -1057,6 +1067,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PropagationMessageFfi dco_decode_propagation_message_ffi(dynamic raw);
+
+  @protected
+  PropagationQuorumFfi dco_decode_propagation_quorum_ffi(dynamic raw);
 
   @protected
   PropagationRelayFfi dco_decode_propagation_relay_ffi(dynamic raw);
@@ -1711,6 +1724,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  PropagationQuorumFfi sse_decode_box_autoadd_propagation_quorum_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   PropagationStatusFfi sse_decode_box_autoadd_propagation_status_ffi(
     SseDeserializer deserializer,
   );
@@ -2337,6 +2355,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  PropagationQuorumFfi? sse_decode_opt_box_autoadd_propagation_quorum_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   PropagationStatusFfi? sse_decode_opt_box_autoadd_propagation_status_ffi(
     SseDeserializer deserializer,
   );
@@ -2436,6 +2459,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PropagationMessageFfi sse_decode_propagation_message_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  PropagationQuorumFfi sse_decode_propagation_quorum_ffi(
     SseDeserializer deserializer,
   );
 
@@ -3231,6 +3259,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_box_autoadd_propagation_quorum_ffi(
+    PropagationQuorumFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_propagation_status_ffi(
     PropagationStatusFfi self,
     SseSerializer serializer,
@@ -4005,6 +4039,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_opt_box_autoadd_propagation_quorum_ffi(
+    PropagationQuorumFfi? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_box_autoadd_propagation_status_ffi(
     PropagationStatusFfi? self,
     SseSerializer serializer,
@@ -4133,6 +4173,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_propagation_message_ffi(
     PropagationMessageFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_propagation_quorum_ffi(
+    PropagationQuorumFfi self,
     SseSerializer serializer,
   );
 

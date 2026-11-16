@@ -10,6 +10,7 @@ pub(crate) const SELECT_CURRENT_OFFSET: &str = r#"
     SELECT time
     FROM nostr_event_offset
     WHERE node_id = $1
+      AND success = TRUE
     ORDER BY time DESC
     LIMIT 1
 "#;
@@ -18,6 +19,7 @@ pub(crate) const SELECT_EVENT_ID: &str = r#"
     SELECT event_id
     FROM nostr_event_offset
     WHERE event_id = $1
+      AND success = TRUE
     LIMIT 1
 "#;
 
@@ -28,9 +30,13 @@ pub(crate) const INSERT_EVENT: &str = r#"
         success,
         node_id
     )
-    VALUES (
-        $1, $2, $3, $4
-    )
+    VALUES ($1, $2, $3, $4)
+    ON CONFLICT(event_id) DO UPDATE SET
+        success = TRUE,
+        time = EXCLUDED.time,
+        node_id = EXCLUDED.node_id
+    WHERE EXCLUDED.success = TRUE
+      AND nostr_event_offset.success = FALSE
 "#;
 
 #[derive(Debug, Clone, sqlx::FromRow)]

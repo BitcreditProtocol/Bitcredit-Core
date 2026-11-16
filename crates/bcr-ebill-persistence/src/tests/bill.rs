@@ -329,6 +329,15 @@ where
     // Key alone does not constitute an existing bill
     seed_bill_keys(transaction_manager, &bill_id, &keys).await;
     assert!(!store.exists(&bill_id).await.unwrap());
+
+    // Key-only bills must be discoverable by historical catch-up
+    let key_ids = store.get_key_ids().await.unwrap();
+    assert!(key_ids.contains(&bill_id));
+
+    // But existing business APIs must not report a bill without blocks
+    let chain_ids = store.get_ids().await.unwrap();
+    assert!(!chain_ids.contains(&bill_id));
+
     let stored_keys = store.get_keys(&bill_id).await.expect("get bill keys");
     assert_eq!(stored_keys.get_private_key(), private_key_test(),);
 

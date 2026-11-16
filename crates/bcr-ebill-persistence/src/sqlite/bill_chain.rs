@@ -40,6 +40,13 @@ impl BillChainStoreApi for SqliteBillChainStore {
             .fetch_all(&self.pool)
             .await?;
 
+        if rows.is_empty() {
+            return Err(Error::NoSuchEntity(
+                "bill chain".to_string(),
+                id.to_string(),
+            ));
+        }
+
         let blocks: Vec<BillBlock> = rows
             .into_iter()
             .map(TryInto::try_into)

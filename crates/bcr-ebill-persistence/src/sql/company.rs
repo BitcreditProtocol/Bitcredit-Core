@@ -278,6 +278,11 @@ pub(crate) const DELETE_LOCAL_OVERRIDE: &str = r#"
       AND node_id = $2
 "#;
 
+pub(crate) const SELECT_COMPANY_KEY_IDS: &str = r#"
+    SELECT id
+    FROM company_keys
+"#;
+
 macro_rules! bind_company {
     ($query:expr, $row:expr) => {
         $query

@@ -73,6 +73,7 @@ where
         .await
         .expect("company keys can be saved");
     assert!(store.exists(&id).await);
+
     let stored_keys = store.get_key_pair(&id).await.unwrap();
     assert_eq!(stored_keys.pub_key(), keys.pub_key());
 
@@ -86,6 +87,15 @@ where
     // SECOND COMPANY / STATUS FILTERING
     store.save_key_pair(&other_id, &keys).await.unwrap();
     assert!(!store.exists(&other_id).await);
+
+    // Company keys are discoverable before the company exists
+    let key_ids = store.get_key_ids().await.unwrap();
+    assert!(key_ids.contains(&other_id));
+
+    // Ordinary company listing still excludes uninitialized companies
+    let companies = store.get_all().await.unwrap();
+    assert!(!companies.contains_key(&other_id));
+
     let mut other = get_baseline_company();
     other.id = other_id.clone();
     other.name = Name::new("second company").unwrap();

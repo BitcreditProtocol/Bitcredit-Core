@@ -661,6 +661,18 @@ mockall::mock! {
         ) -> Result<bcr_ebill_api::service::transport_service::transport_client::PreparedPrivateNostrEvent>;
         async fn send_signed_event_to_relay(&self, event: &nostr::event::Event, relay: &url::Url) -> Result<()>;
         async fn writable_relay_urls(&self) -> Result<Vec<url::Url>>;
+        async fn event_available_on_relay(&self, event_id: nostr::event::EventId, relay: &url::Url) -> Result<bool>;
+        async fn has_connected_read_relay(&self) -> bool;
+        async fn fetch_event_from_relay(
+            &self,
+            event_id: nostr::event::EventId,
+            relay: &url::Url,
+        ) -> Result<Option<nostr::event::Event>>;
+        async fn fetch_events_from_relay(
+            &self,
+            filter: nostr::filter::Filter,
+            relay: &url::Url,
+        ) -> Result<Vec<nostr::event::Event>>;
     }
 }
 
@@ -816,6 +828,11 @@ mockall::mock! {
             chain_id: &str,
             chain_type: BlockchainType,
         ) -> bcr_ebill_api::service::transport_service::Result<Option<BcrKeys>>;
+        async fn list_known_chains(
+            &self,
+        ) -> bcr_ebill_api::service::transport_service::Result<
+            Vec<crate::chain_keys::KnownChain>
+            >;
     }
 }
 

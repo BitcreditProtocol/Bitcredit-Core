@@ -27,6 +27,7 @@ mod file_metadata_processor;
 mod identity_chain_event_handler;
 mod identity_chain_event_processor;
 mod inbound_file_anchor;
+mod incoming_chain_application;
 mod nostr_contact_processor;
 pub(crate) mod public_chain_helpers;
 mod restore;
@@ -43,6 +44,12 @@ pub use direct_message_event_processor::DirectMessageEventProcessor;
 pub use file_metadata_processor::{FileMetadataProcessor, FileMetadataProcessorApi};
 pub use identity_chain_event_handler::IdentityChainEventHandler;
 pub use identity_chain_event_processor::IdentityChainEventProcessor;
+#[cfg(test)]
+pub use incoming_chain_application::MockIncomingChainApplicationApi;
+pub use incoming_chain_application::{
+    IncomingChainApplication, IncomingChainApplicationApi, IncomingChainApplyResult,
+    IncomingChainDependency,
+};
 pub use nostr_contact_processor::NostrContactProcessor;
 pub use restore::RestoreAccountService;
 
@@ -118,6 +125,13 @@ pub trait BillChainEventProcessorApi: ServiceTraitBounds {
         keys: &BcrKeys,
     ) -> Result<usize>;
     async fn persist_invite_keys(&self, bill_id: &BillId, keys: &BcrKeys) -> Result<()>;
+    /// Applies a verified bill block to a local chain
+    async fn apply_verified_block(
+        &self,
+        bill_id: &BillId,
+        block: BillBlock,
+        keys: BcrKeys,
+    ) -> Result<IncomingChainApplyResult>;
 }
 
 #[cfg(test)]
@@ -156,6 +170,13 @@ pub trait CompanyChainEventProcessorApi: ServiceTraitBounds {
         keys: &BcrKeys,
     ) -> Result<usize>;
     async fn persist_invite_keys(&self, company_id: &NodeId, keys: &BcrKeys) -> Result<()>;
+    /// Applies a verified company block to a local chain
+    async fn apply_verified_block(
+        &self,
+        company_id: &NodeId,
+        block: CompanyBlock,
+        keys: BcrKeys,
+    ) -> Result<IncomingChainApplyResult>;
 }
 
 #[cfg(test)]
@@ -192,6 +213,13 @@ pub trait IdentityChainEventProcessorApi: ServiceTraitBounds {
         blocks: &[IdentityBlock],
         keys: &BcrKeys,
     ) -> Result<usize>;
+    /// Applies a verified identity block to a local chain
+    async fn apply_verified_block(
+        &self,
+        node_id: &NodeId,
+        block: IdentityBlock,
+        keys: BcrKeys,
+    ) -> Result<IncomingChainApplyResult>;
 }
 
 #[cfg(test)]
@@ -245,17 +273,24 @@ impl NotificationHandlerApi for LoggingEventHandler {
     }
 }
 
+/// How to deal with a missing block
+/// TriggerResync -> re-fetch chain events from Nostr, attempting to find the missing block
+/// ReturnError -> return an error, e.g. in a case where this was checked beforehand
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MissingBlockPolicy {
+    TriggerResync,
+    ReturnError,
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::handler::test_utils::get_test_nostr_event;
     use bcr_ebill_core::protocol::event::BillEventType;
     use bcr_ebill_core::protocol::event::Event;
     use borsh::{BorshDeserialize, BorshSerialize};
     use std::str::FromStr;
     use tokio::sync::Mutex;
-
-    use crate::handler::test_utils::get_test_nostr_event;
-
-    use super::*;
 
     #[tokio::test]
     async fn test_event_handling() {
@@ -362,7 +397,7 @@ mod tests {
 
 #[allow(dead_code)]
 #[cfg(test)]
-mod test_utils {
+pub mod test_utils {
     use async_trait::async_trait;
     use bcr_common::cashu::{self};
     use bcr_common::core::{BillId, NodeId};
@@ -408,7 +443,9 @@ mod test_utils {
         BitcoinAddress, EditOptionalFieldMode, EmailIdentityProofData, Sha256Hash,
         SignedIdentityProof, blockchain::bill::BillToShareWithExternalParty,
     };
-    use bcr_ebill_persistence::traits::propagation::PreparedPropagation;
+    use bcr_ebill_persistence::traits::propagation::{
+        IncomingPropagationStoreApi, PreparedPropagation,
+    };
     use bcr_ebill_persistence::traits::transaction::{
         BillTransactionApi, CompanyTransactionApi, IdentityTransactionApi,
         NostrChainEventTransactionApi, NostrPropagationTransactionApi, PersistenceTransactionApi,
@@ -423,6 +460,7 @@ mod test_utils {
             NostrChainEvent, NostrContactStoreApi, PendingContactShare, RelaySyncStatus, SyncStatus,
         },
         traits::notification::NotificationFilter,
+        traits::propagation::{ApplicationWaitReason, IncomingChainCandidate},
     };
     use mockall::mock;
     use nostr::event::{EventBuilder, FinalizeEvent};
@@ -482,6 +520,54 @@ mod test_utils {
                 block_id: BlockId,
                 previous_block_hash: &Sha256Hash,
             ) -> bcr_ebill_api::external::mint::Result<()>;
+        }
+    }
+
+    mockall::mock! {
+        pub IncomingPropagationStore {}
+
+        impl ServiceTraitBounds for IncomingPropagationStore {}
+
+        #[async_trait]
+        impl IncomingPropagationStoreApi for IncomingPropagationStore {
+            async fn upsert_candidate(
+                &self,
+                candidate: &IncomingChainCandidate,
+                first_try_at: Timestamp,
+            ) -> Result<()>;
+            async fn get_due_candidates(
+                &self,
+                now: Timestamp,
+                limit: u64,
+            ) -> Result<Vec<IncomingChainCandidate>>;
+            async fn mark_applied(&self, event_id: &str) -> Result<()>;
+            async fn mark_pending_retry(
+                &self,
+                event_id: &str,
+                next_try_at: Timestamp,
+                reason: &str,
+            ) -> Result<()>;
+            async fn mark_rejected(&self, event_id: &str, reason: &str) -> Result<()>;
+            async fn mark_verified(
+                &self,
+                event_id: &str,
+                verified_at: Timestamp,
+                confirmed_relays: &[url::Url],
+            ) -> Result<()>;
+            async fn get_verified_candidates(&self, now: Timestamp, limit: u64) -> Result<Vec<IncomingChainCandidate>>;
+            async fn mark_application_deferred(
+                &self,
+                event_id: &str,
+                next_try_at: Option<Timestamp>,
+                reason: ApplicationWaitReason,
+                error: &str,
+            ) -> Result<()>;
+            async fn wake_application_for_keys(&self, chain_type: &str, chain_id: &str) -> Result<()>;
+            async fn wake_application_for_predecessor(
+                &self,
+                chain_type: &str,
+                chain_id: &str,
+            ) -> Result<()>;
         }
     }
 
@@ -610,6 +696,7 @@ mod test_utils {
                 op_code: std::collections::HashSet<BillOpCode> ,
                 since: Timestamp,
             ) -> Result<Vec<BillId>>;
+            async fn get_key_ids(&self) -> Result<Vec<BillId>>;
         }
     }
 
@@ -722,6 +809,7 @@ mod test_utils {
             ) -> Result<()>;
             async fn delete_local_signatory_override(&self, id: &NodeId, signatory: &NodeId) -> Result<()>;
             async fn get_active_company_invites(&self) -> Result<HashMap<NodeId, (Company, BcrKeys)>>;
+            async fn get_key_ids(&self) -> Result<Vec<NodeId>>;
         }
     }
 

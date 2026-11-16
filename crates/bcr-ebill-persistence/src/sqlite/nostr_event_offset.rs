@@ -98,6 +98,6 @@ mod tests {
     #[sqlx::test(migrations = "migrations/sqlite")]
     async fn failed_event_is_processed_and_advances_offset(pool: SqlitePool) {
         let store = SqliteNostrEventOffsetStore::new(pool);
-        nostr_event_offset::test_failed_event_is_processed_and_advances_offset(&store).await;
+        nostr_event_offset::test_failed_event_is_retryable(&store).await;
     }
 }

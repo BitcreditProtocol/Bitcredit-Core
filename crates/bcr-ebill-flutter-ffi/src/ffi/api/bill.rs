@@ -1,5 +1,6 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use bcr_common::core::{BillId, NodeId};
+use bcr_ebill_api::service::transport_service::propagation::BLOCK_PROPAGATION_THRESHOLD;
 use bcr_ebill_core::{
     application::{
         ValidationError,
@@ -1188,7 +1189,11 @@ pub async fn propagation_status(id: &str) -> Result<Option<PropagationStatusFfi>
             }
         }
     }
-    let mut response: PropagationStatusFfi = status.into();
+    let mut response = PropagationStatusFfi::with_quorum(
+        status,
+        &ctx.cfg.nostr_config.relays,
+        BLOCK_PROPAGATION_THRESHOLD,
+    )?;
     response.last_block = last_block.map(Into::into);
     Ok(Some(response))
 }

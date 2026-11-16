@@ -90,6 +90,8 @@ pub trait BillStoreApi: ServiceTraitBounds {
         op_code: HashSet<BillOpCode>,
         since: Timestamp,
     ) -> Result<Vec<BillId>>;
+    /// Lists bill IDs for which keys are stored locally including bills without any persisted blocks.
+    async fn get_key_ids(&self) -> Result<Vec<BillId>>;
 }
 
 #[async_trait]
