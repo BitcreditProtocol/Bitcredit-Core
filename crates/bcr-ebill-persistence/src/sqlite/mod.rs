@@ -45,7 +45,7 @@ impl SqliteConfig {
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self {
             path: path.into(),
-            max_connections: 5,
+            max_connections: 10,
             busy_timeout_secs: 5,
         }
     }

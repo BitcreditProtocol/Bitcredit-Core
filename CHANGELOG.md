@@ -1,6 +1,9 @@
 # 0.6.1
 
-* TBD
+* Fixes for Nostr propagation
+    * When we attempted to send a lot blocks at once, we ran into the SQLite connection limit - increased limit and serialized using a lock
+    * For incoming chain invites, if we get an invite, there was a race where if we got the chain event at the same time as the invite, it could be that we didn't process the chain
+        * Added a retry mechanism for the case where we get the chain invite second
 
 # 0.6.0
 
