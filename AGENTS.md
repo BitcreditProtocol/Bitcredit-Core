@@ -50,9 +50,10 @@ checklist asks for both.
 ## Key Patterns
 
 * **Native Flutter is the supported SDK boundary.** `bcr-ebill-flutter-ffi` is the
-  consumer-facing Rust crate and uses `flutter_rust_bridge`/Cargokit to expose the SDK to
-  Flutter. `ServiceTraitBounds` is `Send + Sync`; do not add wasm32- or browser-specific
-  compatibility code unless the project explicitly restores that target.
+  consumer-facing Rust crate and uses `flutter_rust_bridge` and a Dart build hook
+  (`hook/build.dart`, native assets) to expose the SDK to Flutter. `ServiceTraitBounds`
+  is `Send + Sync`; do not add wasm32- or browser-specific compatibility code unless the
+  project explicitly restores that target.
 * **`protocol/` types are the wire format.** Blocks are borsh-serialised, hashed and
   Schnorr-signed, so a field change alters hashes other clients already verify. Chains are
   append-only (`Blockchain::try_add_block`, no removal) and every inbound block is re-validated
