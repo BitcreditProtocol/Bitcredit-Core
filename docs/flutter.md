@@ -38,6 +38,9 @@ plugin. It has no podspec, Swift package, Gradle or CMake project, so iOS and
 macOS apps need neither CocoaPods nor Swift Package Manager for it. Flutter
 bundles the library itself, on iOS and macOS as the dynamic framework
 `bcr_ebill_flutter_ffi.framework`, which Flutter signs together with the app.
+Flutter embeds that framework but does not link it into the app, so call
+`RustLib.init()` without an `externalLibrary`; `ExternalLibrary.process()`
+finds no symbols there.
 
 Requirements for the consuming app:
 
@@ -49,8 +52,9 @@ Requirements for the consuming app:
 
 ### Precompiled binaries
 
-This package publishes signed precompiled Rust binaries for iOS, Android, macOS,
-Windows and Linux (x64 and arm64; Linux needs glibc 2.39 or newer) from
+This package publishes signed precompiled Rust binaries for iOS, Android (arm,
+arm64 and x64), macOS, Windows and Linux (x64 and arm64; Linux needs glibc 2.39
+or newer) from
 `.github/workflows/cd_precompiled.yml`. Apps opt in in their `pubspec.yaml`:
 
 ```yaml
@@ -68,9 +72,15 @@ longer have any effect.
 The hook downloads the binary for the current crate hash and target from the
 `precompiled_<crate hash>` release, verifies its signature against the public
 key in [`precompiled_binaries.yaml`](../precompiled_binaries.yaml), and builds
-locally with Rust if no verified binary is available. Binaries are built for
-Android API 24, iOS 15 and macOS 13; an app with a lower minimum version builds
-locally.
+locally with Rust if no verified binary is available. Downloads that stall or
+fail with a network error, HTTP 429 or 5xx are retried a few times before the
+hook falls back to the local build. Binaries are built for Android API 24, iOS
+15 and macOS 13; an app with a lower minimum version builds locally.
+
+The crate hash covers every file in every workspace crate's directory (with its
+path), the workspace `Cargo.toml`, `Cargo.lock` and `.cargo/config.toml`,
+`rust-toolchain.toml`, `precompiled_binaries.yaml` and those minimum versions,
+so any change that can alter the library selects a new release.
 
 The binaries are built when a `v*` tag is pushed and published as a
 `precompiled_<crate hash>` prerelease of this repository. Pin the dependency
