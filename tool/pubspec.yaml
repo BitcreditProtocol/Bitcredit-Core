@@ -1,0 +1,29 @@
+# CI tool that builds, signs and uploads the precompiled binaries; see
+# precompile_binaries.dart. A separate package so that `dart run` does not
+# first run the ebill_flutter_ffi build hook for the host.
+name: precompile_binaries
+publish_to: none
+
+environment:
+  sdk: ^3.10.1
+
+dependencies:
+  args: ^2.7.0
+  github: ^9.25.0
+  # Dependencies of ../hook/, which the tool imports by relative path.
+  code_assets: ^2.2.0
+  collection: ^1.19.1
+  convert: ^3.1.2
+  crypto: ^3.0.6
+  ed25519_edwards: ^0.3.1
+  flutter_rust_bridge_hooks: 2.13.0
+  hooks: ^2.2.0
+  http: ^1.6.0
+  logging: ^1.3.0
+  native_toolchain_rust: ^1.1.1
+  path: ^1.9.1
+  toml: ^0.18.0
+  yaml: ^3.1.3
+
+dev_dependencies:
+  lints: ^6.0.0
