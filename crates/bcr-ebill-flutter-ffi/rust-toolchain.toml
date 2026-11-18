@@ -1,0 +1,20 @@
+# Read by the build hook (native_toolchain_rust), which requires an exact
+# channel and builds only the targets listed here.
+[toolchain]
+channel = "1.100.0"
+# frb codegen runs rustfmt from this directory.
+components = ["rustfmt"]
+targets = [
+    "armv7-linux-androideabi",
+    "aarch64-linux-android",
+    "x86_64-linux-android",
+    "aarch64-apple-ios",
+    "aarch64-apple-ios-sim",
+    "x86_64-apple-ios",
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "aarch64-pc-windows-msvc",
+    "x86_64-pc-windows-msvc",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-unknown-linux-gnu",
+]
