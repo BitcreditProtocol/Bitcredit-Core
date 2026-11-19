@@ -1,11 +1,13 @@
 # CI tool that builds, signs and uploads the precompiled binaries; see
-# precompile_binaries.dart. A separate package so that `dart run` does not
-# first run the ebill_flutter_ffi build hook for the host.
+# precompile_binaries.dart. A separate package because `dart run` of a script
+# first runs its package graph's build hooks: from the root package that is
+# the ebill_flutter_ffi hook, a host build of the Rust library.
 name: precompile_binaries
 publish_to: none
 
 environment:
-  sdk: ^3.10.1
+  # The floor tool/pubspec.lock requires; CI uses --enforce-lockfile.
+  sdk: ^3.13.0
 
 dependencies:
   args: ^2.7.0
