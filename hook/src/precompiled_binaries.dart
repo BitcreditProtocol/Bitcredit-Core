@@ -27,10 +27,13 @@ import 'package:yaml/yaml.dart';
 
 /// Minimum platform versions the precompiled binaries are built for.
 ///
-/// They match the minimums flutter_tools passes to build hooks (Flutter's
-/// default `minSdk`, `targetIOSVersion` and `targetMacOSVersion`). A build
-/// asking for an older platform falls back to a local cargo build. They are
-/// part of the crate hash, so changing one publishes new binaries.
+/// iOS and macOS match the constants flutter_tools passes to every build hook
+/// (`targetIOSVersion` 15, `targetMacOSVersion` 13), whatever deployment
+/// target the app declares; the library, precompiled or built locally,
+/// needs at least those versions. Android matches Flutter's default
+/// `minSdk`; the hook gets the app's own `minSdk`, and an app below 24
+/// (Flutter accepts 23) builds locally with cargo instead. They are part of
+/// the crate hash, so changing one publishes new binaries.
 const precompiledAndroidNdkApi = 24;
 const precompiledIOSVersion = 15;
 const precompiledMacOSVersion = 13;
@@ -125,11 +128,14 @@ class RustLibraryBuilder {
   /// Runs the build. With [usePrecompiled] null, the app's
   /// `hooks: user_defines: <package>: use_precompiled_binaries` decides, and
   /// without it precompiled binaries are used only when rustup is missing.
+  /// [locked] passes `--locked` to cargo, so a `Cargo.lock` that does not
+  /// match the manifests fails the build instead of being rewritten.
   Future<void> run({
     required BuildInput input,
     required BuildOutputBuilder output,
     required Logger logger,
     bool? usePrecompiled,
+    bool locked = false,
   }) async {
     if (!input.config.buildCodeAssets) {
       return;
@@ -143,15 +149,20 @@ class RustLibraryBuilder {
     final packageRoot = path.fromUri(input.packageRoot);
     final libraryFile = code.targetOS.dylibFileName(libraryName);
 
+    final crateHash = CrateHash(
+      packageRoot: packageRoot,
+      manifestDir: path.join(packageRoot, cratePath),
+    );
+    // Rerun the hook when a file is added to a crate: a directory dependency
+    // is hashed by its entries, a file dependency only covers files that
+    // already exist (and cargo's dep-info lists only what it read).
+    output.dependencies.addAll(crateHash.directories().map((d) => d.uri));
+
     usePrecompiled ??= _userDefinedUsePrecompiled(input) ?? !rustupAvailable();
     if (usePrecompiled) {
       if (!precompiledSupports(code)) {
         logger.info('No precompiled binary is built for this target config');
       } else {
-        final crateHash = CrateHash(
-          packageRoot: packageRoot,
-          manifestDir: path.join(packageRoot, cratePath),
-        );
         final file = await downloadPrecompiled(
           config: PrecompiledBinariesConfig.load(packageRoot),
           crateHash: crateHash.compute(),
@@ -163,7 +174,8 @@ class RustLibraryBuilder {
           ),
           logger: logger,
         );
-        if (file != null) {
+        if (file != null && _pageAligned(file, triple, logger)) {
+          logger.info('Using precompiled binary ${file.path}');
           output.dependencies.addAll(crateHash.files().map((f) => f.uri));
           output.assets.code.add(
             CodeAsset(
@@ -182,6 +194,7 @@ class RustLibraryBuilder {
     await FlutterRustBridgeNativeAssetsBuilder(
       cratePath: cratePath,
       assetName: assetName,
+      extraCargoBuildArgs: [if (locked) '--locked'],
       extraCargoEnvironmentVariables: deploymentTargetEnvironment(code),
     ).run(input: input, output: output, logger: logger);
 
@@ -189,6 +202,21 @@ class RustLibraryBuilder {
       for (final asset in output.build().assets.code) {
         checkAndroidPageAlignment(File.fromUri(asset.file!));
       }
+    }
+  }
+
+  /// Whether a downloaded [file] passes the 16 KB page check for [triple];
+  /// a failure is logged and the caller builds with cargo instead.
+  bool _pageAligned(File file, String triple, Logger logger) {
+    if (!_pageSizeTargets.contains(triple)) {
+      return true;
+    }
+    try {
+      checkAndroidPageAlignment(file);
+      return true;
+    } on StateError catch (e) {
+      logger.severe('Ignoring precompiled binary: ${e.message}');
+      return false;
     }
   }
 
@@ -237,15 +265,14 @@ Map<String, String> deploymentTargetEnvironment(CodeConfig code) {
 String _appleVersion(AppleVersion version) =>
     '${version.major}.${version.minor}';
 
-/// Whether rustup can be found the way native_toolchain_rust looks for it:
-/// on PATH, else in `$CARGO_HOME/bin` or `~/.cargo/bin`.
+/// Whether rustup can be found where native_toolchain_rust looks for it:
+/// on PATH, else in `.cargo/bin` under `HOME` (`USERPROFILE` on Windows).
 bool rustupAvailable() {
   final env = Platform.environment;
   final exe = Platform.isWindows ? 'rustup.exe' : 'rustup';
-  final home = env['HOME'] ?? env['USERPROFILE'];
+  final home = Platform.isWindows ? env['USERPROFILE'] : env['HOME'];
   final dirs = [
     ...?env['PATH']?.split(Platform.isWindows ? ';' : ':'),
-    if (env['CARGO_HOME'] case final cargoHome?) path.join(cargoHome, 'bin'),
     if (home != null) path.join(home, '.cargo', 'bin'),
   ];
   return dirs.any(
@@ -256,7 +283,8 @@ bool rustupAvailable() {
 /// Downloads `<urlPrefix><crateHash>/<triple>_<libraryFile>` and its `.sig`
 /// into [cacheDir] and returns the verified file, or null if the release has
 /// no such binary, cannot be reached or its signature does not verify; the
-/// caller then builds with cargo.
+/// caller then builds with cargo. A cached copy is verified against its
+/// cached `.sig` on every reuse and downloaded again if that fails.
 ///
 /// A request is abandoned when no response headers, or no body data, arrive
 /// for [idleTimeout]; a slow but progressing download is never cut off.
@@ -275,8 +303,22 @@ Future<File?> downloadPrecompiled({
   // The file keeps the library's own name: Flutter derives the Android
   // jniLibs entry and the Apple framework name from it.
   final target = File(path.join(cacheDir, crateHash, rustTriple, libraryFile));
+  final cachedSignature = File('${target.path}.sig');
   if (target.existsSync()) {
-    return target;
+    if (cachedSignature.existsSync() &&
+        ed.verify(
+          config.publicKey,
+          target.readAsBytesSync(),
+          cachedSignature.readAsBytesSync(),
+        )) {
+      logger.info('Reusing verified cached ${target.path}');
+      return target;
+    }
+    logger.warning('Cached ${target.path} does not verify; downloading again');
+    target.deleteSync();
+    if (cachedSignature.existsSync()) {
+      cachedSignature.deleteSync();
+    }
   }
   final base = '${config.urlPrefix}$crateHash/';
   final binaryUrl = Uri.parse(base + remoteFileName(rustTriple, libraryFile));
@@ -301,9 +343,14 @@ Future<File?> downloadPrecompiled({
     return null;
   }
   target.parent.createSync(recursive: true);
-  final partial = File('${target.path}.part')..writeAsBytesSync(binary);
-  partial.renameSync(target.path);
-  logger.info('Using precompiled binary $binaryUrl');
+  // Signature first: a binary without one is never reused.
+  File('${cachedSignature.path}.part')
+    ..writeAsBytesSync(signature)
+    ..renameSync(cachedSignature.path);
+  File('${target.path}.part')
+    ..writeAsBytesSync(binary)
+    ..renameSync(target.path);
+  logger.info('Downloaded and verified $binaryUrl');
   return target;
 }
 
@@ -383,8 +430,11 @@ void checkAndroidPageAlignment(File library) {
     if (align < _pageSize) {
       throw StateError(
         '${library.path}: LOAD segment aligned to $align bytes, needs '
-        '$_pageSize for Android 16 KB pages. Add '
-        '-C link-arg=-Wl,-z,max-page-size=$_pageSize to your rustflags.',
+        '$_pageSize for Android 16 KB pages. native_toolchain_rust adds '
+        '-C link-arg=-Wl,-z,max-page-size=$_pageSize only when no rustflags '
+        'are set; a Cargo config or CARGO_ENCODED_RUSTFLAGS, '
+        'CARGO_BUILD_RUSTFLAGS or CARGO_TARGET_<TRIPLE>_RUSTFLAGS sets them, '
+        'so add the flag there. Build hooks do not receive RUSTFLAGS.',
       );
     }
   }
@@ -456,6 +506,33 @@ class CrateHash {
   /// The hashed files, in hashing order.
   List<File> files() => [for (final (_, file) in _entries()) file];
 
+  /// The directories whose entries are hashed: each workspace member and
+  /// every directory [files] walks below it, plus an existing `.cargo/` at
+  /// the workspace root. Not the workspace root itself, whose listing
+  /// changes when cargo creates `target/` there.
+  List<Directory> directories() {
+    final dirs = <String, Directory>{};
+    void add(Directory dir) =>
+        dirs.putIfAbsent(path.normalize(path.absolute(dir.path)), () => dir);
+    final workspaceRoot = _findWorkspaceRoot();
+    final packageDirs = <String>{
+      path.normalize(path.absolute(manifestDir)),
+      if (workspaceRoot != null) ..._workspaceMemberDirs(workspaceRoot),
+    };
+    if (workspaceRoot != null) {
+      final cargoDir = Directory(path.join(workspaceRoot, '.cargo'));
+      if (cargoDir.existsSync()) {
+        add(cargoDir);
+      }
+    }
+    for (final packageDir in packageDirs) {
+      final dir = Directory(packageDir);
+      add(dir);
+      _walk(dir, onDirectory: add);
+    }
+    return dirs.values.toList();
+  }
+
   /// The hashed files with their [hashPath], sorted by it.
   List<(String, File)> _entries() {
     final files = <String, File>{};
@@ -484,7 +561,7 @@ class CrateHash {
       }
     }
     for (final packageDir in packageDirs) {
-      _crateFiles(Directory(packageDir)).forEach(add);
+      _walk(Directory(packageDir), onFile: add);
     }
     addIfExists(path.join(packageRoot, PrecompiledBinariesConfig.fileName));
 
@@ -495,21 +572,27 @@ class CrateHash {
     ]..sort((a, b) => a.$1.compareTo(b.$1));
   }
 
-  /// Every file under a member crate's [dir], except build output
-  /// (`target/`) and hidden entries other than `.cargo/`, which can hold a
-  /// Cargo config. Symlinked files are followed, symlinked directories not.
-  static Iterable<File> _crateFiles(Directory dir) sync* {
+  /// Visits every file and directory under a member crate's [dir], except
+  /// build output (`target/`) and hidden entries other than `.cargo/`,
+  /// which can hold a Cargo config. Symlinked files are followed, symlinked
+  /// directories not.
+  static void _walk(
+    Directory dir, {
+    void Function(File)? onFile,
+    void Function(Directory)? onDirectory,
+  }) {
     for (final entity in dir.listSync(followLinks: false)) {
       final name = path.basename(entity.path);
       if (name == 'target' || (name.startsWith('.') && name != '.cargo')) {
         continue;
       }
       if (entity is Directory) {
-        yield* _crateFiles(entity);
+        onDirectory?.call(entity);
+        _walk(entity, onFile: onFile, onDirectory: onDirectory);
       } else if (entity is File) {
-        yield entity;
+        onFile?.call(entity);
       } else if (entity is Link && FileSystemEntity.isFileSync(entity.path)) {
-        yield File(entity.path);
+        onFile?.call(File(entity.path));
       }
     }
   }

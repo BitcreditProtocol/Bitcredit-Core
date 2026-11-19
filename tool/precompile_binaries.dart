@@ -6,8 +6,11 @@
 //   PRIVATE_KEY=<hex> GITHUB_TOKEN=<token> dart run precompile_binaries.dart \
 //     --repository=<owner>/<repo> --target=aarch64-linux-android ...
 //
-// tool/ is its own package: run from the root package, `dart run` would
-// first build the Rust library for the host through hook/build.dart.
+// tool/ is its own package because `dart run` of a script first runs the
+// build hooks of the script's package graph: run from the root package, it
+// builds the Rust library for the host through hook/build.dart (measured,
+// over 2 minutes). Running a dependency's executable, such as
+// `dart run build_runner` in an app, runs no hooks.
 //
 // Each target is built by the hook's own builder on a synthesized hook input,
 // so a precompiled binary gets the same cargo environment (Android NDK linker
@@ -67,6 +70,18 @@ Future<void> main(List<String> args) async {
     return;
   }
 
+  // Resolve every target first, so a bad --target or a missing
+  // --android-ndk fails before a release is created or anything uploaded.
+  final targetNames = options.multiOption('target');
+  if (targetNames.isEmpty) {
+    throw ArgumentError('Pass at least one --target');
+  }
+  final ndk = options.option('android-ndk');
+  final targets = [
+    for (final triple in targetNames)
+      (triple, _codeConfigFor(triple, ndk: ndk)),
+  ];
+
   final privateKeyBytes = hex.decode(_requireEnv('PRIVATE_KEY'));
   if (privateKeyBytes.length != 64) {
     throw ArgumentError('PRIVATE_KEY must be 64 bytes hex');
@@ -83,11 +98,6 @@ Future<void> main(List<String> args) async {
     );
   }
 
-  final targets = options.multiOption('target');
-  if (targets.isEmpty) {
-    throw ArgumentError('Pass at least one --target');
-  }
-  final ndk = options.option('android-ndk');
   final slug = RepositorySlug.full(options.option('repository')!);
   final github = GitHub(
     auth: Authentication.withToken(_requireEnv('GITHUB_TOKEN')),
@@ -106,8 +116,7 @@ Future<void> main(List<String> args) async {
   final tempDir = Directory.systemTemp.createTempSync('precompiled_');
 
   try {
-    for (final triple in targets) {
-      final code = _codeConfigFor(triple, ndk: ndk);
+    for (final (triple, code) in targets) {
       final libraryFile = code.targetOS.dylibFileName(libraryName);
       final names = [
         remoteFileName(triple, libraryFile),
@@ -127,6 +136,18 @@ Future<void> main(List<String> args) async {
 
       _log.info('Building $triple');
       final library = await _build(code, packageRoot, tempDir);
+      // The build runs with --locked, but a build script could still write
+      // into a crate: never sign a binary under a hash it does not match.
+      final hashAfterBuild = CrateHash(
+        packageRoot: packageRoot,
+        manifestDir: path.join(packageRoot, cratePath),
+      ).compute();
+      if (hashAfterBuild != crateHash) {
+        throw StateError(
+          'Building $triple changed the crate hash from $crateHash to '
+          '$hashAfterBuild; refusing to publish it under $tagName',
+        );
+      }
       if (code.targetOS == OS.android &&
           code.targetArchitecture != Architecture.arm) {
         checkAndroidPageAlignment(library);
@@ -140,6 +161,15 @@ Future<void> main(List<String> args) async {
       for (final (name, bytes) in [(names[0], data), (names[1], signature)]) {
         final uploaded = await releases.upload(release, name, bytes);
         assets[name] = uploaded;
+      }
+      final notUploaded = names.where(
+        (name) => assets[name]?.state != 'uploaded',
+      );
+      if (notUploaded.isNotEmpty) {
+        throw StateError(
+          'Assets for $triple not in state "uploaded": '
+          '${notUploaded.join(', ')}',
+        );
       }
     }
   } finally {
@@ -246,6 +276,7 @@ Future<File> _build(
     output: output,
     logger: _log,
     usePrecompiled: false,
+    locked: true,
   );
   final built = output.build();
   // The same output checks flutter_tools runs (file type, architecture).
@@ -346,14 +377,16 @@ class _Releases {
   ) async {
     for (var attempt = 1; ; attempt++) {
       try {
-        final uploaded = await github.repositories
-            .uploadReleaseAssets(release, [
-              CreateReleaseAsset(
-                name: name,
-                contentType: 'application/octet-stream',
-                assetData: data,
-              ),
-            ]);
+        final uploaded = await github.repositories.uploadReleaseAssets(
+          release,
+          [
+            CreateReleaseAsset(
+              name: name,
+              contentType: 'application/octet-stream',
+              assetData: data,
+            ),
+          ],
+        );
         _log.info('Uploaded $name');
         return uploaded.single;
       } on Exception catch (e) {
