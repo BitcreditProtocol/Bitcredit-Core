@@ -14,8 +14,8 @@ and documentation.
 
 Dependencies run `bcr-ebill-core` → `bcr-ebill-persistence` → `bcr-ebill-api` →
 `bcr-ebill-transport` → `bcr-ebill-flutter-ffi`; the supported consumer entrypoint is the
-Flutter plugin `ebill_flutter_ffi`. The FFI crate builds native `cdylib`/`staticlib` artifacts
-for Flutter. There is no server: keys and state live on the client, persisted through
+Flutter package `ebill_flutter_ffi`, whose build hook (`hook/build.dart`) builds or downloads
+the FFI crate's `cdylib` for Flutter. There is no server: keys and state live on the client, persisted through
 `sqlx/sqlite` at app-provided database paths, while Nostr relays, Esplora, mints and
 other configured services are external. Workspace crates are libraries; no crate defines a
 binary.
