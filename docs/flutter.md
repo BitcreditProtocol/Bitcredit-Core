@@ -63,7 +63,8 @@ This package publishes signed precompiled Rust binaries from
 * Linux: `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu` (glibc 2.39 or newer)
 * Windows: `x86_64-pc-windows-msvc`, `aarch64-pc-windows-msvc`
 
-Any other target always builds locally. Apps opt in in their `pubspec.yaml`:
+A supported configuration without a usable published binary for the current
+crate hash builds locally with cargo. Apps opt in in their `pubspec.yaml`:
 
 ```yaml
 hooks:
@@ -76,6 +77,11 @@ Without this setting the hook uses precompiled binaries only when rustup is not
 installed. Hooks do not see the app's environment variables, so the old
 `CARGOKIT_USE_PRECOMPILED_BINARIES` variable and `cargokit_options.yaml` no
 longer have any effect.
+
+`dart run <script>` in an app first runs the build hooks for the host
+platform, so it downloads the host binary (with the opt-in) or builds the Rust
+library locally; `dart run <package>:<executable>`, such as `build_runner`,
+runs no hooks.
 
 The hook downloads the binary for the current crate hash and target from the
 `precompiled_<crate hash>` release, verifies its signature against the public
