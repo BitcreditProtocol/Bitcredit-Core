@@ -45,6 +45,8 @@ finds no symbols there.
 Requirements for the consuming app:
 
 * Flutter 3.50 or newer.
+* A minimum deployment target of at least iOS 15 and macOS 13. Flutter 3.50
+  always builds code assets for iOS 15 and macOS 13, whatever the app declares.
 * For local Rust builds: [rustup](https://rustup.rs). The hook builds with the
   exact toolchain and targets pinned in
   `crates/bcr-ebill-flutter-ffi/rust-toolchain.toml`, which rustup installs on
@@ -52,10 +54,16 @@ Requirements for the consuming app:
 
 ### Precompiled binaries
 
-This package publishes signed precompiled Rust binaries for iOS, Android (arm,
-arm64 and x64), macOS, Windows and Linux (x64 and arm64; Linux needs glibc 2.39
-or newer) from
-`.github/workflows/cd_precompiled.yml`. Apps opt in in their `pubspec.yaml`:
+This package publishes signed precompiled Rust binaries from
+`.github/workflows/cd_precompiled.yml` for exactly these targets:
+
+* Android: `armv7-linux-androideabi`, `aarch64-linux-android`, `x86_64-linux-android`
+* iOS: `aarch64-apple-ios`, `aarch64-apple-ios-sim`, `x86_64-apple-ios`
+* macOS: `aarch64-apple-darwin`, `x86_64-apple-darwin`
+* Linux: `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu` (glibc 2.39 or newer)
+* Windows: `x86_64-pc-windows-msvc`, `aarch64-pc-windows-msvc`
+
+Any other target always builds locally. Apps opt in in their `pubspec.yaml`:
 
 ```yaml
 hooks:
@@ -75,7 +83,9 @@ key in [`precompiled_binaries.yaml`](../precompiled_binaries.yaml), and builds
 locally with Rust if no verified binary is available. Downloads that stall or
 fail with a network error, HTTP 429 or 5xx are retried a few times before the
 hook falls back to the local build. Binaries are built for Android API 24, iOS
-15 and macOS 13; an app with a lower minimum version builds locally.
+15 and macOS 13. Flutter passes the app's `minSdk` to the hook, so an Android app
+with a `minSdk` below 24 builds locally; for iOS and macOS, Flutter always asks
+for 15 and 13, so the binaries always match.
 
 The crate hash covers every file in every workspace crate's directory (with its
 path), the workspace `Cargo.toml`, `Cargo.lock` and `.cargo/config.toml`,
