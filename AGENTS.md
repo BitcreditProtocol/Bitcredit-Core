@@ -99,8 +99,8 @@ Names that look alike belong to separate machines (Key Patterns); never join the
 
 * Plans, research notes and scratch files stay outside the worktree or in the gitignored
   `docs/plans/`; working state is not product documentation.
-* The merged PR plus its CHANGELOG bullet is the implementation record. Do not add a second
-  checklist or PR summary to the repo; it drifts from the code.
+* The merged PR, plus its CHANGELOG bullet where one applies, is the implementation record.
+  Do not add a second checklist or PR summary to the repo; it drifts from the code.
 
 ## Working Agreements
 
@@ -131,10 +131,12 @@ This section is the per-task delta.
   reason. No status check is required to merge, so a red check may predate your change:
   confirm that before blaming it, and say so in the PR. Stay quiet when nothing is new;
   stop when checks are green on the latest commit.
-* Every PR adds a bullet to the top section of [CHANGELOG.md](CHANGELOG.md). Describe
-  public API changes in the PR and changelog. The version is bumped once per
-  cycle in the root `[workspace.package]` (`init X.Y.Z` commits), never per PR; scheme in
-  [docs/versioning.md](docs/versioning.md).
+* Every PR that changes shipped behaviour, public API, wire or persisted formats, or
+  published artifacts (precompiled binaries, Flutter package) adds a bullet to the top
+  section of [CHANGELOG.md](CHANGELOG.md). CI-, docs- and test-only changes do not; the PR
+  is their record. Describe public API changes in the PR and changelog. The version is
+  bumped once per cycle in the root `[workspace.package]` (`init X.Y.Z` commits), never per
+  PR; scheme in [docs/versioning.md](docs/versioning.md).
 * Workflows pin actions by commit SHA with a version comment (#982); keep that form.
   Tagged releases publish signed Flutter precompiled binaries via
   [`.github/workflows/cd_precompiled.yml`](.github/workflows/cd_precompiled.yml); see
