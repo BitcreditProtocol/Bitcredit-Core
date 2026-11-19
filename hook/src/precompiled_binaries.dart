@@ -163,7 +163,7 @@ class RustLibraryBuilder {
       if (!precompiledSupports(code)) {
         logger.info('No precompiled binary is built for this target config');
       } else {
-        final file = await downloadPrecompiled(
+        final binary = await downloadPrecompiled(
           config: PrecompiledBinariesConfig.load(packageRoot),
           crateHash: crateHash.compute(),
           rustTriple: triple,
@@ -174,8 +174,15 @@ class RustLibraryBuilder {
           ),
           logger: logger,
         );
-        if (file != null && _pageAligned(file, triple, logger)) {
-          logger.info('Using precompiled binary ${file.path}');
+        if (binary != null && _pageAligned(binary.file, triple, logger)) {
+          final (:file, :url, :fromCache) = binary;
+          // The one line to rely on in a captured hook log: hooks_runner can
+          // drop earlier stdout lines.
+          logger.info(
+            'Using precompiled binary $url, '
+            '${fromCache ? 'reused from the verified cache' : 'downloaded now'}'
+            ' (${file.path})',
+          );
           output.dependencies.addAll(crateHash.files().map((f) => f.uri));
           output.assets.code.add(
             CodeAsset(
@@ -280,17 +287,22 @@ bool rustupAvailable() {
   );
 }
 
+/// A verified precompiled binary: the local [file], the release [url] it
+/// came from, and whether this call reused the cache instead of downloading.
+typedef PrecompiledBinary = ({File file, Uri url, bool fromCache});
+
 /// Downloads `<urlPrefix><crateHash>/<triple>_<libraryFile>` and its `.sig`
-/// into [cacheDir] and returns the verified file, or null if the release has
-/// no such binary, cannot be reached or its signature does not verify; the
-/// caller then builds with cargo. A cached copy is verified against its
-/// cached `.sig` on every reuse and downloaded again if that fails.
+/// into [cacheDir] and returns the verified binary, or null if the release
+/// has no such binary, cannot be reached or its signature does not verify;
+/// the caller then builds with cargo. Each call that reuses a cached copy
+/// verifies it against its cached `.sig` first and downloads again if that
+/// fails.
 ///
 /// A request is abandoned when no response headers, or no body data, arrive
 /// for [idleTimeout]; a slow but progressing download is never cut off.
 /// Timeouts, network errors, HTTP 429 and 5xx are retried up to
 /// [maxAttempts] times.
-Future<File?> downloadPrecompiled({
+Future<PrecompiledBinary?> downloadPrecompiled({
   required PrecompiledBinariesConfig config,
   required String crateHash,
   required String rustTriple,
@@ -304,6 +316,11 @@ Future<File?> downloadPrecompiled({
   // jniLibs entry and the Apple framework name from it.
   final target = File(path.join(cacheDir, crateHash, rustTriple, libraryFile));
   final cachedSignature = File('${target.path}.sig');
+  final base = '${config.urlPrefix}$crateHash/';
+  final binaryUrl = Uri.parse(base + remoteFileName(rustTriple, libraryFile));
+  final signatureUrl = Uri.parse(
+    base + signatureFileName(rustTriple, libraryFile),
+  );
   if (target.existsSync()) {
     if (cachedSignature.existsSync() &&
         ed.verify(
@@ -312,7 +329,7 @@ Future<File?> downloadPrecompiled({
           cachedSignature.readAsBytesSync(),
         )) {
       logger.info('Reusing verified cached ${target.path}');
-      return target;
+      return (file: target, url: binaryUrl, fromCache: true);
     }
     logger.warning('Cached ${target.path} does not verify; downloading again');
     target.deleteSync();
@@ -320,12 +337,6 @@ Future<File?> downloadPrecompiled({
       cachedSignature.deleteSync();
     }
   }
-  final base = '${config.urlPrefix}$crateHash/';
-  final binaryUrl = Uri.parse(base + remoteFileName(rustTriple, libraryFile));
-  final signatureUrl = Uri.parse(
-    base + signatureFileName(rustTriple, libraryFile),
-  );
-
   Future<Uint8List?> get(Uri url) =>
       _get(url, logger, idleTimeout: idleTimeout, maxAttempts: maxAttempts);
 
@@ -351,7 +362,7 @@ Future<File?> downloadPrecompiled({
     ..writeAsBytesSync(binary)
     ..renameSync(target.path);
   logger.info('Downloaded and verified $binaryUrl');
-  return target;
+  return (file: target, url: binaryUrl, fromCache: false);
 }
 
 /// GETs [url]; null on 404 (no binary) or once retries are exhausted.
@@ -400,11 +411,15 @@ Future<Uint8List?> _get(
   }
 }
 
-/// Throws unless every `PT_LOAD` segment of the 64-bit ELF [library] is
-/// aligned to at least 16 KB, as Google Play requires for Android 15+.
+/// Throws a [StateError] unless [library] is a well-formed 64-bit
+/// little-endian ELF with at least one `PT_LOAD` segment and every
+/// `PT_LOAD` segment is aligned to at least 16 KB, as Google Play requires
+/// for Android 15+. Anything malformed is a [StateError] too, so callers
+/// can treat every failure alike.
 ///
-/// native_toolchain_rust adds the linker flag, but silently skips it when
-/// RUSTFLAGS or a Cargo config sets rustflags, so the result is checked.
+/// native_toolchain_rust adds the linker flag only when no rustflags are
+/// set: a Cargo config or a `CARGO_*RUSTFLAGS` variable turns it off (build
+/// hooks never receive `RUSTFLAGS`), so the result is checked.
 void checkAndroidPageAlignment(File library) {
   final bytes = library.readAsBytesSync();
   final data = ByteData.sublistView(bytes);
@@ -417,15 +432,29 @@ void checkAndroidPageAlignment(File library) {
     throw StateError('${library.path} is not a 64-bit little-endian ELF');
   }
   const le = Endian.little;
-  final phoff = data.getUint64(0x20, le);
+  const elf64PhdrSize = 56;
+  final phoff = data.getUint64(0x20, le); // negative if above 2^63
   final phentsize = data.getUint16(0x36, le);
   final phnum = data.getUint16(0x38, le);
+  if (phnum == 0 || phnum == 0xffff) {
+    throw StateError('${library.path}: no usable program header table');
+  }
+  if (phentsize < elf64PhdrSize ||
+      phoff < 64 ||
+      phoff > bytes.length - phnum * phentsize) {
+    throw StateError(
+      '${library.path}: program header table ($phnum x $phentsize bytes at '
+      '$phoff) does not fit in the ${bytes.length}-byte file',
+    );
+  }
   const ptLoad = 1;
+  var loadSegments = 0;
   for (var i = 0; i < phnum; i++) {
     final header = phoff + i * phentsize;
     if (data.getUint32(header, le) != ptLoad) {
       continue;
     }
+    loadSegments++;
     final align = data.getUint64(header + 0x30, le);
     if (align < _pageSize) {
       throw StateError(
@@ -437,6 +466,9 @@ void checkAndroidPageAlignment(File library) {
         'so add the flag there. Build hooks do not receive RUSTFLAGS.',
       );
     }
+  }
+  if (loadSegments == 0) {
+    throw StateError('${library.path}: no PT_LOAD segment');
   }
 }
 

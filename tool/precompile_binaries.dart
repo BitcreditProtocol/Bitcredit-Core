@@ -236,10 +236,19 @@ CCompilerConfig _ndkCompiler(String? ndk) {
   }
   final host = Platform.isMacOS ? 'darwin-x86_64' : 'linux-x86_64';
   final bin = path.join(ndk, 'toolchains', 'llvm', 'prebuilt', host, 'bin');
+  final [compiler, linker, archiver] = [
+    for (final tool in ['clang', 'ld.lld', 'llvm-ar']) path.join(bin, tool),
+  ];
+  // Fail in the preflight, before credentials and the release are touched.
+  for (final file in [compiler, linker, archiver]) {
+    if (!File(file).existsSync()) {
+      throw ArgumentError('--android-ndk: $file does not exist');
+    }
+  }
   return CCompilerConfig(
-    compiler: Uri.file(path.join(bin, 'clang')),
-    linker: Uri.file(path.join(bin, 'ld.lld')),
-    archiver: Uri.file(path.join(bin, 'llvm-ar')),
+    compiler: Uri.file(compiler),
+    linker: Uri.file(linker),
+    archiver: Uri.file(archiver),
   );
 }
 
