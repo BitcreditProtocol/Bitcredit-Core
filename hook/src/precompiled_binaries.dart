@@ -160,12 +160,18 @@ class RustLibraryBuilder {
 
     usePrecompiled ??= _userDefinedUsePrecompiled(input) ?? !rustupAvailable();
     if (usePrecompiled) {
+      final hash = crateHash.compute();
+      final String missing;
       if (!precompiledSupports(code)) {
+        missing = 'no precompiled binary is built for this target config';
         logger.info('No precompiled binary is built for this target config');
       } else {
+        missing =
+            'no usable precompiled binary is published for crate hash '
+            '$hash and target $triple';
         final binary = await downloadPrecompiled(
           config: PrecompiledBinariesConfig.load(packageRoot),
-          crateHash: crateHash.compute(),
+          crateHash: hash,
           rustTriple: triple,
           libraryFile: libraryFile,
           cacheDir: path.join(
@@ -194,6 +200,16 @@ class RustLibraryBuilder {
           );
           return;
         }
+      }
+      if (!rustupAvailable()) {
+        // Without this, native_toolchain_rust fails deep in a stack trace.
+        throw BuildError(
+          message:
+              '${input.packageName}: cannot build $libraryName for $triple: '
+              '$missing, and rustup was not found on PATH or in '
+              '~/.cargo/bin. Install Rust with rustup (https://rustup.rs) '
+              'to build it locally.',
+        );
       }
       logger.info('Building $libraryName for $triple with cargo instead');
     }
