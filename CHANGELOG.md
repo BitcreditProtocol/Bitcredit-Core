@@ -12,6 +12,7 @@
     * Precompiled binaries: opt in with `hooks: user_defines: ebill_flutter_ffi: use_precompiled_binaries: true` in the app `pubspec.yaml`; `cargokit_options.yaml` and `CARGOKIT_USE_PRECOMPILED_BINARIES` no longer have any effect
     * Precompiled binaries target Android API 24, iOS 15 and macOS 13, and the Apple binaries are now dylibs, so earlier `precompiled_*` releases are not reused; `i686-linux-android` is no longer published, since Flutter does not build it
     * The precompiled crate hash covers every file of every workspace crate (not only `src/`), so changes such as new SQL migrations select new binaries
+    * Release builds strip only debug info (`strip = "debuginfo"`), so the library keeps function names for crash symbolication; Flutter (iOS, macOS) and the Android Gradle plugin strip the packaged copy, but Linux bundles ship it as built (about +4.5 MB)
 
 # 0.6.0
 
