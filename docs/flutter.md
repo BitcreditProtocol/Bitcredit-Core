@@ -42,6 +42,16 @@ Flutter embeds that framework but does not link it into the app, so call
 `RustLib.init()` without an `externalLibrary`; `ExternalLibrary.process()`
 finds no symbols there.
 
+That applies to the app. Under `flutter test` on a desktop host the hook-built
+library is in `build/native_assets/<os>/` (on Linux
+`build/native_assets/linux/libbcr_ebill_flutter_ffi.so`), where
+flutter_rust_bridge's default loader does not look. Tests that call into Rust
+must set `FRB_DART_LOAD_EXTERNAL_LIBRARY_NATIVE_LIB_DIR` to that directory or
+pass `externalLibrary: ExternalLibrary.open(<path>)` to `RustLib.init`. The
+same layout was seen on macOS (a `.dylib`) for Wallet-Core's `wallet_ffi`.
+Integration tests (`flutter test integration_test/... -d linux`) run as an app
+and load the library normally.
+
 Requirements for the consuming app:
 
 * Flutter 3.50 or newer.
