@@ -2,8 +2,6 @@ lib/src/rust/** linguist-generated=true
 crates/bcr-ebill-flutter-ffi/src/frb_generated.rs linguist-generated=true
 *.sql text eol=lf
 
-# Keep the Flutter example and the plugin podspecs out of language detection.
+# Keep the Flutter example out of language detection.
 # Otherwise Code Quality analyses Ruby and Kotlin and fails (#1030).
 example/** linguist-detectable=false
-ios/*.podspec linguist-detectable=false
-macos/*.podspec linguist-detectable=false
