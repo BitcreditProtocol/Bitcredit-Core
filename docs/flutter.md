@@ -78,6 +78,14 @@ installed. Hooks do not see the app's environment variables, so the old
 `CARGOKIT_USE_PRECOMPILED_BINARIES` variable and `cargokit_options.yaml` no
 longer have any effect.
 
+The same reduced environment leaves the hook without an SSH agent. The crate's
+git dependencies are fetched over HTTPS, but if your git config rewrites GitHub
+HTTPS URLs to SSH, cargo's fetch inside the hook fails with a publickey error
+(seen on macOS with Flutter 3.50.0 in `example/`). Running `cargo fetch` once
+from a normal shell in the repository root fills cargo's git cache, and the
+hook then builds. Opting in to precompiled binaries avoids the fetch on the
+targets listed above.
+
 `dart run <script>` in an app first runs the build hooks for the host
 platform, so it downloads the host binary (with the opt-in) or builds the Rust
 library locally; `dart run <package>:<executable>`, such as `build_runner`,
