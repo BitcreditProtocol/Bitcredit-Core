@@ -128,7 +128,7 @@ impl BlockTransportService {
         Ok((previous, root))
     }
 
-    fn validate_predecessor_metadata(
+    pub(crate) fn validate_predecessor_metadata(
         previous_hash: &Sha256Hash,
         chain_id: &str,
         chain_type: BlockchainType,
@@ -168,6 +168,7 @@ impl BlockTransportService {
             || root.block_height != 1
             || !root.is_root_event()
             || previous.root_id != root.event_id
+            || root.reply_id.is_some()
         {
             return Err(Error::Blockchain(format!(
                 "Invalid root Nostr event metadata for {chain_type:?} chain {chain_id}"

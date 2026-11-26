@@ -126,7 +126,7 @@ pub fn collect_event_chains(
 }
 
 pub fn split_root(markers: &[EventContainer]) -> Option<(EventContainer, Vec<EventContainer>)> {
-    if let Some(root) = markers.iter().find(|v| v.is_root()) {
+    if let Some(root) = markers.iter().find(|v| v.is_root() && v.block_height == 1) {
         let remainder = markers.iter().filter(|v| !v.is_root()).cloned().collect();
         return Some((root.clone(), remainder));
     }
@@ -281,7 +281,13 @@ impl EventContainer {
         let mut children = Vec::new();
         markers
             .iter()
-            .filter(|m| m.is_child_of(&self.event.id) && m.event.id != self.event.id)
+            .filter(|m| {
+                let root_id = self.root_id.unwrap_or(self.event.id);
+                m.event.id != self.event.id
+                    && m.root_id == Some(root_id)
+                    && m.is_child_of(&self.event.id)
+                    && self.block_height.checked_add(1) == Some(m.block_height)
+            })
             .for_each(|m| {
                 let mut marker = m.clone();
                 if m.children.is_empty() {

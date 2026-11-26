@@ -1,6 +1,7 @@
 use super::public_chain_helpers::BlockData;
 use super::public_chain_helpers::compare_block_chains;
 use crate::Result;
+use crate::block_transport::BlockTransportService;
 use crate::chain_keys::ChainKeyServiceApi;
 use crate::handler::{
     BillChainEventProcessorApi, CompanyChainEventProcessorApi, IdentityChainEventProcessorApi,
@@ -111,6 +112,12 @@ impl IncomingChainApplication {
 
         let hash = block.get_block_hash();
         let height = block.get_block_height() as usize;
+        let previous_hash = match &block {
+            BlockData::Bill(block) => block.previous_hash(),
+            BlockData::Company(block) => block.previous_hash(),
+            BlockData::Identity(block) => block.previous_hash(),
+        }
+        .clone();
         let res = match block {
             BlockData::Bill(block) => {
                 let bill_id: BillId = public
@@ -145,7 +152,7 @@ impl IncomingChainApplication {
             res,
             IncomingChainApplyResult::Applied | IncomingChainApplyResult::AlreadyApplied
         ) {
-            self.persist_chain_event(candidate, public.chain_type, hash, height)
+            self.persist_chain_event(candidate, public.chain_type, hash, height, &previous_hash)
                 .await?;
         }
 
@@ -158,6 +165,7 @@ impl IncomingChainApplication {
         chain_type: BlockchainType,
         block_hash: Sha256Hash,
         block_height: usize,
+        previous_hash: &Sha256Hash,
     ) -> Result<()> {
         let event = &candidate.event;
         let event_id = event.id.to_string();
@@ -172,6 +180,50 @@ impl IncomingChainApplication {
         }
 
         let (root, reply) = root_and_reply_id(event);
+        // handle potentially wrong nostr linkage
+        if block_height == 1 {
+            // Only genesis may be its own root
+            if root.is_some() || reply.is_some() {
+                log::debug!("Skipping linked genesis metadata for {event_id}");
+                return Ok(());
+            }
+        } else {
+            let Some(root_id) = root else {
+                log::debug!("Skipping non-genesis metadata without root for {event_id}");
+                return Ok(());
+            };
+
+            // A direct reply to genesis may only have a root tag
+            let previous_id = reply.unwrap_or(root_id);
+            let root_event = self
+                .chain_event_store
+                .by_event_id(&root_id.to_string())
+                .await
+                .map_err(|e| crate::Error::Persistence(e.to_string()))?;
+
+            let previous_event = if previous_id == root_id {
+                root_event.clone()
+            } else {
+                self.chain_event_store
+                    .by_event_id(&previous_id.to_string())
+                    .await
+                    .map_err(|e| crate::Error::Persistence(e.to_string()))?
+            };
+
+            if BlockTransportService::validate_predecessor_metadata(
+                previous_hash,
+                &candidate.chain_id,
+                chain_type,
+                block_height,
+                &previous_event,
+                &root_event,
+            )
+            .is_err()
+            {
+                log::debug!("Skipping missing or inconsistent Nostr linkage for {event_id}");
+                return Ok(());
+            }
+        }
         self.chain_event_store
             .add_chain_event(NostrChainEvent {
                 event_id: event_id.clone(),
@@ -1040,5 +1092,50 @@ mod tests {
                 .unwrap(),
             IncomingChainApplyResult::Rejected(_),
         ));
+    }
+
+    #[tokio::test]
+    async fn unlinked_wrapper_does_not_insert_publishing_metadata() {
+        let (_, block) = chain_and_second_block();
+        let envelope: EventEnvelope = BcrEvent::new_bill_chain(BillBlockEvent {
+            bill_id: bill_id_test(),
+            block_height: block.id.inner() as usize,
+            block,
+        })
+        .try_into()
+        .unwrap();
+        let mut candidate = bill_candidate(bill_id_test());
+        // Regression fixture: non-genesis block without thread links
+        candidate.event = crate::transport::create_public_chain_event(
+            &bill_id_test().to_string(),
+            envelope,
+            test_ts(),
+            BlockchainType::Bill,
+            None,
+            None,
+        )
+        .unwrap()
+        .finalize(&Keys::generate())
+        .unwrap();
+        let mut keys = MockChainKeyService::new();
+        keys.expect_get_chain_keys()
+            .once()
+            .returning(|_, _| Ok(Some(get_bill_keys())));
+        let mut processor = MockBillChainEventProcessorApi::new();
+        processor
+            .expect_apply_verified_block()
+            .once()
+            .returning(|_, _, _| Ok(IncomingChainApplyResult::AlreadyApplied));
+        let mut events = MockNostrChainEventStore::new();
+        events.expect_by_event_id().once().returning(|_| Ok(None));
+        events.expect_add_chain_event().never();
+        let application = application_with_mocks(keys, processor, events);
+        assert_eq!(
+            application
+                .apply_verified_chain_event(&candidate)
+                .await
+                .unwrap(),
+            IncomingChainApplyResult::AlreadyApplied,
+        );
     }
 }
