@@ -14,6 +14,7 @@ use bcr_ebill_api::service::transport_service::{Error, Result};
 use bcr_ebill_core::application::{ServiceTraitBounds, ValidationError};
 use bcr_ebill_core::protocol::blockchain::BlockchainType;
 use bcr_ebill_core::protocol::blockchain::bill::BillBlock;
+use bcr_ebill_core::protocol::crypto::BcrKeys;
 use bcr_ebill_core::protocol::event::{
     BillChainEvent, CompanyChainEvent, EventEnvelope, IdentityChainEvent,
 };
@@ -74,6 +75,7 @@ impl BlockTransportService {
         chain_id: &str,
         chain_type: BlockchainType,
         block_height: usize,
+        keys: &BcrKeys,
     ) -> Result<(Option<NostrChainEvent>, Option<NostrChainEvent>)> {
         if block_height == 0 {
             return Err(Error::Blockchain("Invalid block height 0".to_owned()));
@@ -84,7 +86,7 @@ impl BlockTransportService {
 
         let (previous, root) = self
             .nostr_transport
-            .find_root_and_previous_event(previous_hash, chain_id, chain_type)
+            .find_root_and_previous_event(previous_hash, chain_id, chain_type, block_height, keys)
             .await?;
 
         if Self::validate_predecessor_metadata(
@@ -110,7 +112,7 @@ impl BlockTransportService {
 
         let (previous, root) = self
             .nostr_transport
-            .find_root_and_previous_event(previous_hash, chain_id, chain_type)
+            .find_root_and_previous_event(previous_hash, chain_id, chain_type, block_height, keys)
             .await?;
 
         Self::validate_predecessor_metadata(
@@ -246,6 +248,7 @@ impl BlockTransportService {
                     &input.chain_id,
                     input.chain_type,
                     input.block_height,
+                    &input.keys,
                 )
                 .await?
             };
@@ -369,6 +372,7 @@ struct ChainEventToPrepare {
     previous_hash: Sha256Hash,
     block_time: Timestamp,
     envelope: EventEnvelope,
+    keys: BcrKeys,
 }
 
 impl ChainEventToPrepare {
@@ -385,6 +389,7 @@ impl ChainEventToPrepare {
             previous_hash: event.data.block.previous_hash.clone(),
             block_time: event.data.block.timestamp,
             envelope: event.try_into()?,
+            keys: events.keys.clone(),
         })
     }
 
@@ -401,6 +406,7 @@ impl ChainEventToPrepare {
             previous_hash: event.data.block.previous_hash.clone(),
             block_time: event.data.block.timestamp,
             envelope: event.try_into()?,
+            keys: events.keys.clone(),
         })
     }
 
@@ -417,6 +423,7 @@ impl ChainEventToPrepare {
             previous_hash: event.data.block.previous_hash.clone(),
             block_time: event.data.block.timestamp,
             envelope: event.try_into()?,
+            keys: events.bill_keys.clone(),
         })
     }
 }
@@ -706,6 +713,7 @@ impl BlockTransportServiceApi for BlockTransportService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::handler::public_chain_helpers::EventContainer;
     use crate::handler::{
         MockBillChainEventProcessorApi, MockCompanyChainEventProcessorApi,
         MockIdentityChainEventProcessorApi,
@@ -799,8 +807,8 @@ mod tests {
         let mut chain_event_store = MockNostrChainEventStore::new();
         // No previous event in store for genesis block
         chain_event_store
-            .expect_find_by_block_hash()
-            .returning(|_| Ok(None));
+            .expect_find_chain_events()
+            .returning(|_, _| Ok(vec![]));
 
         let service = get_service(chain_event_store);
         let result = service
@@ -809,6 +817,7 @@ mod tests {
                 "test_chain",
                 BlockchainType::Bill,
                 1,
+                &crate::test_utils::get_bill_keys(),
             )
             .await;
 
@@ -823,8 +832,8 @@ mod tests {
         let mut chain_event_store = MockNostrChainEventStore::new();
         // No previous event in store for non-genesis block
         chain_event_store
-            .expect_find_by_block_hash()
-            .returning(|_| Ok(None));
+            .expect_find_chain_events()
+            .returning(|_, _| Ok(vec![]));
 
         let mut bill_chain_event_processor = MockBillChainEventProcessorApi::new();
         bill_chain_event_processor
@@ -841,6 +850,7 @@ mod tests {
                 &bill_id_test().to_string(),
                 BlockchainType::Bill,
                 2,
+                &crate::test_utils::get_bill_keys(),
             )
             .await;
 
@@ -852,24 +862,31 @@ mod tests {
 
     #[tokio::test]
     async fn test_validate_previous_event_exists_accepts_with_previous() {
-        let mut chain_event_store = MockNostrChainEventStore::new();
-        let previous_hash = Sha256Hash::new("previous_hash");
-        let previous_event =
-            create_test_chain_event("test_chain", BlockchainType::Bill, 1, previous_hash.clone());
-
-        chain_event_store
-            .expect_find_by_block_hash()
-            .returning(move |_| Ok(Some(previous_event.clone())));
-
-        let service = get_service(chain_event_store);
-        let result = service
-            .validate_previous_event_exists(&previous_hash, "test_chain", BlockchainType::Bill, 2)
-            .await;
-
-        assert!(result.is_ok());
-        let (previous, root) = result.unwrap();
-        assert!(previous.is_some());
-        assert!(root.is_some());
+        let bill_id = bill_id_test();
+        let chain_id = bill_id.to_string();
+        let chain = get_genesis_chain(Some(crate::test_utils::get_baseline_bill(&bill_id)));
+        let genesis = chain.get_first_block().clone();
+        let previous_hash = genesis.hash.clone();
+        let event = generate_test_event(None, None, 1, genesis.clone());
+        let metadata = EventContainer::new(event, None, None, BlockData::Bill(genesis))
+            .as_chain_store_event(&chain_id, BlockchainType::Bill, 1);
+        let mut store = MockNostrChainEventStore::new();
+        store
+            .expect_find_chain_events()
+            .once()
+            .returning(move |_, _| Ok(vec![metadata.clone()]));
+        let service = get_service(store);
+        let (previous, root) = service
+            .validate_previous_event_exists(
+                &previous_hash,
+                &chain_id,
+                BlockchainType::Bill,
+                2,
+                &crate::test_utils::get_bill_keys(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(previous.unwrap().event_id, root.unwrap().event_id,);
     }
 
     fn generate_test_event(
@@ -1102,13 +1119,10 @@ mod tests {
         let bill_id = bill_id_test();
         let chain_id = bill_id.to_string();
         let previous_hash = Sha256Hash::new("previous_hash");
-        let previous =
-            create_test_chain_event(&chain_id, BlockchainType::Bill, 2, previous_hash.clone());
         let mut store = MockNostrChainEventStore::new();
         store
-            .expect_find_by_block_hash()
-            .returning(move |_| Ok(Some(previous.clone())));
-        store.expect_find_root_event().returning(|_, _| Ok(None));
+            .expect_find_chain_events()
+            .returning(|_, _| Ok(vec![]));
         let mut processor = MockBillChainEventProcessorApi::new();
         processor
             .expect_resync_chain()
@@ -1116,12 +1130,18 @@ mod tests {
             .returning(|_, _, _| Ok(()));
         let service = get_service_with_bill_chain_event_processor(processor, store);
         let result = service
-            .validate_previous_event_exists(&previous_hash, &chain_id, BlockchainType::Bill, 3)
+            .validate_previous_event_exists(
+                &previous_hash,
+                &chain_id,
+                BlockchainType::Bill,
+                3,
+                &crate::test_utils::get_bill_keys(),
+            )
             .await;
 
         let error = result.unwrap_err().to_string();
         assert!(error.contains("preflight failed"));
-        assert!(error.contains("missing root event"));
+        assert!(error.contains("missing previous block"));
     }
 
     #[tokio::test]

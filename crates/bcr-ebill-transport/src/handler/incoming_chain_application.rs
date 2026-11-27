@@ -245,7 +245,7 @@ impl IncomingChainApplication {
     }
 }
 
-fn decode_candidate_block(
+pub(crate) fn decode_candidate_block(
     public: &EncryptedOrEncodedPublicEventData,
     keys: &Option<BcrKeys>,
     sender: nostr::key::PublicKey,
@@ -680,11 +680,18 @@ pub(crate) fn map_chain_action_validation_error(error: ProtocolValidationError) 
 mod tests {
     use super::*;
     use crate::chain_keys::ChainKeyService;
+    use crate::handler::public_chain_helpers::{
+        BlockData, EventContainer, restore_publishing_metadata,
+    };
+    use crate::handler::public_chain_helpers::{
+        eligible_publishing_events, select_publishing_predecessor,
+    };
     use crate::handler::test_utils::{MockBillStore, MockCompanyStore, MockIdentityStore};
     use crate::handler::{
         MockBillChainEventProcessorApi, MockCompanyChainEventProcessorApi,
         MockIdentityChainEventProcessorApi,
     };
+    use crate::test_utils::MockNotificationJsonTransport;
     use crate::test_utils::{
         MockChainKeyService, MockNostrChainEventStore, bill_id_test, bill_id_test_other2,
         empty_address, get_baseline_bill, get_baseline_identity, get_bill_keys, get_genesis_chain,
@@ -1137,5 +1144,119 @@ mod tests {
                 .unwrap(),
             IncomingChainApplyResult::AlreadyApplied,
         );
+    }
+
+    fn publishing_test_wrapper(
+        block: &BillBlock,
+        previous: Option<nostr::event::Event>,
+        root: Option<nostr::event::Event>,
+    ) -> nostr::event::Event {
+        let envelope: EventEnvelope = BcrEvent::new_bill_chain(BillBlockEvent {
+            bill_id: block.bill_id.clone(),
+            block_height: block.id.inner() as usize,
+            block: block.clone(),
+        })
+        .try_into()
+        .unwrap();
+        crate::transport::create_public_chain_event(
+            &block.bill_id.to_string(),
+            envelope,
+            test_ts(),
+            BlockchainType::Bill,
+            previous,
+            root,
+        )
+        .unwrap()
+        .finalize(&Keys::generate())
+        .unwrap()
+    }
+
+    #[test]
+    fn publishing_metadata_selects_only_complete_valid_threads() {
+        let (chain, second) = chain_and_second_block();
+        let genesis = chain.get_first_block();
+        let root = publishing_test_wrapper(genesis, None, None);
+        let other_root = publishing_test_wrapper(genesis, None, None);
+        assert_ne!(root.id, other_root.id);
+
+        let valid = publishing_test_wrapper(&second, Some(root.clone()), Some(root.clone()));
+        let unlinked = publishing_test_wrapper(&second, None, None);
+        // References a parent belonging to a different root
+        let mismatched =
+            publishing_test_wrapper(&second, Some(other_root.clone()), Some(root.clone()));
+        let now = Timestamp::now();
+        let eligible = eligible_publishing_events(
+            vec![
+                (unlinked.clone(), now + 10),
+                (mismatched.clone(), now + 20),
+                (other_root.clone(), now + 30),
+                (valid.clone(), now),
+                (root.clone(), now),
+            ],
+            &second.bill_id.to_string(),
+            BlockchainType::Bill,
+            &Some(get_bill_keys()),
+        );
+
+        assert_eq!(eligible.len(), 3);
+        assert!(eligible.contains_key(&root.id.to_string()));
+        assert!(eligible.contains_key(&other_root.id.to_string()));
+        assert!(eligible.contains_key(&valid.id.to_string()));
+        assert!(!eligible.contains_key(&unlinked.id.to_string()));
+        assert!(!eligible.contains_key(&mismatched.id.to_string()));
+        let (previous, selected_root) = select_publishing_predecessor(&eligible, &second.hash, 3);
+        assert_eq!(previous.unwrap().event_id, valid.id.to_string(),);
+        assert_eq!(selected_root.unwrap().event_id, root.id.to_string(),);
+    }
+
+    #[tokio::test]
+    async fn publishing_metadata_repair_recovers_missing_wrapper() {
+        let (chain, second) = chain_and_second_block();
+        let genesis = chain.get_first_block().clone();
+        let root = publishing_test_wrapper(&genesis, None, None);
+        let good = publishing_test_wrapper(&second, Some(root.clone()), Some(root.clone()));
+        let bad = publishing_test_wrapper(&second, None, None);
+        let chain_id = second.bill_id.to_string();
+        let existing_root = EventContainer::new(root, None, None, BlockData::Bill(genesis.clone()))
+            .as_chain_store_event(&chain_id, BlockchainType::Bill, 1);
+        // Simulate metadata written before our linkage checks
+        let existing_bad = EventContainer::new(bad, None, None, BlockData::Bill(second.clone()))
+            .as_chain_store_event(&chain_id, BlockchainType::Bill, 2);
+        let mut store = MockNostrChainEventStore::new();
+        store
+            .expect_find_chain_events()
+            .once()
+            .returning(move |_, _| Ok(vec![existing_root.clone(), existing_bad.clone()]));
+        let expected_id = good.id.to_string();
+        let expected_hash = second.hash.clone();
+        store
+            .expect_add_chain_event()
+            .withf(move |event| {
+                event.event_id == expected_id
+                    && event.block_hash == expected_hash
+                    && event.block_height == 2
+            })
+            .once()
+            .returning(|_| Ok(()));
+
+        store.expect_remove_chain_events().never();
+        let mut transport = MockNotificationJsonTransport::new();
+        // The relay returns only the missing wrapper
+        // Its root is already available locally
+        transport
+            .expect_resolve_public_chain()
+            .once()
+            .returning(move |_, _| Ok(vec![good.clone()]));
+        restore_publishing_metadata(
+            &transport,
+            &store,
+            &chain_id,
+            BlockchainType::Bill,
+            &get_bill_keys(),
+            &[genesis, second.clone()],
+            &second.hash,
+        )
+        .await
+        .unwrap();
     }
 }

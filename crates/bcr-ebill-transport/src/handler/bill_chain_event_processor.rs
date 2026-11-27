@@ -8,8 +8,8 @@ use crate::handler::incoming_chain_application::{
     validate_remote_plaintext,
 };
 use crate::handler::public_chain_helpers::{
-    BlockData, chain_matches_local, compare_block_chains, find_first_difference,
-    resolve_event_chains,
+    BlockData, compare_block_chains, find_first_difference, resolve_event_chains,
+    restore_publishing_metadata,
 };
 use crate::{Error, Result};
 use async_trait::async_trait;
@@ -41,8 +41,7 @@ use bcr_ebill_persistence::{
     traits::bill::BillStoreApi,
 };
 use bitcoin::secp256k1::PublicKey;
-use log::{debug, error, info};
-use std::collections::HashSet;
+use log::{debug, error};
 use std::sync::Arc;
 
 impl ServiceTraitBounds for BillChainEventProcessor {}
@@ -95,6 +94,18 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
             (Ok(existing_chain), Ok(bill_keys)) => {
                 debug!("starting bill chain resync for {bill_id} with mode {mode:?}");
                 let bcr_keys = BcrKeys::from_private_key(&bill_keys.get_private_key());
+                if let ResyncMode::OnlyMissingMetadata { ref up_to_hash } = mode {
+                    return restore_publishing_metadata(
+                        self.transport.as_ref(),
+                        self.chain_event_store.as_ref(),
+                        &bill_id.to_string(),
+                        BlockchainType::Bill,
+                        &bcr_keys,
+                        existing_chain.blocks(),
+                        up_to_hash,
+                    )
+                    .await;
+                }
                 // Pre-fetch validation data needed for all chain candidates
                 let is_paid = self.bill_store.is_paid(bill_id).await.map_err(|e| {
                     error!("Could not resync bill {bill_id} because getting paid status failed");
@@ -121,114 +132,6 @@ impl BillChainEventProcessorApi for BillChainEventProcessor {
                     error!("{message}");
                     return Err(Error::Network(message));
                 };
-
-                // In this mode, we don't care about local, or remote chain divergences, we're just adding missing metadata for local, unpublished blocks
-                if let ResyncMode::OnlyMissingMetadata { ref up_to_hash } = mode {
-                    let Some(local_chain_end) = existing_chain
-                        .blocks()
-                        .iter()
-                        .position(|block| block.hash() == up_to_hash)
-                    else {
-                        return Err(Error::Blockchain(format!(
-                            "Could not restore Nostr metadata for bill {bill_id}: block with hash {up_to_hash} does not exist in the local chain"
-                        )));
-                    };
-                    let local_blocks = &existing_chain.blocks()[..=local_chain_end];
-                    for data in chain_data.iter() {
-                        let blocks: Vec<BillBlock> = data
-                            .iter()
-                            .filter_map(|d| match d.block.clone() {
-                                BlockData::Bill(block) => Some(block),
-                                _ => None,
-                            })
-                            .collect();
-
-                        if blocks.is_empty() {
-                            continue;
-                        }
-                        // we're only interested in remote chains with the same blocks we have locally
-                        if !chain_matches_local(local_blocks, &blocks) {
-                            continue;
-                        }
-
-                        let existing_events = match self
-                            .chain_event_store
-                            .find_chain_events(&bill_id.to_string(), BlockchainType::Bill)
-                            .await
-                        {
-                            Ok(ev) => ev,
-                            Err(e) => {
-                                error!("Failed to fetch chain events for bill {bill_id}: {e}");
-                                return Err(Error::Persistence(format!(
-                                    "Failed to fetch chain events for bill {bill_id}: {e}"
-                                )));
-                            }
-                        };
-
-                        let existing_block_hashes: HashSet<_> = existing_events
-                            .iter()
-                            .map(|event| event.block_hash.clone())
-                            .collect();
-
-                        let mut events_added = 0;
-                        // match local blocks and event containers - these are guaranteed to match because of
-                        // the chain_matches_local check above
-                        for (local_block, event_container) in
-                            local_blocks
-                                .iter()
-                                .zip(data.iter().filter(|event_container| {
-                                    matches!(event_container.block, BlockData::Bill(_))
-                                }))
-                        {
-                            let BlockData::Bill(remote_block) = &event_container.block else {
-                                continue;
-                            };
-
-                            // if we have the block as a chain event - continue
-                            if existing_block_hashes.contains(&local_block.hash) {
-                                continue;
-                            }
-
-                            // otherwise, add it
-                            let event = event_container.as_chain_store_event(
-                                &bill_id.to_string(),
-                                BlockchainType::Bill,
-                                remote_block.id.inner() as usize,
-                            );
-
-                            self.chain_event_store
-                                            .add_chain_event(event)
-                                            .await
-                                            .map_err(|e| {
-                                                error!(
-                                                    "Failed to restore missing chain event for bill {bill_id}, block {}: {e}",
-                                                    local_block.id
-                                                );
-
-                                                Error::Persistence(format!(
-                                                        "Failed to restore missing chain event for bill {bill_id}, block {}: {e}",
-                                                        local_block.id
-                                                ))
-                                            })?;
-
-                            events_added += 1;
-                        }
-
-                        if events_added > 0 {
-                            info!(
-                                "Restored {events_added} missing Nostr chain event(s) for bill {bill_id} up to block hash {up_to_hash}"
-                            );
-                        }
-
-                        return Ok(());
-                    }
-
-                    let message = format!(
-                        "Could not restore Nostr metadata for bill {bill_id}: no Nostr chain matches the local bill chain"
-                    );
-                    error!("{message}");
-                    return Err(Error::Blockchain(message));
-                }
 
                 let mut candidates: Vec<(usize, BillBlockchain, Option<BlockId>)> = Vec::new();
                 let mut saw_authoritative_genesis_mismatch = false;
@@ -1578,7 +1481,7 @@ mod tests {
     }
 
     fn as_event_payload(id: &BillId, block: &BillBlock) -> EventEnvelope {
-        Event::new_bill(BillBlockEvent {
+        Event::new_bill_chain(BillBlockEvent {
             bill_id: id.clone(),
             block_height: block.id.inner() as usize,
             block: block.clone(),
@@ -3707,11 +3610,6 @@ mod tests {
             .times(1)
             .returning(move |_| Ok(keys_for_store.clone()));
 
-        bill_store
-            .expect_is_paid()
-            .times(1)
-            .returning(|_| Ok(false));
-
         // Metadata changes don't affect cached bill state
         bill_store.expect_invalidate_bill_in_cache().times(0);
 
@@ -3809,7 +3707,6 @@ mod tests {
             .times(1)
             .returning(move |_| Ok(keys_for_store.clone()));
 
-        bill_store.expect_is_paid().returning(|_| Ok(false));
         bill_store.expect_invalidate_bill_in_cache().times(0);
 
         transport
@@ -3913,7 +3810,6 @@ mod tests {
             .times(1)
             .returning(move |_| Ok(keys_for_store.clone()));
 
-        bill_store.expect_is_paid().returning(|_| Ok(false));
         bill_store.expect_invalidate_bill_in_cache().times(0);
 
         transport
@@ -4065,7 +3961,6 @@ mod tests {
             .times(1)
             .returning(move |_| Ok(keys_for_store.clone()));
 
-        bill_store.expect_is_paid().returning(|_| Ok(false));
         bill_store.expect_invalidate_bill_in_cache().times(0);
 
         transport
@@ -4222,11 +4117,6 @@ mod tests {
             .expect_get_keys()
             .times(1)
             .returning(move |_| Ok(keys.clone()));
-
-        bill_store
-            .expect_is_paid()
-            .times(1)
-            .returning(|_| Ok(false));
 
         bill_store.expect_invalidate_bill_in_cache().times(0);
 

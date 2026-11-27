@@ -1556,6 +1556,83 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn public_catchup_preserves_cursor_on_query_failure() {
+        for fail_at_boundary in [false, true] {
+            let relay = Url::parse("wss://r1.example").unwrap();
+            let anchor = create_public_chain_event(
+                "test-chain",
+                EventEnvelope {
+                    event_type: EventType::BillChain,
+                    version: "1.0".into(),
+                    data: vec![],
+                },
+                Timestamp::new(900).unwrap(),
+                BlockchainType::Bill,
+                None,
+                None,
+            )
+            .unwrap()
+            .finalize(&Keys::generate())
+            .unwrap();
+            let mut cursors = MockNostrEventOffsetStore::new();
+            cursors
+                .expect_get_catchup_until()
+                .once()
+                .returning(|_, _, _| Ok(Some(1000)));
+
+            cursors.expect_set_catchup_until().never();
+            let mut store = MockIncomingPropagationStore::new();
+            store
+                .expect_upsert_candidate()
+                .times(if fail_at_boundary { 1 } else { 0 })
+                .returning(|_, _| Ok(()));
+
+            let mut transport = MockNotificationJsonTransport::new();
+            transport
+                .expect_fetch_events_from_relay()
+                .times(if fail_at_boundary { 3 } else { 2 })
+                .returning(move |filter, _| {
+                    let since = filter.since.map(|t| t.as_secs());
+                    let until = filter.until.unwrap().as_secs();
+
+                    match (since, until) {
+                        // Newest-page refresh.
+                        (None, t) if t > 1000 => Ok(vec![]),
+
+                        (None, 1000) if fail_at_boundary => Ok(vec![anchor.clone()]),
+
+                        (None, 1000) | (Some(900), 900) => {
+                            Err(Error::Network("Simulated query failure".into()))
+                        }
+
+                        _ => panic!("Unexpected query"),
+                    }
+                });
+
+            let verifier = IncomingPropagationVerifier::new(
+                Arc::new(store),
+                Arc::new(transport),
+                Arc::new(MockIncomingChainApplicationApi::new()),
+            )
+            .with_catchup_cursors(Arc::new(cursors));
+            let chain = KnownChain {
+                chain_type: BlockchainType::Bill,
+                chain_id: "test-chain".into(),
+            };
+            let snapshot = RelayQuorumSnapshot {
+                relays: vec![relay.clone()],
+                required: 1,
+            };
+            assert!(
+                verifier
+                    .catch_up_chain_on_relay(&chain, &relay, &snapshot)
+                    .await
+                    .is_err()
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn targeted_catchup_offline_does_not_fetch_events() {
         let mut transport = MockNotificationJsonTransport::new();
         transport

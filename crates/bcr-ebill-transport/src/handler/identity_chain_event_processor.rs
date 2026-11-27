@@ -9,8 +9,8 @@ use crate::{
             validate_remote_plaintext,
         },
         public_chain_helpers::{
-            BlockData, chain_matches_local, compare_block_chains, find_first_difference,
-            resolve_event_chains,
+            BlockData, compare_block_chains, find_first_difference, resolve_event_chains,
+            restore_publishing_metadata,
         },
     },
 };
@@ -38,7 +38,7 @@ use bcr_ebill_core::{
 };
 use bitcoin::secp256k1::SecretKey;
 use log::{debug, error, info, warn};
-use std::{collections::HashSet, sync::Arc};
+use std::sync::Arc;
 
 use bcr_ebill_core::{
     application::ServiceTraitBounds,
@@ -150,6 +150,18 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
                     "starting identity chain resync for identity {}",
                     identity.node_id
                 );
+                if let ResyncMode::OnlyMissingMetadata { ref up_to_hash } = mode {
+                    return restore_publishing_metadata(
+                        self.transport.as_ref(),
+                        self.chain_event_store.as_ref(),
+                        &identity.node_id.to_string(),
+                        BlockchainType::Identity,
+                        &key_pair,
+                        existing_chain.blocks(),
+                        up_to_hash,
+                    )
+                    .await;
+                }
 
                 let expected_local_tip = existing_chain.get_latest_block().clone();
 
@@ -168,102 +180,6 @@ impl IdentityChainEventProcessorApi for IdentityChainEventProcessor {
                     error!("{message}");
                     return Err(Error::Network(message));
                 };
-
-                // Handle only missing metadata, which doesn't mutate existing chains, but only fetches missing nostr events
-                // In this mode, we don't care about local, or remote chain divergences, we're just adding missing metadata for local, unpublished blocks
-                if let ResyncMode::OnlyMissingMetadata { ref up_to_hash } = mode {
-                    let identity_id = identity.node_id.clone();
-                    let Some(local_chain_end) = existing_chain
-                        .blocks()
-                        .iter()
-                        .position(|block| block.hash() == up_to_hash)
-                    else {
-                        // if we get here, that means we didn't find a matching chain on nostr to update metadata
-                        return Err(Error::Blockchain(format!(
-                            "Could not restore Nostr metadata for identity {identity_id}: block with hash {up_to_hash} does not exist in the local chain"
-                        )));
-                    };
-                    let local_blocks = &existing_chain.blocks()[..=local_chain_end];
-                    for data in &chain_data {
-                        let blocks: Vec<IdentityBlock> = data
-                            .iter()
-                            .filter_map(|d| match d.block.clone() {
-                                BlockData::Identity(block) => Some(block),
-                                _ => None,
-                            })
-                            .collect();
-                        if blocks.is_empty() {
-                            continue;
-                        }
-                        if !chain_matches_local(local_blocks, &blocks) {
-                            continue;
-                        }
-                        let existing_events = self
-                            .chain_event_store
-                            .find_chain_events(&identity_id.to_string(), BlockchainType::Identity)
-                            .await
-                            .map_err(|e| {
-                                error!(
-                                    "Failed to fetch chain events for identity {identity_id}: {e}"
-                                );
-
-                                Error::Persistence(format!(
-                                    "Failed to fetch chain events for identity {identity_id}: {e}"
-                                ))
-                            })?;
-                        let existing_block_hashes: HashSet<_> = existing_events
-                            .iter()
-                            .map(|event| event.block_hash.clone())
-                            .collect();
-                        let mut events_added = 0;
-                        // match local blocks and event containers - these are guaranteed to match because of
-                        // the chain_matches_local check above
-                        for (local_block, event_container) in
-                            local_blocks
-                                .iter()
-                                .zip(data.iter().filter(|event_container| {
-                                    matches!(event_container.block, BlockData::Identity(_))
-                                }))
-                        {
-                            let BlockData::Identity(remote_block) = &event_container.block else {
-                                continue;
-                            };
-                            // if we have the block as a chain event - continue
-                            if existing_block_hashes.contains(&local_block.hash) {
-                                continue;
-                            }
-                            // otherwise, add it
-                            let event = event_container.as_chain_store_event(
-                                &identity_id.to_string(),
-                                BlockchainType::Identity,
-                                remote_block.id.inner() as usize,
-                            );
-                            self.chain_event_store.add_chain_event(event)
-                                .await
-                                .map_err(|e| {
-                                    error!(
-                                        "Failed to restore missing chain event for identity {identity_id}, block {}: {e}",
-                                        local_block.id
-                                    );
-                                    Error::Persistence(format!(
-                                            "Failed to restore missing chain event for identity {identity_id}, block {}: {e}",
-                                            local_block.id
-                                    ))
-                                })?;
-                            events_added += 1;
-                        }
-                        if events_added > 0 {
-                            info!(
-                                "Restored {events_added} missing Nostr chain event(s) for identity {identity_id} up to block hash {up_to_hash}"
-                            );
-                        }
-                        return Ok(());
-                    }
-
-                    let message = "Could not restore Nostr metadata for identity: no Nostr chain matches the local identity chain".to_owned();
-                    error!("{message}");
-                    return Err(Error::Blockchain(message));
-                }
 
                 // Other modes
                 let mut candidates: Vec<(usize, PreparedIdentityChain, Option<BlockId>)> =
@@ -1745,8 +1661,12 @@ pub mod tests {
             .times(1)
             .returning(move |_, _| Ok(vec![event0.clone(), remote_event.clone()]));
 
-        // No matching candidate => don't inspect or mutate metadata
-        chain_event_store.expect_find_chain_events().times(0);
+        // Existing metadata may complete a partially available remote thread
+        chain_event_store
+            .expect_find_chain_events()
+            .once()
+            .returning(|_, _| Ok(vec![]));
+
         chain_event_store.expect_add_chain_event().times(0);
         chain_event_store.expect_remove_chain_events().times(0);
 

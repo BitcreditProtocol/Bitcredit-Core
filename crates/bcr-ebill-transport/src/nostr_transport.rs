@@ -29,6 +29,9 @@ use log::{debug, error, warn};
 use bcr_ebill_api::service::transport_service::{Error, Result};
 use bcr_ebill_core::protocol::PostalAddress;
 
+use crate::handler::public_chain_helpers::eligible_publishing_events;
+use crate::handler::public_chain_helpers::select_publishing_predecessor;
+
 /// Transport implementation for Nostr
 #[derive(Clone)]
 pub struct NostrTransportService {
@@ -158,24 +161,27 @@ impl NostrTransportService {
         previous_hash: &Sha256Hash,
         chain_id: &str,
         chain_type: BlockchainType,
+        block_height: usize,
+        keys: &BcrKeys,
     ) -> Result<(Option<NostrChainEvent>, Option<NostrChainEvent>)> {
-        // find potential previous block event
-        let previous_event = self
+        let stored = self
             .chain_event_store
-            .find_by_block_hash(previous_hash)
+            .find_chain_events(chain_id, chain_type)
             .await
-            .map_err(|e| Error::Persistence(format!("failed to read from chain events: {e}")))?;
-
-        // if there is a previous and it is not the root event, also get the root event
-        let root_event = if previous_event.clone().is_some_and(|f| !f.is_root_event()) {
-            self.chain_event_store
-                .find_root_event(chain_id, chain_type)
-                .await
-                .map_err(|e| Error::Persistence(format!("failed to read from chain events: {e}")))?
-        } else {
-            previous_event.clone()
-        };
-        Ok((previous_event, root_event))
+            .map_err(|e| Error::Persistence(format!("Failed to read chain events: {e}")))?;
+        let eligible = eligible_publishing_events(
+            stored
+                .into_iter()
+                .map(|event| (event.payload, event.received)),
+            chain_id,
+            chain_type,
+            &Some(keys.clone()),
+        );
+        Ok(select_publishing_predecessor(
+            &eligible,
+            previous_hash,
+            block_height,
+        ))
     }
 
     pub(crate) async fn connect(&self) {

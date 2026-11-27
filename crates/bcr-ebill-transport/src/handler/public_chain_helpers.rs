@@ -1,3 +1,7 @@
+use super::incoming_chain_application::{
+    decode_candidate_block, validate_incoming_block_integrity,
+};
+use crate::transport::root_and_reply_id;
 use crate::transport::{decrypt_or_decode_public_chain_event, unwrap_public_chain_event};
 use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
 use bcr_ebill_api::service::transport_service::{Error, Result};
@@ -9,11 +13,13 @@ use bcr_ebill_core::protocol::{
     crypto::BcrKeys,
     event::{BillBlockEvent, CompanyBlockEvent, IdentityBlockEvent},
 };
+use bcr_ebill_persistence::NostrChainEventStoreApi;
 use bcr_ebill_persistence::traits::nostr::NostrChainEvent;
 use nostr::{
     event::EventId,
     nips::nip10::{Marker, Nip10Tag},
 };
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 /// Compares two chains for sorting. Ordering is:
@@ -77,18 +83,6 @@ pub fn find_first_difference<T: Block>(local: &[T], remote: &[T]) -> Option<Bloc
     }
 
     None
-}
-
-/// Checks if the remote chain matches the local chain up to the local block height
-pub fn chain_matches_local<T: Block>(local: &[T], remote: &[T]) -> bool {
-    if remote.len() < local.len() {
-        return false;
-    }
-
-    local
-        .iter()
-        .zip(remote.iter())
-        .all(|(local, remote)| local.id() == remote.id() && local.hash() == remote.hash())
 }
 
 /// Will query the transport for the public chain events and build up as many chains as needed for
@@ -337,6 +331,221 @@ impl EventContainer {
             payload: self.event.clone(),
         }
     }
+}
+
+fn decode_publishing_metadata(
+    event: nostr::event::Event,
+    received: Timestamp,
+    chain_id: &str,
+    chain_type: BlockchainType,
+    keys: &Option<BcrKeys>,
+) -> Option<(NostrChainEvent, Sha256Hash)> {
+    if event.kind != nostr::event::Kind::TextNote || event.verify().is_err() {
+        return None;
+    }
+    let public = unwrap_public_chain_event(&event).ok()??;
+    if public.id != chain_id || public.chain_type != chain_type {
+        return None;
+    }
+    let block = decode_candidate_block(&public, &None, event.pubkey)
+        .or_else(|error| {
+            if keys.is_some() {
+                decode_candidate_block(&public, keys, event.pubkey)
+            } else {
+                Err(error)
+            }
+        })
+        .ok()?;
+
+    let previous_hash = match &block {
+        BlockData::Bill(block) => {
+            if block.bill_id.to_string() != chain_id {
+                return None;
+            }
+
+            validate_incoming_block_integrity(block).ok()?;
+            block.previous_hash().clone()
+        }
+        BlockData::Company(block) => {
+            if block.company_id.to_string() != chain_id {
+                return None;
+            }
+
+            validate_incoming_block_integrity(block).ok()?;
+            block.previous_hash().clone()
+        }
+        BlockData::Identity(block) => {
+            validate_incoming_block_integrity(block).ok()?;
+            block.previous_hash().clone()
+        }
+    };
+
+    let height = usize::try_from(block.get_block_height()).ok()?;
+    if height == 0 {
+        return None;
+    }
+    let (root, reply) = root_and_reply_id(&event);
+    if height == 1 {
+        if root.is_some() || reply.is_some() {
+            return None;
+        }
+    } else if root.is_none() {
+        return None;
+    }
+    let container = EventContainer::new(event, root, reply, block);
+    let mut metadata = container.as_chain_store_event(chain_id, chain_type, height);
+    metadata.received = received;
+    Some((metadata, previous_hash))
+}
+
+pub(crate) fn eligible_publishing_events(
+    events: impl IntoIterator<Item = (nostr::event::Event, Timestamp)>,
+    chain_id: &str,
+    chain_type: BlockchainType,
+    keys: &Option<BcrKeys>,
+) -> HashMap<String, NostrChainEvent> {
+    let mut candidates = events
+        .into_iter()
+        .filter_map(|(event, received)| {
+            decode_publishing_metadata(event, received, chain_id, chain_type, keys)
+        })
+        .collect::<Vec<_>>();
+    candidates.sort_by_key(|(event, _)| event.block_height);
+    let mut eligible: HashMap<String, NostrChainEvent> = HashMap::new();
+    for (event, previous_hash) in candidates {
+        if event.block_height == 1 {
+            eligible.entry(event.event_id.clone()).or_insert(event);
+
+            continue;
+        }
+        // A direct reply to genesis may only have a root tag
+        let previous_id = event.reply_id.as_deref().unwrap_or(&event.root_id);
+        let Some(previous) = eligible.get(previous_id) else {
+            continue;
+        };
+        if previous.root_id != event.root_id
+            || previous.block_hash != previous_hash
+            || previous.block_height.checked_add(1) != Some(event.block_height)
+        {
+            continue;
+        }
+        eligible.entry(event.event_id.clone()).or_insert(event);
+    }
+    eligible
+}
+
+pub(crate) fn select_publishing_predecessor(
+    eligible: &HashMap<String, NostrChainEvent>,
+    previous_hash: &Sha256Hash,
+    block_height: usize,
+) -> (Option<NostrChainEvent>, Option<NostrChainEvent>) {
+    let previous = eligible
+        .values()
+        .filter(|event| {
+            &event.block_hash == previous_hash
+                && event.block_height.checked_add(1) == Some(block_height)
+        })
+        .max_by(|a, b| {
+            a.received
+                .cmp(&b.received)
+                .then_with(|| a.event_id.cmp(&b.event_id))
+        });
+    let Some(previous) = previous else {
+        return (None, None);
+    };
+    let Some(root) = eligible.get(&previous.root_id) else {
+        return (None, None);
+    };
+    (Some(previous.clone()), Some(root.clone()))
+}
+
+/// Make sure there is exactly one eligible path to nostr publishing
+pub(crate) async fn restore_publishing_metadata<B: Block>(
+    transport: &dyn TransportClientApi,
+    store: &dyn NostrChainEventStoreApi,
+    chain_id: &str,
+    chain_type: BlockchainType,
+    keys: &BcrKeys,
+    local_blocks: &[B],
+    up_to_hash: &Sha256Hash,
+) -> Result<()> {
+    let Some(end) = local_blocks
+        .iter()
+        .position(|block| block.hash() == up_to_hash)
+    else {
+        return Err(Error::Blockchain(format!(
+            "Cannot restore Nostr metadata for {chain_type} {chain_id}: block {up_to_hash} not found locally"
+        )));
+    };
+    let local_blocks = &local_blocks[..=end];
+    let existing = store
+        .find_chain_events(chain_id, chain_type)
+        .await
+        .map_err(|e| Error::Persistence(e.to_string()))?;
+    // Deduplicate wrappers, not blockchain blocks
+    let existing_ids: HashSet<String> = existing
+        .iter()
+        .map(|event| event.event_id.clone())
+        .collect();
+    let remote = transport.resolve_public_chain(chain_id, chain_type).await?;
+    let now = Timestamp::now();
+    let events = existing
+        .into_iter()
+        .map(|event| (event.payload, event.received))
+        .chain(remote.into_iter().map(|event| (event, now)));
+    let eligible = eligible_publishing_events(events, chain_id, chain_type, &Some(keys.clone()));
+    let next_height = local_blocks.len() + 1;
+    let (previous, _) = select_publishing_predecessor(&eligible, up_to_hash, next_height);
+    let Some(mut current) = previous else {
+        return Err(Error::Blockchain(format!(
+            "Could not restore Nostr metadata for {chain_type} {chain_id}: no Nostr chain matches the local chain"
+        )));
+    };
+
+    // Recover one complete path, working backwards from the requested predecessor to its actual root
+    let mut path = Vec::with_capacity(local_blocks.len());
+    loop {
+        let local = local_blocks
+            .get(current.block_height - 1)
+            .ok_or_else(|| Error::Blockchain("Invalid Nostr metadata height".into()))?;
+        if local.hash() != &current.block_hash || local.id().inner() != current.block_height as u64
+        {
+            return Err(Error::Blockchain(
+                "Nostr metadata does not match local chain".into(),
+            ));
+        }
+        let is_root = current.block_height == 1;
+        let previous_id = current
+            .reply_id
+            .clone()
+            .unwrap_or_else(|| current.root_id.clone());
+        path.push(current);
+        if is_root {
+            break;
+        }
+        current = eligible
+            .get(&previous_id)
+            .cloned()
+            .ok_or_else(|| Error::Blockchain("Missing eligible Nostr predecessor".into()))?;
+    }
+
+    // Insert root first, then its descendants
+    path.reverse();
+    let mut added = 0;
+    for event in path {
+        if existing_ids.contains(&event.event_id) {
+            continue;
+        }
+        store
+            .add_chain_event(event)
+            .await
+            .map_err(|e| Error::Persistence(e.to_string()))?;
+        added += 1;
+    }
+    log::info!(
+        "Restored {added} missing Nostr metadata entries for {chain_type} {chain_id} through {up_to_hash}"
+    );
+    Ok(())
 }
 
 #[cfg(test)]
@@ -645,64 +854,5 @@ mod tests {
         let result = find_first_difference(&local, &remote);
 
         assert_eq!(result, Some(local[2].id()));
-    }
-
-    #[test]
-    fn test_chain_matches_local_identical() {
-        let local = make_test_chain_with_timestamps(&[1000, 1500, 2000]);
-        let remote = local.clone();
-
-        assert!(chain_matches_local(&local, &remote));
-    }
-
-    #[test]
-    fn test_chain_matches_local_remote_longer() {
-        let local = make_test_chain_with_timestamps(&[1000, 1500, 2000]);
-        let mut remote = local.clone();
-
-        let block4 = make_test_block(
-            BlockId::next_from_previous_block_id(&remote[2].id()),
-            remote[2].hash.clone(),
-            Timestamp::new(2500).unwrap(),
-        );
-
-        remote.push(block4);
-
-        // Local is prefix of remote
-        assert!(chain_matches_local(&local, &remote));
-    }
-
-    #[test]
-    fn test_chain_matches_local_remote_shorter() {
-        let remote = make_test_chain_with_timestamps(&[1000, 1500]);
-        let mut local = remote.clone();
-
-        local.push(make_test_block(
-            BlockId::next_from_previous_block_id(&local[1].id()),
-            local[1].hash.clone(),
-            Timestamp::new(2000).unwrap(),
-        ));
-
-        assert!(!chain_matches_local(&local, &remote));
-    }
-
-    #[test]
-    fn test_chain_matches_local_hash_diverges() {
-        let local = make_test_chain_with_timestamps(&[1000, 1500]);
-
-        let mut remote = local.clone();
-        remote[1].hash = Sha256Hash::new("different_hash");
-
-        assert!(!chain_matches_local(&local, &remote));
-    }
-
-    #[test]
-    fn test_chain_matches_local_block_id_diverges() {
-        let local = make_test_chain_with_timestamps(&[1000, 1500]);
-
-        let mut remote = local.clone();
-        remote[1].id = BlockId::next_from_previous_block_id(&remote[1].id);
-
-        assert!(!chain_matches_local(&local, &remote));
     }
 }

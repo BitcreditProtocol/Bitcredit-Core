@@ -36,7 +36,7 @@ use bcr_ebill_persistence::{NostrEventOffset, NostrEventOffsetStoreApi, NostrSto
 use bitcoin::base58;
 use futures::StreamExt;
 use log::{debug, error, info, trace, warn};
-use nostr::message::SubscriptionId;
+use nostr::message::{RelayMessage, SubscriptionId};
 use nostr::nips::nip59::UnwrappedGift;
 use nostr::{
     event::{Event, EventBuilder, EventId, FinalizeEvent, Kind, Tag},
@@ -52,8 +52,9 @@ use nostr::{
 use nostr_sdk::{
     authenticator::SignerAuthenticator,
     client::{Client, ClientNotification, ReqTarget, SendEventOutput},
-    relay::RelayStatus,
+    relay::{RelayNotification, RelayStatus},
 };
+use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex, atomic::Ordering};
 use std::{
     collections::{HashMap, HashSet},
@@ -356,6 +357,80 @@ impl NostrClient {
             events.reverse();
         }
         Ok(events)
+    }
+
+    /// Fetch a historical page from one relay
+    /// Only a completed request may return an empty page
+    async fn fetch_completed_page(
+        &self,
+        filter: Filter,
+        relay_url: &url::Url,
+        timeout: Duration,
+    ) -> Result<Vec<Event>> {
+        tokio::time::timeout(timeout, async {
+            let relay = self
+                .client()
+                .await?
+                .relay(relay_url.as_str())
+                .await
+                .map_err(|e| Error::Network(e.to_string()))?
+                .ok_or_else(|| Error::Network(format!("Unknown relay {relay_url}")))?;
+            let id = SubscriptionId::generate();
+            let mut notifications = relay.notifications();
+            if relay.status() != RelayStatus::Connected {
+                return Err(Error::Network(format!(
+                    "Relay {relay_url} is not connected"
+                )));
+            }
+            let limit = filter.limit.unwrap_or(10_000);
+            let collect = async {
+                let mut stream = relay
+                    .stream_events(filter)
+                    .with_id(id.clone())
+                    .await
+                    .map_err(|e| Error::Network(e.to_string()))?;
+
+                let mut events = BTreeSet::new();
+                while let Some(event) = stream.next().await {
+                    events.insert(event.map_err(|e| Error::Network(e.to_string()))?);
+                    if events.len() > limit {
+                        return Err(Error::Network(format!(
+                            "Relay {relay_url} exceeded page size"
+                        )));
+                    }
+                }
+                Ok::<Vec<Event>, Error>(events.into_iter().collect())
+            };
+
+            let completed = async {
+                while let Some(notification) = notifications.next().await {
+                    match notification {
+                        RelayNotification::Message { message } => {
+                            if matches!(
+                                message.as_ref(),
+                                RelayMessage::EndOfStoredEvents(sub)
+                                    if sub.as_ref() == &id
+                            ) {
+                                return Ok(());
+                            }
+                        }
+                        RelayNotification::RelayStatus { status }
+                            if status != RelayStatus::Connected =>
+                        {
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+                Err(Error::Network(format!(
+                    "Historical query on {relay_url} ended before EOSE"
+                )))
+            };
+            let (events, ()) = tokio::try_join!(collect, completed)?;
+            Ok(events)
+        })
+        .await
+        .map_err(|_| Error::Network(format!("Historical query timed out on {relay_url}")))?
     }
 
     /// Stream events from specific relays using the provided filter.
@@ -1134,7 +1209,7 @@ impl TransportClientApi for NostrClient {
         filter: Filter,
         relay: &url::Url,
     ) -> Result<Vec<Event>> {
-        self.fetch_events(filter, None, Some(vec![relay.clone()]))
+        self.fetch_completed_page(filter, relay, self.default_timeout)
             .await
     }
 }
@@ -2159,12 +2234,13 @@ async fn fetch_private_page(
     if let Some(since) = since {
         filter = filter.since(nostr::types::Timestamp::from_secs(since));
     }
-    let events = tokio::time::timeout(
-        DM_CATCHUP_QUERY_TIMEOUT,
-        client.fetch_events(filter, None, Some(vec![relay.clone()])),
-    )
-    .await
-    .map_err(|_| Error::Network(format!("Private-event fetch timed out on {relay}")))??;
+    let events = client
+        .fetch_completed_page(
+            filter,
+            relay,
+            DM_CATCHUP_QUERY_TIMEOUT.min(client.default_timeout),
+        )
+        .await?;
     let page = filter_private_page(events, recipient, since, until)?;
     if page.invalid > 0 {
         warn!(
@@ -2286,6 +2362,7 @@ mod tests {
     use bcr_ebill_persistence::NostrEventOffsetStoreApi;
     use mockall::predicate;
     use nostr::event::Kind;
+    use nostr::filter::Filter;
     use nostr::{
         event::{EventBuilder, FinalizeEvent, FinalizeUnsignedEvent},
         nips::nip59::GiftWrapBuilder,
@@ -2856,7 +2933,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn signed_event_can_be_sent_to_one_relay() {
+    async fn signed_event_can_be_sent_and_fetched_from_one_relay() {
         let relay = get_mock_relay().await;
         let relay_url = url::Url::parse(&relay.url().await.to_string()).unwrap();
         let keys = BcrKeys::new();
@@ -2880,6 +2957,39 @@ mod tests {
             .send_signed_event_to_relay(&event, &relay_url)
             .await
             .unwrap();
+
+        // Successful nonempty page
+        let found = client
+            .fetch_events_from_relay(Filter::new().id(event.id).limit(1), &relay_url)
+            .await
+            .unwrap();
+
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].id, event.id);
+
+        // Successful empty page
+        let unpublished = EventBuilder::new(Kind::TextNote, "unpublished test event")
+            .finalize(&keys.get_nostr_keys())
+            .unwrap();
+        let empty = client
+            .fetch_events_from_relay(Filter::new().id(unpublished.id).limit(1), &relay_url)
+            .await
+            .unwrap();
+        assert!(empty.is_empty());
+        // Disconnect an existing relay, not just an unknown URL
+        client
+            .client()
+            .await
+            .unwrap()
+            .disconnect_relay(relay_url.as_str())
+            .await
+            .unwrap();
+        assert!(
+            client
+                .fetch_events_from_relay(Filter::new().id(event.id).limit(1), &relay_url,)
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
