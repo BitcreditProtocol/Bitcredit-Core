@@ -2,6 +2,10 @@
 
 Bitcredit distributes signed bill, company and identity blocks over Nostr. Durable queues separate local business transactions from network delivery. Live events, historical catch-up and restoration use the same incoming validation pipeline.
 
+[Download interactive animation](./nostr-workflow-animation.html)
+
+Open the downloaded HTML file in your browser.
+
 ## 1. Outgoing: commit first, deliver asynchronously
 
 ```mermaid
