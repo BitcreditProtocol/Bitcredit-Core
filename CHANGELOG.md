@@ -4,6 +4,15 @@
     * When we attempted to send a lot blocks at once, we ran into the SQLite connection limit - increased limit and serialized using a lock
     * For incoming chain invites, if we get an invite, there was a race where if we got the chain event at the same time as the invite, it could be that we didn't process the chain
         * Added a retry mechanism for the case where we get the chain invite second
+* `ebill_flutter_ffi` builds its Rust library with a Dart build hook (native assets) instead of Cargokit, so it is no longer a Flutter plugin and needs neither CocoaPods nor Swift Package Manager (#1050)
+    * Consuming apps must use Flutter 3.50 or newer
+    * Consuming apps can remove `ebill_flutter_ffi` from their Podfiles; if no other plugin needs CocoaPods, they can drop CocoaPods and migrate to Swift Package Manager
+    * On iOS and macOS the library is bundled as the dynamic framework `bcr_ebill_flutter_ffi.framework` instead of a statically linked pod; Flutter embeds it without linking it, so apps must call `RustLib.init()` without `ExternalLibrary.process()`
+    * Local builds need rustup; the hook uses the toolchain pinned in `crates/bcr-ebill-flutter-ffi/rust-toolchain.toml` (1.100.0)
+    * Precompiled binaries: opt in with `hooks: user_defines: ebill_flutter_ffi: use_precompiled_binaries: true` in the app `pubspec.yaml`; `cargokit_options.yaml` and `CARGOKIT_USE_PRECOMPILED_BINARIES` no longer have any effect
+    * Precompiled binaries target Android API 24, iOS 15 and macOS 13, and the Apple binaries are now dylibs, so earlier `precompiled_*` releases are not reused; `i686-linux-android` is no longer published, since Flutter does not build it
+    * The precompiled crate hash covers every file of every workspace crate (not only `src/`), so changes such as new SQL migrations select new binaries
+    * Release builds strip only debug info (`strip = "debuginfo"`), so the library keeps function names for crash symbolication; Flutter (iOS, macOS) and the Android Gradle plugin strip the packaged copy, but Linux bundles ship it as built (about +4.5 MB)
 
 # 0.6.0
 

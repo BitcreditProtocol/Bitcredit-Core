@@ -1,0 +1,26 @@
+# Read by the build hook (native_toolchain_rust), which requires an exact
+# channel and the list of targets apps may build for. Workspace commands run
+# from the repository root are not affected.
+[toolchain]
+channel = "1.100.0"
+# frb codegen runs rustfmt from this directory.
+components = ["rustfmt"]
+targets = [
+  # Android
+  "armv7-linux-androideabi",
+  "aarch64-linux-android",
+  "x86_64-linux-android",
+  # iOS (device and simulator)
+  "aarch64-apple-ios",
+  "aarch64-apple-ios-sim",
+  "x86_64-apple-ios",
+  # macOS
+  "aarch64-apple-darwin",
+  "x86_64-apple-darwin",
+  # Linux
+  "aarch64-unknown-linux-gnu",
+  "x86_64-unknown-linux-gnu",
+  # Windows
+  "aarch64-pc-windows-msvc",
+  "x86_64-pc-windows-msvc",
+]

@@ -14,8 +14,8 @@ and documentation.
 
 Dependencies run `bcr-ebill-core` → `bcr-ebill-persistence` → `bcr-ebill-api` →
 `bcr-ebill-transport` → `bcr-ebill-flutter-ffi`; the supported consumer entrypoint is the
-Flutter plugin `ebill_flutter_ffi`. The FFI crate builds native `cdylib`/`staticlib` artifacts
-for Flutter. There is no server: keys and state live on the client, persisted through
+Flutter package `ebill_flutter_ffi`, whose build hook (`hook/build.dart`) builds or downloads
+the FFI crate's `cdylib` for Flutter. There is no server: keys and state live on the client, persisted through
 `sqlx/sqlite` at app-provided database paths, while Nostr relays, Esplora, mints and
 other configured services are external. Workspace crates are libraries; no crate defines a
 binary.
@@ -50,9 +50,10 @@ checklist asks for both.
 ## Key Patterns
 
 * **Native Flutter is the supported SDK boundary.** `bcr-ebill-flutter-ffi` is the
-  consumer-facing Rust crate and uses `flutter_rust_bridge`/Cargokit to expose the SDK to
-  Flutter. `ServiceTraitBounds` is `Send + Sync`; do not add wasm32- or browser-specific
-  compatibility code unless the project explicitly restores that target.
+  consumer-facing Rust crate and uses `flutter_rust_bridge` and a Dart build hook
+  (`hook/build.dart`, native assets) to expose the SDK to Flutter. `ServiceTraitBounds`
+  is `Send + Sync`; do not add wasm32- or browser-specific compatibility code unless the
+  project explicitly restores that target.
 * **`protocol/` types are the wire format.** Blocks are borsh-serialised, hashed and
   Schnorr-signed, so a field change alters hashes other clients already verify. Chains are
   append-only (`Blockchain::try_add_block`, no removal) and every inbound block is re-validated

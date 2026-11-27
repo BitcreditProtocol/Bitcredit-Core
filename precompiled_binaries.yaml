@@ -1,0 +1,9 @@
+# Signed precompiled binaries of crates/bcr-ebill-flutter-ffi, published by
+# .github/workflows/cd_precompiled.yml and downloaded by hook/build.dart.
+
+# Release download URL up to the crate hash.
+url_prefix: https://github.com/BitcreditProtocol/Bitcredit-Core/releases/download/precompiled_
+
+# Ed25519 key that verifies each binary's .sig; the private half is the
+# PRECOMPILED_BINARIES_SIG_PRIVATE_KEY secret.
+public_key: fb552915810da81e4bafb55439bcea9de44d9204f72116357d875c554ab6bb8e

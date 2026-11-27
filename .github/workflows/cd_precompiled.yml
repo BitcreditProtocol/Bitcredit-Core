@@ -14,7 +14,9 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CARGO_NET_GIT_FETCH_WITH_CLI: "true"
-  # Flutter's default ndkVersion (FlutterExtension.kt, Flutter 3.44), so
+  # The build hook honours CARGO_TARGET_DIR; keep it where rust-cache looks.
+  CARGO_TARGET_DIR: ${{ github.workspace }}/target
+  # Flutter's default ndkVersion (FlutterExtension.kt, Flutter 3.50), so
   # precompiled and locally built binaries use the same NDK. The Android step
   # installs it, since runner images drop older NDKs.
   ANDROID_NDK_VERSION: "28.2.13676358"
@@ -30,8 +32,8 @@ jobs:
 
     environment: release-precompiled
 
-    # One job per target, all in parallel. Cargokit tolerates the jobs racing
-    # to create the shared precompiled_<hash> release.
+    # One job per target, all in parallel. tool/precompile_binaries.dart
+    # tolerates the jobs racing to create the shared precompiled_<hash> release.
     strategy:
       fail-fast: false
       matrix:
@@ -41,7 +43,6 @@ jobs:
           - { platform: ios, os: macos-latest, target: x86_64-apple-ios }
           - { platform: android, os: ubuntu-latest, target: armv7-linux-androideabi }
           - { platform: android, os: ubuntu-latest, target: aarch64-linux-android }
-          - { platform: android, os: ubuntu-latest, target: i686-linux-android }
           - { platform: android, os: ubuntu-latest, target: x86_64-linux-android }
           - { platform: macos, os: macos-latest, target: aarch64-apple-darwin }
           - { platform: macos, os: macos-latest, target: x86_64-apple-darwin }
@@ -65,15 +66,22 @@ jobs:
         with:
           prefix-key: ebill-flutter-ffi-precompiled-${{ matrix.target }}
 
-      - name: Precompile iOS
-        if: matrix.platform == 'ios'
-        working-directory: cargokit/build_tool
-        run: |
-          echo "Deployment target: $IPHONEOS_DEPLOYMENT_TARGET"
-          rustc --target "$TARGET" --print deployment-target
+      - name: Fetch tool dependencies
+        working-directory: tool
+        # This job holds the signing key: fail rather than resolve packages
+        # other than the ones in the committed tool/pubspec.lock.
+        run: dart pub get --enforce-lockfile
 
-          dart run build_tool precompile-binaries -v \
-            --manifest-dir=../../crates/bcr-ebill-flutter-ffi \
+      # Each step builds the target with the build hook's own builder
+      # (hook/src), signs it and uploads it to the precompiled_<crate hash>
+      # release. The Rust toolchain and targets come from
+      # crates/bcr-ebill-flutter-ffi/rust-toolchain.toml; the hook sets the
+      # iOS/macOS deployment targets and the Android API level.
+      - name: Precompile iOS and macOS
+        if: contains(fromJSON('["ios", "macos"]'), matrix.platform)
+        working-directory: tool
+        run: |
+          dart run precompile_binaries.dart \
             --repository="$GITHUB_REPOSITORY" \
             --target-commitish="$GITHUB_SHA" \
             --prerelease \
@@ -82,26 +90,21 @@ jobs:
           TARGET: ${{ matrix.target }}
           GITHUB_TOKEN: ${{ github.token }}
           PRIVATE_KEY: ${{ secrets.PRECOMPILED_BINARIES_SIG_PRIVATE_KEY }}
-          IPHONEOS_DEPLOYMENT_TARGET: "13.0"
 
       - name: Precompile Android
         if: matrix.platform == 'android'
-        working-directory: cargokit/build_tool
+        working-directory: tool
         run: |
           android_sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
           echo "NDK Version: $ANDROID_NDK_VERSION"
-          # cargokit's precompile-binaries never installs a missing NDK (it has
-          # no javaHome), so install it here; a no-op when already present.
+          # Runner images drop older NDKs; a no-op when already present.
           "$android_sdk/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$ANDROID_NDK_VERSION"
 
-          dart run build_tool precompile-binaries -v \
-            --manifest-dir=../../crates/bcr-ebill-flutter-ffi \
+          dart run precompile_binaries.dart \
             --repository="$GITHUB_REPOSITORY" \
             --target-commitish="$GITHUB_SHA" \
             --prerelease \
-            --android-sdk-location="$android_sdk" \
-            --android-ndk-version="$ANDROID_NDK_VERSION" \
-            --android-min-sdk-version=27 \
+            --android-ndk="$android_sdk/ndk/$ANDROID_NDK_VERSION" \
             --target="$TARGET"
         env:
           TARGET: ${{ matrix.target }}
@@ -109,12 +112,11 @@ jobs:
           PRIVATE_KEY: ${{ secrets.PRECOMPILED_BINARIES_SIG_PRIVATE_KEY }}
 
       - name: Precompile desktop
-        if: contains(fromJSON('["macos", "windows", "linux"]'), matrix.platform)
-        working-directory: cargokit/build_tool
+        if: contains(fromJSON('["windows", "linux"]'), matrix.platform)
+        working-directory: tool
         shell: bash
         run: |
-          dart run build_tool precompile-binaries -v \
-            --manifest-dir=../../crates/bcr-ebill-flutter-ffi \
+          dart run precompile_binaries.dart \
             --repository="$GITHUB_REPOSITORY" \
             --target-commitish="$GITHUB_SHA" \
             --prerelease \
@@ -123,5 +125,3 @@ jobs:
           TARGET: ${{ matrix.target }}
           GITHUB_TOKEN: ${{ github.token }}
           PRIVATE_KEY: ${{ secrets.PRECOMPILED_BINARIES_SIG_PRIVATE_KEY }}
-          # Flutter's minimum macOS version; matches macos/ebill_flutter_ffi.podspec.
-          MACOSX_DEPLOYMENT_TARGET: "10.15"
