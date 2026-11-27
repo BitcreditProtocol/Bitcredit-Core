@@ -229,27 +229,15 @@ fn event_description(event_type: &BillEventType) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
-    use bcr_ebill_core::{protocol::PublicKey, protocol::Sum, protocol::event::ActionType};
-    use mockall::predicate::{always, eq};
-
     use crate::handler::{
         MockBillChainEventProcessorApi,
         test_utils::{MockNotificationStore, MockPushService, get_test_nostr_event},
     };
+    use bcr_ebill_core::{protocol::PublicKey, protocol::Sum, protocol::event::ActionType};
+    use mockall::predicate::{always, eq};
+    use std::str::FromStr;
 
     use super::*;
-
-    #[tokio::test]
-    async fn test_create_event_handler() {
-        let (notification_store, push_service, chain_store) = create_mocks();
-        BillActionEventHandler::new(
-            Arc::new(notification_store),
-            Arc::new(push_service),
-            Arc::new(chain_store),
-        );
-    }
 
     #[tokio::test]
     async fn test_fails_to_add_notification_for_unknown_chain() {

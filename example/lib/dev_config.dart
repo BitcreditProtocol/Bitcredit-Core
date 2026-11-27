@@ -35,10 +35,14 @@ const testnetSpec = DevInstanceSpec(
   nostrRelays: [
     'wss://relay.wildcat0.clowder-dev.minibill.tech',
     'wss://relay.wildcat1.clowder-dev.minibill.tech',
+    // 'ws://localhost:8080',
+    // 'ws://localhost:8081',
   ],
   blossomServers: [
     'https://relay.wildcat0.clowder-dev.minibill.tech',
     'https://relay.wildcat1.clowder-dev.minibill.tech',
+    // 'http://localhost:8080',
+    // 'http://localhost:8081',
   ],
   defaultMintUrl:
       'https://mint.wildcat0.clowder-dev.minibill.tech',
@@ -182,6 +186,13 @@ class DevEnvironment {
       '${DateTime.now().toUtc().toIso8601String()}\n',
       flush: true,
     );
+  }
+
+  Future<void> clearSqliteDatabase() async {
+    final sqliteDir = sqliteDbFile.parent;
+    if (await sqliteDir.exists()) {
+      await sqliteDir.delete(recursive: true);
+    }
   }
 
   EbillConfig toConfig() => EbillConfig(

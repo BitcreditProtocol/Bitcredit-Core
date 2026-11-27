@@ -1,4 +1,4 @@
-use crate::{Result, handler::public_chain_helpers::EventContainer};
+use crate::Result;
 use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_api::service::transport_service::ResyncMode;
@@ -15,34 +15,35 @@ use mockall::automock;
 use super::EventType;
 
 mod bill_action_event_handler;
-mod bill_chain_event_handler;
 mod bill_chain_event_processor;
 mod bill_invite_handler;
-mod company_chain_event_handler;
 mod company_chain_event_processor;
 mod company_invite_handler;
 mod contact_share_handler;
 mod direct_message_event_processor;
 mod file_metadata_processor;
-mod identity_chain_event_handler;
 mod identity_chain_event_processor;
 mod inbound_file_anchor;
+mod incoming_chain_application;
 mod nostr_contact_processor;
 pub(crate) mod public_chain_helpers;
 mod restore;
 
 pub use bill_action_event_handler::BillActionEventHandler;
-pub use bill_chain_event_handler::BillChainEventHandler;
 pub use bill_chain_event_processor::BillChainEventProcessor;
 pub use bill_invite_handler::BillInviteEventHandler;
-pub use company_chain_event_handler::CompanyChainEventHandler;
 pub use company_chain_event_processor::CompanyChainEventProcessor;
 pub use company_invite_handler::CompanyInviteEventHandler;
 pub use contact_share_handler::ContactShareEventHandler;
 pub use direct_message_event_processor::DirectMessageEventProcessor;
 pub use file_metadata_processor::{FileMetadataProcessor, FileMetadataProcessorApi};
-pub use identity_chain_event_handler::IdentityChainEventHandler;
 pub use identity_chain_event_processor::IdentityChainEventProcessor;
+#[cfg(test)]
+pub use incoming_chain_application::MockIncomingChainApplicationApi;
+pub use incoming_chain_application::{
+    IncomingChainApplication, IncomingChainApplicationApi, IncomingChainApplyResult,
+    IncomingChainDependency,
+};
 pub use nostr_contact_processor::NostrContactProcessor;
 pub use restore::RestoreAccountService;
 
@@ -74,15 +75,6 @@ pub trait NotificationHandlerApi: ServiceTraitBounds {
 #[cfg_attr(test, automock)]
 #[async_trait]
 pub trait BillChainEventProcessorApi: ServiceTraitBounds {
-    /// Processes the chain data for given bill id, some blocks and an optional key that will be
-    /// present when we are joining a new chain.
-    async fn process_chain_data(
-        &self,
-        bill_id: &BillId,
-        blocks: Vec<BillBlock>,
-        keys: Option<BcrKeys>,
-    ) -> Result<()>;
-
     /// Validates that a given bill id is relevant for us, and if so also checks that the sender
     /// of the event is part of the chain this event is for.
     async fn validate_chain_event_and_sender(
@@ -90,13 +82,6 @@ pub trait BillChainEventProcessorApi: ServiceTraitBounds {
         bill_id: &BillId,
         sender: nostr::key::PublicKey,
     ) -> Result<bool>;
-
-    /// Resolves the Bill chain blocks from Nostr for the given bill id.
-    async fn resolve_chain(
-        &self,
-        bill_id: &BillId,
-        bill_keys: &BcrKeys,
-    ) -> Result<Vec<Vec<EventContainer>>>;
 
     /// Tries to resync the chain for the given bill id. If `from_nostr` is true, this will try to
     /// find the bill keys and then try to find the chain data from Nostr. Will add all potentially
@@ -110,14 +95,21 @@ pub trait BillChainEventProcessorApi: ServiceTraitBounds {
 
     /// Invalidates the cached bill data for the given bill id.
     async fn invalidate_cache_for_bill(&self, bill_id: &BillId) -> Result<()>;
-    /// Calculates the protocol-valid length of the chain within the given blocks
-    async fn valid_chain_prefix_len(
+    async fn persist_invite_keys(&self, bill_id: &BillId, keys: &BcrKeys) -> Result<()>;
+    /// Applies a verified bill block to a local chain
+    async fn apply_verified_block(
         &self,
         bill_id: &BillId,
-        blocks: &[BillBlock],
+        block: BillBlock,
+        keys: BcrKeys,
+    ) -> Result<IncomingChainApplyResult>;
+    /// Selects a preferred chain continuation
+    async fn preferred_verified_branch(
+        &self,
+        bill_id: &BillId,
+        blocks: &[(usize, BillBlock)],
         keys: &BcrKeys,
-    ) -> Result<usize>;
-    async fn persist_invite_keys(&self, bill_id: &BillId, keys: &BcrKeys) -> Result<()>;
+    ) -> Result<Vec<usize>>;
 }
 
 #[cfg(test)]
@@ -127,35 +119,25 @@ impl ServiceTraitBounds for MockBillChainEventProcessorApi {}
 #[cfg_attr(test, automock)]
 #[async_trait]
 pub trait CompanyChainEventProcessorApi: ServiceTraitBounds {
-    /// Processes the chain data for given bill id, some blocks and an optional key that will be
-    /// present when we are joining a new chain.
-    async fn process_chain_data(
-        &self,
-        node_id: &NodeId,
-        blocks: Vec<CompanyBlock>,
-        keys: Option<BcrKeys>,
-    ) -> Result<()>;
-
-    /// Validates that a given bill id is relevant for us, and if so also checks that the sender
-    /// of the event is part of the chain this event is for.
-    async fn validate_chain_event_and_sender(
-        &self,
-        node_id: &NodeId,
-        sender: nostr::key::PublicKey,
-    ) -> Result<bool>;
-
     /// Tries to resync the chain for the given node id. This will try to find the company keys and
     /// then try to find the chain data for the given company id. Will add all potentially missing
     /// blocks to the chain.
     async fn resync_chain(&self, company_id: &NodeId, mode: ResyncMode) -> Result<()>;
-    /// Calculates the protocol-valid length of the chain within the given blocks
-    async fn valid_chain_prefix_len(
+    async fn persist_invite_keys(&self, company_id: &NodeId, keys: &BcrKeys) -> Result<()>;
+    /// Applies a verified company block to a local chain
+    async fn apply_verified_block(
         &self,
         company_id: &NodeId,
-        blocks: &[CompanyBlock],
+        block: CompanyBlock,
+        keys: BcrKeys,
+    ) -> Result<IncomingChainApplyResult>;
+    /// Selects a preferred chain continuation
+    async fn preferred_verified_branch(
+        &self,
+        company_id: &NodeId,
+        blocks: &[(usize, CompanyBlock)],
         keys: &BcrKeys,
-    ) -> Result<usize>;
-    async fn persist_invite_keys(&self, company_id: &NodeId, keys: &BcrKeys) -> Result<()>;
+    ) -> Result<Vec<usize>>;
 }
 
 #[cfg(test)]
@@ -165,15 +147,6 @@ impl ServiceTraitBounds for MockCompanyChainEventProcessorApi {}
 #[cfg_attr(test, automock)]
 #[async_trait]
 pub trait IdentityChainEventProcessorApi: ServiceTraitBounds {
-    /// Processes the chain data for given bill id, some blocks and an optional key that will be
-    /// present when we are joining a new chain.
-    async fn process_chain_data(
-        &self,
-        node_id: &NodeId,
-        blocks: Vec<IdentityBlock>,
-        keys: Option<BcrKeys>,
-    ) -> Result<()>;
-
     /// Validates that a given bill id is relevant for us, and if so also checks that the sender
     /// of the event is part of the chain this event is for.
     fn validate_chain_event_and_sender(
@@ -185,13 +158,20 @@ pub trait IdentityChainEventProcessorApi: ServiceTraitBounds {
     /// Tries to resync the chain for the primary local identity. This will try to find the chain data for the current identity.
     /// Will add all potentially missing blocks to the chain.
     async fn resync_chain(&self, mode: ResyncMode) -> Result<()>;
-    /// Calculates the protocol-valid length of the chain within the given blocks
-    fn valid_chain_prefix_len(
+    /// Applies a verified identity block to a local chain
+    async fn apply_verified_block(
         &self,
         node_id: &NodeId,
-        blocks: &[IdentityBlock],
+        block: IdentityBlock,
+        keys: BcrKeys,
+    ) -> Result<IncomingChainApplyResult>;
+    /// Selects a preferred chain continuation
+    async fn preferred_verified_branch(
+        &self,
+        node_id: &NodeId,
+        blocks: &[(usize, IdentityBlock)],
         keys: &BcrKeys,
-    ) -> Result<usize>;
+    ) -> Result<Vec<usize>>;
 }
 
 #[cfg(test)]
@@ -201,7 +181,8 @@ impl ServiceTraitBounds for MockIdentityChainEventProcessorApi {}
 #[cfg_attr(test, automock)]
 #[async_trait]
 pub trait DirectMessageEventProcessorApi: ServiceTraitBounds {
-    async fn process_direct_message(&self, event: Box<nostr::event::Event>) -> Result<()>;
+    /// Bounded historical DM recovery pass for all known local signers
+    async fn catch_up_private_events(&self) -> Result<()>;
 }
 
 #[cfg(test)]
@@ -245,124 +226,9 @@ impl NotificationHandlerApi for LoggingEventHandler {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use bcr_ebill_core::protocol::event::BillEventType;
-    use bcr_ebill_core::protocol::event::Event;
-    use borsh::{BorshDeserialize, BorshSerialize};
-    use std::str::FromStr;
-    use tokio::sync::Mutex;
-
-    use crate::handler::test_utils::get_test_nostr_event;
-
-    use super::*;
-
-    #[tokio::test]
-    async fn test_event_handling() {
-        let accepted_event = EventType::Bill;
-
-        // given a handler that accepts the event type
-        let event_handler: TestEventHandler<TestEventPayload> =
-            TestEventHandler::new(Some(accepted_event.to_owned()));
-
-        // event type should be accepted
-        assert!(event_handler.handles_event(&accepted_event));
-
-        // given an event and encode it to an envelope
-        let event = create_test_event(&BillEventType::BillPaid);
-        let envelope: EventEnvelope = event.clone().try_into().unwrap();
-        let nostr_event = Box::new(get_test_nostr_event());
-
-        // handler should run successfully
-        event_handler
-            .handle_event(
-                envelope,
-                &NodeId::from_str(
-                    "bitcrt02295fb5f4eeb2f21e01eaf3a2d9a3be10f39db870d28f02146130317973a40ac0",
-                )
-                .unwrap(),
-                None,
-                Some(nostr_event),
-            )
-            .await
-            .expect("event was not handled");
-
-        // handler should have been invoked
-        let called = event_handler.called.lock().await;
-        assert!(*called, "event was not handled");
-
-        // and the event should have been received
-        let received = event_handler.received_event.lock().await.clone().unwrap();
-        assert_eq!(event.data, received.data, "handled payload was not correct");
-    }
-
-    #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
-    struct TestEventPayload {
-        pub event_type: BillEventType,
-        pub foo: String,
-        pub bar: u32,
-    }
-
-    struct TestEventHandler<T: BorshSerialize + BorshDeserialize> {
-        pub called: Mutex<bool>,
-        pub received_event: Mutex<Option<Event<T>>>,
-        pub accepted_event: Option<EventType>,
-    }
-
-    impl<T: BorshSerialize + BorshDeserialize + Send + Sync> ServiceTraitBounds
-        for TestEventHandler<T>
-    {
-    }
-
-    impl<T: BorshSerialize + BorshDeserialize> TestEventHandler<T> {
-        pub fn new(accepted_event: Option<EventType>) -> Self {
-            Self {
-                called: Mutex::new(false),
-                received_event: Mutex::new(None),
-                accepted_event,
-            }
-        }
-    }
-
-    #[async_trait]
-    impl NotificationHandlerApi for TestEventHandler<TestEventPayload> {
-        fn handles_event(&self, event_type: &EventType) -> bool {
-            match &self.accepted_event {
-                Some(e) => e == event_type,
-                None => true,
-            }
-        }
-
-        async fn handle_event(
-            &self,
-            event: EventEnvelope,
-            _: &NodeId,
-            _: Option<nostr::key::PublicKey>,
-            _: Option<Box<nostr::event::Event>>,
-        ) -> Result<()> {
-            *self.called.lock().await = true;
-            let event: Event<TestEventPayload> = event.try_into()?;
-            *self.received_event.lock().await = Some(event);
-            Ok(())
-        }
-    }
-
-    fn create_test_event_payload(event_type: &BillEventType) -> TestEventPayload {
-        TestEventPayload {
-            event_type: event_type.clone(),
-            foo: "foo".to_string(),
-            bar: 42,
-        }
-    }
-
-    fn create_test_event(event_type: &BillEventType) -> Event<TestEventPayload> {
-        Event::new(EventType::Bill, create_test_event_payload(event_type))
-    }
-}
-
 #[allow(dead_code)]
 #[cfg(test)]
-mod test_utils {
+pub mod test_utils {
     use async_trait::async_trait;
     use bcr_common::cashu::{self};
     use bcr_common::core::{BillId, NodeId};
@@ -390,7 +256,7 @@ mod test_utils {
     };
     use bcr_ebill_core::protocol::{
         Address, BlockId, City, Country, Date, Email, Identification, Name, OptionalPostalAddress,
-        PostalAddress, PublicKey, SecretKey, Sum, Timestamp,
+        PostalAddress, SecretKey, Sum, Timestamp,
         blockchain::bill::participant::{BillIdentParticipant, BillParticipant},
         blockchain::{
             BlockchainType,
@@ -408,7 +274,9 @@ mod test_utils {
         BitcoinAddress, EditOptionalFieldMode, EmailIdentityProofData, Sha256Hash,
         SignedIdentityProof, blockchain::bill::BillToShareWithExternalParty,
     };
-    use bcr_ebill_persistence::traits::propagation::PreparedPropagation;
+    use bcr_ebill_persistence::traits::propagation::{
+        IncomingPropagationStoreApi, PreparedPropagation,
+    };
     use bcr_ebill_persistence::traits::transaction::{
         BillTransactionApi, CompanyTransactionApi, IdentityTransactionApi,
         NostrChainEventTransactionApi, NostrPropagationTransactionApi, PersistenceTransactionApi,
@@ -423,6 +291,9 @@ mod test_utils {
             NostrChainEvent, NostrContactStoreApi, PendingContactShare, RelaySyncStatus, SyncStatus,
         },
         traits::notification::NotificationFilter,
+        traits::propagation::{
+            ApplicationWaitReason, IncomingChainCandidate, IncomingChainQueueStatus,
+        },
     };
     use mockall::mock;
     use nostr::event::{EventBuilder, FinalizeEvent};
@@ -482,6 +353,64 @@ mod test_utils {
                 block_id: BlockId,
                 previous_block_hash: &Sha256Hash,
             ) -> bcr_ebill_api::external::mint::Result<()>;
+        }
+    }
+
+    mockall::mock! {
+        pub IncomingPropagationStore {}
+
+        impl ServiceTraitBounds for IncomingPropagationStore {}
+
+        #[async_trait]
+        impl IncomingPropagationStoreApi for IncomingPropagationStore {
+            async fn upsert_candidate(
+                &self,
+                candidate: &IncomingChainCandidate,
+                first_try_at: Timestamp,
+            ) -> Result<()>;
+            async fn get_due_candidates(
+                &self,
+                now: Timestamp,
+                limit: u64,
+            ) -> Result<Vec<IncomingChainCandidate>>;
+            async fn mark_applied(&self, event_id: &str) -> Result<()>;
+            async fn mark_pending_retry(
+                &self,
+                event_id: &str,
+                next_try_at: Timestamp,
+                reason: &str,
+            ) -> Result<()>;
+            async fn mark_rejected(&self, event_id: &str, reason: &str) -> Result<()>;
+            async fn mark_verified(
+                &self,
+                event_id: &str,
+                verified_at: Timestamp,
+                confirmed_relays: &[url::Url],
+            ) -> Result<()>;
+            async fn get_verified_candidates(&self, now: Timestamp, limit: u64) -> Result<Vec<IncomingChainCandidate>>;
+            async fn mark_application_deferred(
+                &self,
+                event_id: &str,
+                next_try_at: Option<Timestamp>,
+                reason: ApplicationWaitReason,
+                error: &str,
+            ) -> Result<()>;
+            async fn wake_application_for_keys(&self, chain_type: &str, chain_id: &str) -> Result<()>;
+            async fn wake_application_for_predecessor(
+                &self,
+                chain_type: &str,
+                chain_id: &str,
+            ) -> Result<()>;
+            async fn get_chain_queue_status(
+                &self,
+                chain_type: &str,
+                chain_id: &str,
+            ) -> Result<IncomingChainQueueStatus>;
+            async fn get_verified_candidates_for_chain(
+                &self,
+                chain_type: &str,
+                chain_id: &str,
+            ) -> Result<Vec<IncomingChainCandidate>>;
         }
     }
 
@@ -610,6 +539,7 @@ mod test_utils {
                 op_code: std::collections::HashSet<BillOpCode> ,
                 since: Timestamp,
             ) -> Result<Vec<BillId>>;
+            async fn get_key_ids(&self) -> Result<Vec<BillId>>;
         }
     }
 
@@ -722,6 +652,7 @@ mod test_utils {
             ) -> Result<()>;
             async fn delete_local_signatory_override(&self, id: &NodeId, signatory: &NodeId) -> Result<()>;
             async fn get_active_company_invites(&self) -> Result<HashMap<NodeId, (Company, BcrKeys)>>;
+            async fn get_key_ids(&self) -> Result<Vec<NodeId>>;
         }
     }
 
@@ -1189,15 +1120,8 @@ mod test_utils {
         }
     }
 
-    // bitcrt285psGq4Lz4fEQwfM3We5HPznJq8p1YvRaddszFaU5dY
     pub fn bill_id_test() -> BillId {
-        BillId::new(
-            PublicKey::from_str(
-                "026423b7d36d05b8d50a89a1b4ef2a06c88bcd2c5e650f25e122fa682d3b39686c",
-            )
-            .unwrap(),
-            bitcoin::Network::Testnet,
-        )
+        BillId::new(get_bill_keys().pub_key(), bitcoin::Network::Testnet)
     }
 
     pub fn private_key_test() -> SecretKey {

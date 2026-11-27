@@ -1,8 +1,9 @@
 use crate::sql::company::{
     CompanyRow, CompanySignatoryRow, DELETE_LOCAL_OVERRIDE, EXISTS, INSERT_KEY,
     LocalSignatoryOverrideRow, SEARCH, SELECT_COMPANIES_WITH_KEYS_BY_STATUS, SELECT_COMPANY,
-    SELECT_EMAIL_CONFIRMATIONS, SELECT_KEY, SELECT_LOCAL_OVERRIDES, SELECT_SIGNATORIES,
-    UPSERT_EMAIL_CONFIRMATION, UPSERT_LOCAL_OVERRIDE, company_from_row, company_key_pair_from_db,
+    SELECT_COMPANY_KEY_IDS, SELECT_EMAIL_CONFIRMATIONS, SELECT_KEY, SELECT_LOCAL_OVERRIDES,
+    SELECT_SIGNATORIES, UPSERT_EMAIL_CONFIRMATION, UPSERT_LOCAL_OVERRIDE, company_from_row,
+    company_key_pair_from_db,
 };
 use crate::sql::identity::{
     EmailConfirmationRow, email_confirmation_from_row, email_confirmation_to_row,
@@ -239,6 +240,13 @@ impl CompanyStoreApi for PostgresCompanyStore {
 
     async fn get_active_company_invites(&self) -> Result<HashMap<NodeId, (Company, BcrKeys)>> {
         self.get_all_filter_for_status(CompanyStatus::Invited).await
+    }
+
+    async fn get_key_ids(&self) -> Result<Vec<NodeId>> {
+        let ids: Vec<Text<NodeId>> = sqlx::query_scalar(SELECT_COMPANY_KEY_IDS)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(ids.into_iter().map(Text::into_inner).collect())
     }
 }
 

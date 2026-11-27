@@ -1,7 +1,6 @@
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_api::external::email::EmailClientApi;
 use bcr_ebill_api::service::contact_service::ContactServiceApi;
-use bcr_ebill_api::service::transport_service::NostrConfig;
 use bcr_ebill_api::service::transport_service::transport_client::TransportClientApi;
 use bcr_ebill_api::{Config, CourtConfig, DevModeConfig};
 use bcr_ebill_core::protocol::Address;
@@ -34,7 +33,6 @@ use bcr_ebill_core::{
             block::ContactType,
             participant::{BillIdentParticipant, BillParticipant},
         },
-        company::{CompanyBlockchain, block::CompanyCreateBlockData},
         identity::{IdentityBlockchain, IdentityCreateBlockData, IdentityType},
     },
     protocol::event::{ActionType, BillEventType},
@@ -43,7 +41,8 @@ use bcr_ebill_core::{
 use bcr_ebill_persistence::traits::nostr::{NostrContactStoreApi, RelaySyncStatus, SyncStatus};
 use bcr_ebill_persistence::traits::notification::NotificationFilter;
 use bcr_ebill_persistence::traits::propagation::{
-    NostrPropagationStoreApi, PendingDelivery, PropagationStatus, PropagationSubjectType,
+    IncomingChainQueueStatus, NostrPropagationStoreApi, PendingDelivery, PropagationStatus,
+    PropagationSubjectType,
 };
 use bcr_ebill_persistence::{
     ContactStoreApi, DbConfig, FileReferenceStoreApi, NostrChainEventStoreApi,
@@ -55,8 +54,6 @@ use nostr_relay_builder::MockRelay;
 use crate::NostrTransportService;
 use crate::chain_keys::ChainKeyServiceApi;
 use crate::handler::{FileMetadataProcessorApi, NotificationHandlerApi};
-
-use super::nostr::NostrClient;
 use serde::Serialize;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -76,17 +73,7 @@ use async_trait::async_trait;
 use bitcoin::secp256k1::{PublicKey, SecretKey};
 use serde::Deserialize;
 use std::collections::HashMap;
-use tokio::sync::Mutex;
 use uuid::Uuid;
-
-#[allow(dead_code)]
-pub const NOSTR_KEY1: &str = "nsec1gr9hfpprzn0hs5xymm0h547f6nt9x2270cy9chyzq3leprnzr2csprwlds";
-#[allow(dead_code)]
-pub const NOSTR_KEY2: &str = "nsec1aqz0hckc4wmrzzucqp4cx89528qu6g8deez9m32p2x7ka5c6et8svxt0q3";
-#[allow(dead_code)]
-pub const NOSTR_NPUB1: &str = "npub1c504lwrnmrt7atmnxxlf54rw3pxjhjv3455h3flnham3hsgjcs0qjk962x";
-#[allow(dead_code)]
-pub const NOSTR_NPUB2: &str = "npub1zax8v4hasewaxducdn89clqwmv4dp84r6vgpls5j5xg6f7xda3fqh2sg75";
 
 #[derive(
     borsh::BorshSerialize,
@@ -102,22 +89,6 @@ pub struct TestEventPayload {
     pub event_type: BillEventType,
     pub foo: String,
     pub bar: u32,
-}
-
-pub struct TestEventHandler<T: borsh::BorshSerialize + borsh::BorshDeserialize> {
-    pub called: Mutex<bool>,
-    pub received_event: Mutex<Option<Event<T>>>,
-    pub accepted_event: Option<EventType>,
-}
-
-impl<T: borsh::BorshSerialize + borsh::BorshDeserialize> TestEventHandler<T> {
-    pub fn new(accepted_event: Option<EventType>) -> Self {
-        Self {
-            called: Mutex::new(false),
-            received_event: Mutex::new(None),
-            accepted_event,
-        }
-    }
 }
 
 pub fn test_cfg() -> Config {
@@ -151,34 +122,6 @@ pub fn test_cfg() -> Config {
         court_config: CourtConfig {
             default_url: url::Url::parse("https://court-dev.minibill.tech").unwrap(),
         },
-    }
-}
-
-impl<T: borsh::BorshSerialize + borsh::BorshDeserialize + Send + Sync> ServiceTraitBounds
-    for TestEventHandler<T>
-{
-}
-
-#[async_trait]
-impl NotificationHandlerApi for TestEventHandler<TestEventPayload> {
-    fn handles_event(&self, event_type: &EventType) -> bool {
-        match &self.accepted_event {
-            Some(e) => e == event_type,
-            None => true,
-        }
-    }
-
-    async fn handle_event(
-        &self,
-        event: EventEnvelope,
-        _: &NodeId,
-        _: Option<nostr::key::PublicKey>,
-        _: Option<Box<nostr::event::Event>>,
-    ) -> Result<()> {
-        *self.called.lock().await = true;
-        let event: Event<TestEventPayload> = event.try_into()?;
-        *self.received_event.lock().await = Some(event);
-        Ok(())
     }
 }
 
@@ -400,35 +343,6 @@ pub fn get_test_identity_chain_event() -> IdentityChainEvent {
     IdentityChainEvent::new(&identity.identity.node_id, &block, &identity.key_pair)
 }
 
-pub fn get_test_company_chain_event() -> CompanyChainEvent {
-    let identity_keys = BcrKeys::new();
-    let company_keys = BcrKeys::new();
-    let company_id = NodeId::new(company_keys.pub_key(), bitcoin::Network::Testnet);
-    let creator_id = NodeId::new(identity_keys.pub_key(), bitcoin::Network::Testnet);
-    let company_data = CompanyCreateBlockData {
-        id: company_id.clone(),
-        name: Name::new("Test Company").unwrap(),
-        country_of_registration: Some(Country::AT),
-        city_of_registration: Some(City::new("Vienna").unwrap()),
-        postal_address: PostalAddress {
-            country: Country::AT,
-            city: City::new("Vienna").unwrap(),
-            zip: None,
-            address: Address::new("Some address").unwrap(),
-        },
-        email: Email::new("test@example.com").unwrap(),
-        registration_number: None,
-        registration_date: None,
-        proof_of_registration_file: None,
-        logo_file: None,
-        creation_time: test_ts(),
-        creator: creator_id,
-    };
-    let chain = CompanyBlockchain::new(&company_data, &identity_keys, &company_keys, test_ts())
-        .expect("failed to create company chain");
-    CompanyChainEvent::new(&company_id, &chain, &company_keys, None, true)
-}
-
 pub fn node_id_test_other2() -> NodeId {
     NodeId::from_str("bitcrt039180c169e5f6d7c579cf1cefa37bffd47a2b389c8125601f4068c87bea795943")
         .unwrap()
@@ -436,42 +350,6 @@ pub fn node_id_test_other2() -> NodeId {
 
 pub async fn get_mock_relay() -> MockRelay {
     MockRelay::run().await.expect("could not create mock relay")
-}
-
-pub async fn get_mock_nostr_client() -> NostrClient {
-    let relay = get_mock_relay().await;
-    let url = url::Url::parse(&relay.url().await.to_string()).unwrap();
-    let keys = BcrKeys::new();
-
-    let config = NostrConfig::new(
-        keys.clone(),
-        vec![url],
-        vec![],
-        true,
-        NodeId::new(keys.pub_key(), bitcoin::Network::Testnet),
-    );
-    NostrClient::default(&config)
-        .await
-        .expect("could not create mock nostr client")
-}
-
-pub fn as_contact(id: &BillIdentParticipant) -> Contact {
-    Contact {
-        t: id.t.clone(),
-        node_id: id.node_id.clone(),
-        name: id.name.to_owned(),
-        email: id.email.clone(),
-        postal_address: Some(id.postal_address.clone()),
-        nostr_relays: id.nostr_relays.clone(),
-        identification_number: None,
-        avatar_file: None,
-        proof_document_file: None,
-        date_of_birth_or_registration: None,
-        country_of_birth_or_registration: None,
-        city_of_birth_or_registration: None,
-        is_logical: false,
-        mint_url: None,
-    }
 }
 
 pub fn get_nostr_transport(
@@ -522,6 +400,17 @@ mockall::mock! {
         async fn prepare_bill_chain_event(&self, events: &BillChainEvent) -> Result<Option<NostrChainEvent>>;
         async fn prepare_bill_chain_invites(&self, events: &BillChainEvent) -> Result<Vec<PreparedPropagationMessage>>;
         async fn prepare_company_chain_invites(&self, events: &CompanyChainEvent) -> Result<Vec<PreparedPropagationMessage>>;
+        async fn get_incoming_bill_queue_status(
+            &self,
+            bill_id: &BillId,
+        ) -> Result<IncomingChainQueueStatus>;
+        async fn get_incoming_company_queue_status(
+            &self,
+            company_id: &NodeId,
+        ) -> Result<IncomingChainQueueStatus>;
+        async fn get_incoming_identity_queue_status(
+            &self,
+        ) -> Result<IncomingChainQueueStatus>;
     }
 }
 
@@ -637,7 +526,6 @@ mockall::mock! {
         async fn resolve_contact(&self, node_id: &NodeId) -> Result<Option<NostrContactData>>;
         async fn resolve_public_chain(&self, id: &str, chain_type: BlockchainType) -> Result<Vec<nostr::event::Event>>;
         async fn add_contact_subscription(&self, contact: &NodeId) -> Result<()>;
-        async fn resolve_private_events(&self, filter: nostr::filter::Filter) -> Result<Vec<nostr::event::Event>>;
         async fn resolve_events(&self, filter: nostr::filter::Filter) -> Result<Vec<nostr::event::Event>>;
         async fn try_decrypt_private_event(&self, event: &nostr::event::Event) -> Result<Option<(NodeId, EventEnvelope, nostr::key::PublicKey)>>;
         async fn publish_metadata(&self, node_id: &NodeId, data: &nostr::nips::nip01::Metadata) -> Result<()>;
@@ -661,6 +549,18 @@ mockall::mock! {
         ) -> Result<bcr_ebill_api::service::transport_service::transport_client::PreparedPrivateNostrEvent>;
         async fn send_signed_event_to_relay(&self, event: &nostr::event::Event, relay: &url::Url) -> Result<()>;
         async fn writable_relay_urls(&self) -> Result<Vec<url::Url>>;
+        async fn event_available_on_relay(&self, event_id: nostr::event::EventId, relay: &url::Url) -> Result<bool>;
+        async fn has_connected_read_relay(&self) -> bool;
+        async fn fetch_event_from_relay(
+            &self,
+            event_id: nostr::event::EventId,
+            relay: &url::Url,
+        ) -> Result<Option<nostr::event::Event>>;
+        async fn fetch_events_from_relay(
+            &self,
+            filter: nostr::filter::Filter,
+            relay: &url::Url,
+        ) -> Result<Vec<nostr::event::Event>>;
     }
 }
 
@@ -816,6 +716,11 @@ mockall::mock! {
             chain_id: &str,
             chain_type: BlockchainType,
         ) -> bcr_ebill_api::service::transport_service::Result<Option<BcrKeys>>;
+        async fn list_known_chains(
+            &self,
+        ) -> bcr_ebill_api::service::transport_service::Result<
+            Vec<crate::chain_keys::KnownChain>
+            >;
     }
 }
 
@@ -829,6 +734,26 @@ mockall::mock! {
         async fn current_offset(&self, node_id: &NodeId) -> bcr_ebill_persistence::Result<Timestamp>;
         async fn is_processed(&self, event_id: &str) -> bcr_ebill_persistence::Result<bool>;
         async fn add_event(&self, data: bcr_ebill_persistence::NostrEventOffset) -> bcr_ebill_persistence::Result<()>;
+        async fn get_catchup_until(
+            &self,
+            scope: &str,
+            subject_id: &str,
+            relay: &url::Url,
+        ) -> bcr_ebill_persistence::Result<Option<u64>>;
+        async fn set_catchup_until(
+            &self,
+            scope: &str,
+            subject_id: &str,
+            relay: &url::Url,
+            until: Option<u64>,
+        ) -> bcr_ebill_persistence::Result<()>;
+        async fn ignore_private_event(
+            &self,
+            event_id: &str,
+            time: Timestamp,
+            node_id: &NodeId,
+            reason: &str,
+        ) -> bcr_ebill_persistence::Result<()>;
     }
 }
 

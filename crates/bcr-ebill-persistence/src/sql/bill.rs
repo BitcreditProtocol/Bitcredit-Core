@@ -246,6 +246,11 @@ pub(crate) const BILLS_WITH_LATEST_OP_CODE: &str = r#"
       )
 "#;
 
+pub(crate) const GET_BILL_KEY_IDS: &str = r#"
+    SELECT bill_id
+    FROM bill_keys
+"#;
+
 // cache models
 #[derive(Debug, FromRow)]
 pub(crate) struct BillCacheRow {

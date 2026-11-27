@@ -1,38 +1,32 @@
+use super::inbound_file_anchor::{anchor_important_file, company_file_context};
+use super::{CompanyChainEventProcessorApi, NostrContactProcessorApi};
+use crate::handler::incoming_chain_application::{
+    BlockPosition, map_remote_block_data_error, preferred_extension, valid_fork_step,
+    validate_remote_plaintext,
+};
+use crate::handler::public_chain_helpers::restore_publishing_metadata;
 use crate::{
     Error, PushApi, Result,
     handler::{
-        NotificationHandlerApi,
+        IncomingChainApplyResult, NotificationHandlerApi,
+        incoming_chain_application::{
+            block_position, classify_verified_application_result, deferred_position,
+            map_block_signer_error, map_chain_action_validation_error,
+            validate_incoming_block_integrity,
+        },
         public_chain_helpers::{
-            BlockData, chain_matches_local, compare_block_chains, find_first_difference,
-            is_fork_block, resolve_event_chains, resolve_fork,
+            BlockData, compare_block_chains, find_first_difference, resolve_event_chains,
         },
     },
 };
 use async_trait::async_trait;
-use bcr_common::core::NodeId;
+use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_api::{
     Config,
-    service::transport_service::{ResyncMode, transport_client::TransportClientApi},
-};
-use bcr_ebill_core::{
-    application::{
-        company::CompanyStatus,
-        contact::Contact,
-        identity::ActiveIdentityState,
-        notification::{Notification, NotificationLevel, NotificationType},
-    },
-    protocol::{
-        EditOptionalFieldMode, EmailIdentityProofData, File, SignedIdentityProof, Timestamp,
-        Validate,
-        blockchain::{Block, bill::ContactType, company::CompanyValidateActionData},
-        crypto::BcrKeys,
-        event::{ChainInvite, Event},
-        file_reference::FileReferenceContext,
+    service::transport_service::{
+        InvalidIncomingBlock, ResyncMode, transport_client::TransportClientApi,
     },
 };
-use log::{debug, error, info, trace, warn};
-use std::{collections::HashSet, sync::Arc};
-
 use bcr_ebill_core::{
     application::ServiceTraitBounds,
     application::company::{Company, CompanySignatoryStatus},
@@ -43,17 +37,36 @@ use bcr_ebill_core::{
         company::{CompanyBlock, CompanyBlockPayload, CompanyBlockchain},
     },
 };
+use bcr_ebill_core::{
+    application::{
+        contact::Contact,
+        identity::ActiveIdentityState,
+        notification::{Notification, NotificationLevel, NotificationType},
+    },
+    protocol::{
+        EditOptionalFieldMode, EmailIdentityProofData, File, SignedIdentityProof, Timestamp,
+        Validate,
+        blockchain::{
+            Block,
+            bill::ContactType,
+            company::{CompanyOpCode, CompanyValidateActionData},
+        },
+        crypto::BcrKeys,
+        event::{ChainInvite, Event},
+        file_reference::FileReferenceContext,
+    },
+};
 use bcr_ebill_persistence::{
-    ContactStoreApi, FileReferenceStoreApi, NostrChainEventStoreApi, NotificationStoreApi,
+    ContactStoreApi, Error as PersistenceError, FileReferenceStoreApi, NostrChainEventStoreApi,
+    NotificationStoreApi,
     traits::{
         company::{CompanyChainStoreApi, CompanyStoreApi},
         identity::IdentityStoreApi,
         transaction::TransactionManagerApi,
     },
 };
-
-use super::inbound_file_anchor::{anchor_important_file, company_file_context};
-use super::{CompanyChainEventProcessorApi, NostrContactProcessorApi};
+use log::{debug, error, info, trace, warn};
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct CompanyChainEventProcessor {
@@ -107,72 +120,30 @@ struct PreparedCompanyChain {
 
 #[async_trait]
 impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
-    async fn process_chain_data(
-        &self,
-        company_id: &NodeId,
-        blocks: Vec<CompanyBlock>,
-        keys: Option<BcrKeys>,
-    ) -> Result<()> {
-        // check that incoming company blocks are of the same network that we use
-        if company_id.network() != self.bitcoin_network {
-            warn!("Received company blocks for company {company_id} for a different network");
-            return Err(Error::Blockchain(format!(
-                "Received company blocks for company {company_id} for a different network"
-            )));
-        }
-
-        let identity = self
-            .identity_store
-            .get()
-            .await
-            .map_err(|e| Error::Persistence(e.to_string()))?
-            .node_id;
-
-        if let Ok(mut existing_chain) = self.blockchain_store.get_chain(company_id).await {
-            self.add_company_blocks(company_id, &mut existing_chain, blocks, &identity, false)
-                .await
-        } else {
-            match keys {
-                Some(keys) => self.add_new_chain(blocks, &keys, &identity).await,
-                _ => {
-                    error!("Received company blocks for unknown company {company_id}");
-                    Err(Error::Blockchain(
-                        "Received company blocks for unknown company".to_string(),
-                    ))
-                }
-            }
-        }
-    }
-
-    async fn validate_chain_event_and_sender(
-        &self,
-        company_id: &NodeId,
-        sender: nostr::key::PublicKey,
-    ) -> Result<bool> {
-        if let Ok(company) = self
-            .company_store
-            .get(company_id)
-            .await
-            .map_err(|e| Error::Persistence(e.to_string()))
-        {
-            let signers = company
-                .signatories
-                .iter()
-                .map(|s| s.node_id.npub())
-                .collect::<Vec<nostr::key::PublicKey>>();
-            Ok(signers.contains(&sender))
-        } else {
-            Ok(false)
-        }
-    }
-
     async fn resync_chain(&self, company_id: &NodeId, mode: ResyncMode) -> Result<()> {
+        if matches!(mode, ResyncMode::Normal) {
+            return Err(Error::Blockchain(
+                "Normal company resync uses the durable incoming catch-up pipeline".into(),
+            ));
+        }
         match (
             self.blockchain_store.get_chain(company_id).await,
             self.company_store.get_key_pair(company_id).await,
         ) {
             (Ok(existing_chain), Ok(company_keys)) => {
                 debug!("starting company chain resync for company {company_id}");
+                if let ResyncMode::OnlyMissingMetadata { ref up_to_hash } = mode {
+                    return restore_publishing_metadata(
+                        self.transport.as_ref(),
+                        self.chain_event_store.as_ref(),
+                        &company_id.to_string(),
+                        BlockchainType::Company,
+                        &company_keys,
+                        existing_chain.blocks(),
+                        up_to_hash,
+                    )
+                    .await;
+                }
 
                 let expected_local_tip = existing_chain.get_latest_block().clone();
 
@@ -197,114 +168,6 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
                     .await
                     .map_err(|e| Error::Persistence(e.to_string()))?
                     .node_id;
-
-                if let ResyncMode::OnlyMissingMetadata { ref up_to_hash } = mode {
-                    let Some(local_chain_end) = existing_chain
-                        .blocks()
-                        .iter()
-                        .position(|block| block.hash() == up_to_hash)
-                    else {
-                        return Err(Error::Blockchain(format!(
-                            "Could not restore Nostr metadata for company {company_id}: block with hash {up_to_hash} does not exist in the local chain"
-                        )));
-                    };
-                    let local_blocks = &existing_chain.blocks()[..=local_chain_end];
-                    for data in &chain_data {
-                        let blocks: Vec<CompanyBlock> = data
-                            .iter()
-                            .filter_map(|d| match d.block.clone() {
-                                BlockData::Company(block) => Some(block),
-                                _ => None,
-                            })
-                            .collect();
-                        if blocks.is_empty() {
-                            continue;
-                        }
-                        // we're only interested in remote chains with the same blocks we have locally
-                        if !chain_matches_local(local_blocks, &blocks) {
-                            continue;
-                        }
-
-                        let existing_events = match self
-                            .chain_event_store
-                            .find_chain_events(&company_id.to_string(), BlockchainType::Company)
-                            .await
-                        {
-                            Ok(ev) => ev,
-                            Err(e) => {
-                                error!(
-                                    "Failed to fetch chain events for company {company_id}: {e}"
-                                );
-                                return Err(Error::Persistence(format!(
-                                    "Failed to fetch chain events for company {company_id}: {e}"
-                                )));
-                            }
-                        };
-
-                        let existing_block_hashes: HashSet<_> = existing_events
-                            .iter()
-                            .map(|event| event.block_hash.clone())
-                            .collect();
-
-                        let mut events_added = 0;
-                        // match local blocks and event containers - these are guaranteed to match because of
-                        // the chain_matches_local check above
-                        for (local_block, event_container) in
-                            local_blocks
-                                .iter()
-                                .zip(data.iter().filter(|event_container| {
-                                    matches!(event_container.block, BlockData::Company(_))
-                                }))
-                        {
-                            let BlockData::Company(remote_block) = &event_container.block else {
-                                continue;
-                            };
-
-                            // if we have the block as a chain event - continue
-                            if existing_block_hashes.contains(&local_block.hash) {
-                                continue;
-                            }
-
-                            // otherwise, add it
-                            let event = event_container.as_chain_store_event(
-                                &company_id.to_string(),
-                                BlockchainType::Company,
-                                remote_block.id.inner() as usize,
-                            );
-
-                            self.chain_event_store
-                                            .add_chain_event(event)
-                                            .await
-                                            .map_err(|e| {
-                                                error!(
-                                                    "Failed to restore missing chain event for company {company_id}, block {}: {e}",
-                                                    local_block.id
-                                                );
-
-                                                Error::Persistence(format!(
-                                                        "Failed to restore missing chain event for company {company_id}, block {}: {e}",
-                                                        local_block.id
-                                                ))
-                                            })?;
-
-                            events_added += 1;
-                        }
-
-                        if events_added > 0 {
-                            info!(
-                                "Restored {events_added} missing Nostr chain event(s) for company {company_id} up to block hash {up_to_hash}"
-                            );
-                        }
-
-                        return Ok(());
-                    }
-
-                    let message = format!(
-                        "Could not restore Nostr metadata for company {company_id}: no Nostr chain matches the local company chain"
-                    );
-                    error!("{message}");
-                    return Err(Error::Blockchain(message));
-                }
 
                 let mut candidates: Vec<(usize, PreparedCompanyChain, Option<BlockId>)> =
                     Vec::new();
@@ -345,31 +208,14 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
                         continue;
                     }
 
-                    let replace_from = match mode {
-                        ResyncMode::Normal => {
-                            let (is_preferred, fork_point) =
-                                resolve_fork(existing_chain.blocks(), prepared.chain.blocks());
-                            if !is_preferred {
-                                continue;
-                            }
-                            fork_point
-                        }
-                        ResyncMode::NostrAuthoritative => {
-                            let difference = find_first_difference(
-                                existing_chain.blocks(),
-                                prepared.chain.blocks(),
-                            );
-                            if difference == Some(BlockId::first()) {
-                                saw_authoritative_genesis_mismatch = true;
-                                continue;
-                            }
-                            difference
-                        }
-                        ResyncMode::OnlyMissingMetadata { .. } => {
-                            // metadata-only resync handled above
-                            return Ok(());
-                        }
-                    };
+                    let replace_from =
+                        find_first_difference(existing_chain.blocks(), prepared.chain.blocks());
+
+                    if replace_from == Some(BlockId::first()) {
+                        saw_authoritative_genesis_mismatch = true;
+                        continue;
+                    }
+
                     candidates.push((data_index, prepared, replace_from));
                 }
 
@@ -382,15 +228,13 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
                 let Some((selected_data_index, prepared, replace_from)) =
                     candidates.into_iter().next()
                 else {
-                    if matches!(mode, ResyncMode::NostrAuthoritative)
-                        && saw_authoritative_genesis_mismatch
-                    {
+                    if saw_authoritative_genesis_mismatch {
                         return Err(Error::Blockchain(
                             "Nostr-authoritative resync could not find a valid company chain with matching genesis".to_string(),
                         ));
                     }
                     debug!(
-                        "finished company chain resync for {company_id} - no preferred valid remote chain found"
+                        "finished company chain resync for {company_id} - no valid remote chain found"
                     );
 
                     return Ok(());
@@ -543,28 +387,6 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
         }
     }
 
-    async fn valid_chain_prefix_len(
-        &self,
-        company_id: &NodeId,
-        blocks: &[CompanyBlock],
-        keys: &BcrKeys,
-    ) -> Result<usize> {
-        let identity = self
-            .identity_store
-            .get()
-            .await
-            .map_err(|e| Error::Persistence(e.to_string()))?
-            .node_id;
-        let prepared = self.prepare_company_chain_valid_prefix(blocks, keys, &identity)?;
-        if &prepared.company_id != company_id {
-            return Err(Error::Blockchain(format!(
-                "Company chain belongs to {}, expected {}",
-                prepared.company_id, company_id,
-            )));
-        }
-        Ok(prepared.chain.blocks().len())
-    }
-
     async fn persist_invite_keys(&self, company_id: &NodeId, keys: &BcrKeys) -> Result<()> {
         if company_id.network() != self.bitcoin_network
             || *company_id != NodeId::new(keys.pub_key(), self.bitcoin_network)
@@ -586,6 +408,139 @@ impl CompanyChainEventProcessorApi for CompanyChainEventProcessor {
             .await
             .map_err(|e| Error::Persistence(e.to_string()))?;
         Ok(())
+    }
+
+    async fn apply_verified_block(
+        &self,
+        company_id: &NodeId,
+        block: CompanyBlock,
+        keys: BcrKeys,
+    ) -> Result<IncomingChainApplyResult> {
+        if company_id.network() != self.bitcoin_network {
+            return Ok(IncomingChainApplyResult::Rejected(
+                "Company belongs to another network".into(),
+            ));
+        }
+        if &block.company_id != company_id {
+            return classify_verified_application_result(Err(
+                InvalidIncomingBlock::WrongChain.into()
+            ));
+        }
+        if let Err(e) = validate_incoming_block_integrity(&block) {
+            return classify_verified_application_result(Err(e));
+        }
+        // get chain
+        let existing = match self.blockchain_store.get_chain(company_id).await {
+            Ok(chain) => Some(chain),
+            Err(PersistenceError::NoSuchEntity(_, _)) => None,
+            Err(e) => return Err(Error::Persistence(e.to_string())),
+        };
+        // calculate status of the block
+        let position = block_position(existing.as_ref(), &block);
+
+        // replay child-chain recovery effects
+        if position == BlockPosition::AlreadyApplied
+            && block.op_code == CompanyOpCode::SignCompanyBill
+        {
+            let payload = block
+                .get_block_data(&keys)
+                .map_err(|e| Error::Blockchain(e.to_string()))?;
+            self.recover_company_bill_keys(company_id, &payload).await?;
+        }
+
+        // if it's not "Next" - return status
+        if let Some(outcome) = deferred_position(position) {
+            return Ok(outcome);
+        }
+        // attempt to apply
+        let identity = self
+            .identity_store
+            .get()
+            .await
+            .map_err(|e| Error::Persistence(e.to_string()))?
+            .node_id;
+        let result = match existing {
+            Some(mut chain) => {
+                self.add_company_blocks(company_id, &mut chain, vec![block], &identity)
+                    .await
+            }
+            None => {
+                if block.op_code != CompanyOpCode::Create {
+                    return classify_verified_application_result(Err(
+                        InvalidIncomingBlock::UnexpectedOperation(
+                            "Company genesis must be Create".into(),
+                        )
+                        .into(),
+                    ));
+                }
+                let payload = match block.get_block_data(&keys) {
+                    Ok(payload) => payload,
+                    Err(e) => {
+                        return classify_verified_application_result(Err(
+                            map_remote_block_data_error(e),
+                        ));
+                    }
+                };
+                match payload {
+                    CompanyBlockPayload::Create(data) if &data.id == company_id => {}
+                    CompanyBlockPayload::Create(_) => {
+                        return classify_verified_application_result(Err(
+                            InvalidIncomingBlock::WrongChain.into(),
+                        ));
+                    }
+                    _ => {
+                        return classify_verified_application_result(Err(
+                            InvalidIncomingBlock::UnexpectedOperation(
+                                "Company genesis payload must be Create".into(),
+                            )
+                            .into(),
+                        ));
+                    }
+                };
+                self.add_new_chain(vec![block], &keys, &identity).await
+            }
+        };
+        classify_verified_application_result(result)
+    }
+
+    async fn preferred_verified_branch(
+        &self,
+        company_id: &NodeId,
+        blocks: &[(usize, CompanyBlock)],
+        keys: &BcrKeys,
+    ) -> Result<Vec<usize>> {
+        let local = match self.blockchain_store.get_chain(company_id).await {
+            Ok(chain) => Some(chain),
+            Err(PersistenceError::NoSuchEntity(_, _)) => None,
+            Err(e) => return Err(Error::Persistence(e.to_string())),
+        };
+        let identity = self
+            .identity_store
+            .get()
+            .await
+            .map_err(|e| Error::Persistence(e.to_string()))?
+            .node_id;
+        let company = if local.is_some() {
+            Some(
+                self.company_store
+                    .get(company_id)
+                    .await
+                    .map_err(|e| Error::Persistence(e.to_string()))?,
+            )
+        } else {
+            None
+        };
+
+        preferred_extension::<CompanyBlockchain, _>(local.as_ref(), blocks, |path| {
+            std::future::ready(self.verified_extension_len(
+                company_id,
+                local.as_ref().zip(company.as_ref()),
+                &path,
+                keys,
+                &identity,
+            ))
+        })
+        .await
     }
 }
 
@@ -632,14 +587,6 @@ impl CompanyChainEventProcessor {
     ) -> Result<()> {
         let prepared = self.prepare_company_chain_valid_prefix(&blocks, keys, identity)?;
         let company_id = prepared.company_id.clone();
-        let we_are_signatory_or_invited = matches!(
-            prepared.company.status,
-            CompanyStatus::Active | CompanyStatus::Invited
-        );
-        if !we_are_signatory_or_invited {
-            info!("We are not a signatory for company {company_id} so skipping chain");
-            return Ok(());
-        }
 
         // persist atomically
 
@@ -763,13 +710,17 @@ impl CompanyChainEventProcessor {
         chain: &mut CompanyBlockchain,
         blocks: Vec<CompanyBlock>,
         identity: &NodeId,
-        from_resync: bool,
     ) -> Result<()> {
         let keys = self
             .company_store
             .get_key_pair(company_id)
             .await
             .map_err(|e| Error::Persistence(e.to_string()))?;
+        if *company_id != NodeId::new(keys.pub_key(), self.bitcoin_network) {
+            return Err(Error::Persistence(format!(
+                "Stored keys do not match company {company_id}"
+            )));
+        }
         let mut company = self
             .company_store
             .get(company_id)
@@ -777,54 +728,23 @@ impl CompanyChainEventProcessor {
             .map_err(|e| Error::Persistence(e.to_string()))?;
 
         let mut block_height = chain.get_latest_block().id;
-        for block in blocks.iter() {
+        for block in &blocks {
             if block.id <= block_height {
-                if blocks.len() == 1 && !from_resync {
-                    let latest = chain.get_latest_block();
-                    if is_fork_block(latest, block) {
-                        info!(
-                            "Split chain detected for company {company_id} at height {} - resyncing",
-                            block.id
-                        );
-                        // resync potentially changed the complete chain - don't continue
-                        self.resync_chain(company_id, ResyncMode::Normal).await?;
-                        return Ok(());
-                    }
+                if chain
+                    .blocks()
+                    .iter()
+                    .any(|existing| existing.id == block.id && existing.hash() == block.hash())
+                {
+                    continue;
                 }
-                info!(
-                    "Skipping block with id {block_height} for {company_id} as we already have it"
-                );
-                continue;
+                return Err(Error::Blockchain(format!(
+                    "Conflicting company block {} for {company_id}",
+                    block.id,
+                )));
             }
-
-            match self
-                .add_company_block(company_id, &keys, &mut company, chain, block, identity)
-                .await
-            {
-                Ok(_) => {
-                    block_height = block.id;
-                    Ok(())
-                }
-                Err(e) => {
-                    // if we received a single block (normal block populate) and we are missing blocks, we try to resync
-                    if blocks.len() == 1
-                        && !from_resync
-                        && BlockId::next_from_previous_block_id(&chain.get_latest_block().id)
-                            < block.id
-                    {
-                        info!(
-                            "Received invalid block {} for company {company_id} - missing blocks - try to resync",
-                            block.id
-                        );
-                        self.resync_chain(company_id, ResyncMode::Normal).await?;
-                        // resync potentially changed the complete chain - don't continue
-                        return Ok(());
-                    } else {
-                        error!("Error adding block for company {company_id}: {e}");
-                        Err(e)
-                    }
-                }
-            }?;
+            self.add_company_block(company_id, &keys, &mut company, chain, block, identity)
+                .await?;
+            block_height = block.id;
         }
         debug!("Updated company {company_id} with data from new blocks");
         Ok(())
@@ -838,23 +758,23 @@ impl CompanyChainEventProcessor {
         block: &CompanyBlock,
         company_keys: &BcrKeys,
     ) -> Result<CompanyBlockchain> {
+        validate_remote_plaintext(block, company_keys)?;
         let company_id = block.company_id.clone();
-        let block_id = block.id;
 
         // structural validation is only done against the clone
         let mut candidate_chain = chain.clone();
 
         if !candidate_chain.try_add_block(block.clone()) {
             error!("Received invalid company block");
-            return Err(Error::Blockchain(
-                "Received invalid company block".to_string(),
-            ));
+            return Err(InvalidIncomingBlock::InvalidAction(
+                "Received invalid company block".into(),
+            )
+            .into());
         }
 
-        let verify_and_get_signer = block.verify_and_get_signer(company_keys).map_err(|e| {
-            error!("Received invalid block {block_id} for company {company_id} - could not verify signature from block data signer");
-            Error::Blockchain(e.to_string())
-        })?;
+        let verify_and_get_signer = block
+            .verify_and_get_signer(company_keys)
+            .map_err(map_block_signer_error)?;
 
         // validation the chain before this block
         (CompanyValidateActionData {
@@ -868,14 +788,7 @@ impl CompanyChainEventProcessor {
             identity_proof_data: verify_and_get_signer.identity_proof_data,
         })
         .validate()
-        .map_err(|e| {
-            error!(
-                "Received invalid block {block_id} for company \
-             {company_id}, company action validation failed: {e}"
-            );
-
-            Error::Blockchain(e.to_string())
-        })?;
+        .map_err(map_chain_action_validation_error)?;
 
         Ok(candidate_chain)
     }
@@ -906,7 +819,7 @@ impl CompanyChainEventProcessor {
         let candidate_chain = self.validate_company_block_for_chain(chain, block, keys)?;
         let payload = block
             .get_block_data(keys)
-            .map_err(|e| Error::Blockchain(e.to_string()))?;
+            .map_err(map_remote_block_data_error)?;
         let mut candidate_company = company.clone();
         let mut email_confirmation = None;
         let mut files_to_anchor = Vec::new();
@@ -1233,29 +1146,8 @@ impl CompanyChainEventProcessor {
                     }
                 }
             }
-            CompanyBlockPayload::SignBill(payload) => {
-                if let Some(bill_key) = payload.bill_key
-                    && payload.operation == BillOpCode::Issue
-                {
-                    info!("Adding detected company bill {}", payload.bill_id);
-                    let bill_keys = BcrKeys::from_private_key(&bill_key);
-                    let invite = ChainInvite::bill(
-                        payload.bill_id.to_string(),
-                        BcrKeys::from_private_key(&bill_keys.get_private_key()),
-                    );
-                    // we want to process all blocks for the company even if we don't have all
-                    // the bills.
-                    if let Err(e) = self
-                        .bill_invite_handler
-                        .handle_event(Event::new_bill(invite).try_into()?, &company.id, None, None)
-                        .await
-                    {
-                        error!(
-                            "Failed to add company bill {} when adding company: {e}",
-                            payload.bill_id
-                        );
-                    }
-                }
+            CompanyBlockPayload::SignBill(_) => {
+                self.recover_company_bill_keys(company_id, payload).await?;
             }
         }
         Ok(())
@@ -1326,22 +1218,36 @@ impl CompanyChainEventProcessor {
         keys: &BcrKeys,
         identity_node_id: &NodeId,
     ) -> Result<(NodeId, Company, CompanyBlockchain)> {
+        if first_block.op_code != CompanyOpCode::Create {
+            return Err(InvalidIncomingBlock::UnexpectedOperation(
+                "Company genesis must be Create".into(),
+            )
+            .into());
+        }
+        validate_remote_plaintext(first_block, keys)?;
         let chain = CompanyBlockchain::new_from_blocks(vec![first_block.clone()])
-            .map_err(|e| Error::Blockchain(e.to_string()))?;
+            .map_err(map_remote_block_data_error)?;
         if !chain.is_chain_valid() {
-            return Err(Error::Blockchain(
-                "Newly received company chain has invalid Create block".to_string(),
-            ));
+            return Err(InvalidIncomingBlock::InvalidAction(
+                "Invalid company genesis block".into(),
+            )
+            .into());
         }
         let payload = first_block
             .get_block_data(keys)
-            .map_err(|e| Error::Blockchain(e.to_string()))?;
+            .map_err(map_remote_block_data_error)?;
         let CompanyBlockPayload::Create(payload) = payload else {
-            error!("First block of newly received company chain is not a Create block");
-            return Err(Error::Blockchain(
-                "First block of newly received company chain is not a Create block".to_string(),
-            ));
+            return Err(InvalidIncomingBlock::UnexpectedOperation(
+                "Company genesis payload must be Create".into(),
+            )
+            .into());
         };
+        if payload.id != first_block.company_id {
+            return Err(InvalidIncomingBlock::WrongChain.into());
+        }
+        first_block
+            .verify_and_get_signer(keys)
+            .map_err(map_block_signer_error)?;
         let company = Company::from_block_data(payload, identity_node_id);
         let company_id = company.id.clone();
         Ok((company_id, company, chain))
@@ -1486,6 +1392,85 @@ impl CompanyChainEventProcessor {
         }
         Ok(())
     }
+
+    /// Validates an extension against copies of the committed chain and company state
+    fn verified_extension_len(
+        &self,
+        company_id: &NodeId,
+        existing: Option<(&CompanyBlockchain, &Company)>,
+        blocks: &[CompanyBlock],
+        keys: &BcrKeys,
+        identity: &NodeId,
+    ) -> Result<usize> {
+        let Some(first) = blocks.first() else {
+            return Ok(0);
+        };
+        let (mut chain, mut company, mut len) = match existing {
+            Some((chain, company)) => (chain.clone(), company.clone(), 0),
+            None => {
+                if first.op_code != CompanyOpCode::Create || &first.company_id != company_id {
+                    return Ok(0);
+                }
+                let Some((id, company, chain)) =
+                    valid_fork_step(self.get_valid_chain(first, keys, identity))?
+                else {
+                    return Ok(0);
+                };
+                if &id != company_id {
+                    return Ok(0);
+                }
+                (chain, company, 1)
+            }
+        };
+        for block in blocks.iter().skip(len) {
+            if &block.company_id != company_id
+                || !block.validate_with_previous(chain.get_latest_block())
+            {
+                break;
+            }
+            let Some((_, next_chain, next_company)) = valid_fork_step(
+                self.prepare_company_block(&chain, &company, block, keys, identity),
+            )?
+            else {
+                break;
+            };
+            chain = next_chain;
+            company = next_company;
+            len += 1;
+        }
+        Ok(len)
+    }
+
+    /// Recovers a bill's keys from a committed company block
+    async fn recover_company_bill_keys(
+        &self,
+        company_id: &NodeId,
+        payload: &CompanyBlockPayload,
+    ) -> Result<()> {
+        let CompanyBlockPayload::SignBill(data) = payload else {
+            return Ok(());
+        };
+        if data.operation != BillOpCode::Issue {
+            return Ok(());
+        }
+        let Some(bill_key) = data.bill_key else {
+            return Ok(());
+        };
+        let bill_keys = BcrKeys::from_private_key(&bill_key);
+        if data.bill_id != BillId::new(bill_keys.pub_key(), self.bitcoin_network) {
+            error!(
+                "Cannot recover company bill {}: key does not match bill ID",
+                data.bill_id,
+            );
+            return Ok(());
+        }
+        info!("Recovering company bill {}", data.bill_id);
+        let invite = ChainInvite::bill(data.bill_id.to_string(), bill_keys);
+        self.bill_invite_handler
+            .handle_event(Event::new_bill(invite).try_into()?, company_id, None, None)
+            .await?;
+        Ok(())
+    }
 }
 
 impl ServiceTraitBounds for CompanyChainEventProcessor {}
@@ -1493,10 +1478,18 @@ impl ServiceTraitBounds for CompanyChainEventProcessor {}
 #[cfg(test)]
 #[allow(unused_mut)]
 pub mod tests {
-    use std::sync::Arc;
-
+    use crate::chain_keys::ChainKeyService;
+    use crate::handler::public_chain_helpers::compare_block_chains;
+    use crate::handler::{CompanyInviteEventHandler, NotificationHandlerApi};
+    use crate::handler::{
+        IncomingChainApplication, MockBillChainEventProcessorApi,
+        MockIdentityChainEventProcessorApi,
+    };
+    use crate::incoming_verification::{IncomingPropagationVerifier, VerifiedChainIngestionApi};
+    use bcr_common::core::BillId;
     use bcr_common::core::NodeId;
-    use bcr_ebill_api::service::transport_service::ResyncMode;
+    use bcr_ebill_api::service::transport_service::propagation::RelayQuorumSnapshot;
+    use bcr_ebill_api::service::transport_service::{Error, ResyncMode};
     use bcr_ebill_core::protocol::blockchain::Block;
     use bcr_ebill_core::protocol::blockchain::company::CompanyBlockPayload;
     use bcr_ebill_core::protocol::blockchain::company::block::{
@@ -1505,6 +1498,10 @@ pub mod tests {
     };
     use bcr_ebill_core::protocol::event::{CompanyBlockEvent, Event, EventEnvelope};
     use bcr_ebill_core::protocol::file_reference::{FileReference, FileReferenceContext};
+    use bcr_ebill_core::protocol::{
+        BlockId,
+        blockchain::{bill::BillOpCode, company::block::CompanySignCompanyBillBlockData},
+    };
     use bcr_ebill_core::protocol::{EditOptionalFieldMode, File, Name};
     use bcr_ebill_core::{
         application::company::Company,
@@ -1523,14 +1520,30 @@ pub mod tests {
         },
         protocol::crypto::BcrKeys,
     };
+    use bcr_ebill_core::{application::company::CompanyStatus, protocol::event::ChainInvite};
+    use bcr_ebill_persistence::NostrChainEventStoreApi;
+    use bcr_ebill_persistence::traits::propagation::{
+        ApplicationWaitReason, IncomingChainCandidate, IncomingPropagationStoreApi,
+    };
+    use bcr_ebill_persistence::traits::transaction::TransactionManagerApi;
+    use bcr_ebill_persistence::{
+        EncryptionContext,
+        sqlite::{SqliteConfig, SqlitePersistence},
+        traits::company::{CompanyChainStoreApi, CompanyStoreApi},
+    };
     use mockall::predicate::eq;
     use nostr::event::FinalizeEvent;
+    use std::sync::Arc;
+    use std::time::Duration;
+    use url::Url;
 
     use crate::handler::test_utils::{
-        MockNotificationStore, MockPersistenceTransactionApiMock, MockTransactionManagerApiMock,
-        get_valid_activated_signatory, node_id_test_another, private_key_test,
-        private_key_test_another, transaction_manager_with, update_company_block_with_name,
+        MockBillStore, MockNotificationStore, MockPersistenceTransactionApiMock,
+        MockTransactionManagerApiMock, get_valid_activated_signatory, node_id_test_another,
+        private_key_test, private_key_test_another, transaction_manager_with,
+        update_company_block_with_name,
     };
+    use crate::handler::{IncomingChainApplyResult, IncomingChainDependency};
     use crate::push_notification::MockPushApi;
     use crate::test_utils::{
         MockContactStore, MockFileReferenceStore, signed_identity_proof_test, test_cfg, test_ts,
@@ -1548,180 +1561,20 @@ pub mod tests {
         transport::create_public_chain_event,
     };
 
-    #[tokio::test]
-    async fn test_create_event_handler() {
-        let (
-            chain_store,
-            store,
-            notification_store,
-            contact,
-            bill,
-            identity,
-            chain_event_store,
-            transport,
-            push_service,
-            contact_store,
-        ) = create_mocks();
-        CompanyChainEventProcessor::new(
-            Arc::new(chain_store),
-            Arc::new(store),
-            Arc::new(MockFileReferenceStore::new()),
-            Arc::new(identity),
-            Arc::new(notification_store),
-            Arc::new(contact),
-            Arc::new(bill),
-            Arc::new(push_service),
-            Arc::new(chain_event_store),
-            Arc::new(transport),
-            Arc::new(contact_store),
-            Arc::new(MockTransactionManagerApiMock::new()),
-            bitcoin::Network::Testnet,
-            Arc::new(test_cfg()),
-        );
-    }
-
-    #[tokio::test]
-    async fn test_validate_chain_event_and_sender_invalid_on_no_keys_or_chain() {
-        let keys = BcrKeys::new().get_nostr_keys();
-        let (
-            chain_store,
-            mut store,
-            notification_store,
-            contact,
-            bill,
-            identity,
-            chain_event_store,
-            transport,
-            push_service,
-            contact_store,
-        ) = create_mocks();
-
-        store
-            .expect_get()
-            .with(eq(node_id_test()))
-            .returning(move |_| {
-                Err(bcr_ebill_persistence::Error::NoSuchEntity(
-                    "company block".to_string(),
-                    node_id_test().to_string(),
-                ))
-            });
-
-        let handler = CompanyChainEventProcessor::new(
-            Arc::new(chain_store),
-            Arc::new(store),
-            Arc::new(MockFileReferenceStore::new()),
-            Arc::new(identity),
-            Arc::new(notification_store),
-            Arc::new(contact),
-            Arc::new(bill),
-            Arc::new(push_service),
-            Arc::new(chain_event_store),
-            Arc::new(transport),
-            Arc::new(contact_store),
-            Arc::new(MockTransactionManagerApiMock::new()),
-            bitcoin::Network::Testnet,
-            Arc::new(test_cfg()),
-        );
-
-        let valid = handler
-            .validate_chain_event_and_sender(&node_id_test(), keys.public_key())
-            .await
-            .expect("Event should be handled");
-        assert!(!valid);
-    }
-
-    #[tokio::test]
-    async fn test_validate_chain_event_fails_if_not_signatory() {
-        let keys = BcrKeys::new();
-        let (
-            chain_store,
-            mut store,
-            notification_store,
-            contact,
-            bill,
-            identity,
-            chain_event_store,
-            transport,
-            push_service,
-            contact_store,
-        ) = create_mocks();
-        let (_, (company, _)) = get_company_data();
-        store
-            .expect_get()
-            .with(eq(node_id_test()))
-            .returning(move |_| Ok(company.clone()));
-
-        let handler = CompanyChainEventProcessor::new(
-            Arc::new(chain_store),
-            Arc::new(store),
-            Arc::new(MockFileReferenceStore::new()),
-            Arc::new(identity),
-            Arc::new(notification_store),
-            Arc::new(contact),
-            Arc::new(bill),
-            Arc::new(push_service),
-            Arc::new(chain_event_store),
-            Arc::new(transport),
-            Arc::new(contact_store),
-            Arc::new(MockTransactionManagerApiMock::new()),
-            bitcoin::Network::Testnet,
-            Arc::new(test_cfg()),
-        );
-
-        let valid = handler
-            .validate_chain_event_and_sender(&node_id_test(), keys.get_nostr_keys().public_key())
-            .await
-            .expect("Event should be handled");
-        assert!(!valid);
-    }
-
-    #[tokio::test]
-    async fn test_validate_chain_event() {
-        let keys = BcrKeys::new();
-        let (
-            chain_store,
-            mut store,
-            notification_store,
-            contact,
-            bill,
-            identity,
-            chain_event_store,
-            transport,
-            push_service,
-            contact_store,
-        ) = create_mocks();
-        let (_, (mut company, _)) = get_company_data();
-        company.signatories = vec![get_valid_activated_signatory(&NodeId::new(
-            keys.pub_key(),
-            bitcoin::Network::Testnet,
-        ))];
-        store
-            .expect_get()
-            .with(eq(node_id_test()))
-            .returning(move |_| Ok(company.clone()));
-
-        let handler = CompanyChainEventProcessor::new(
-            Arc::new(chain_store),
-            Arc::new(store),
-            Arc::new(MockFileReferenceStore::new()),
-            Arc::new(identity),
-            Arc::new(notification_store),
-            Arc::new(contact),
-            Arc::new(bill),
-            Arc::new(push_service),
-            Arc::new(chain_event_store),
-            Arc::new(transport),
-            Arc::new(contact_store),
-            Arc::new(MockTransactionManagerApiMock::new()),
-            bitcoin::Network::Testnet,
-            Arc::new(test_cfg()),
-        );
-
-        let valid = handler
-            .validate_chain_event_and_sender(&node_id_test(), keys.get_nostr_keys().public_key())
-            .await
-            .expect("Event should be handled");
-        assert!(valid);
+    fn incoming_company_candidate(
+        event: nostr::event::Event,
+        company_id: &NodeId,
+        snapshot: &RelayQuorumSnapshot,
+    ) -> IncomingChainCandidate {
+        IncomingChainCandidate {
+            event,
+            chain_type: "company".into(),
+            chain_id: company_id.to_string(),
+            relays: snapshot.relays.clone(),
+            required_relays: snapshot.required,
+            attempts: 0,
+            application_attempts: 0,
+        }
     }
 
     #[tokio::test]
@@ -1739,11 +1592,6 @@ pub mod tests {
             mut contact_store,
         ) = create_mocks();
         let (node_id, (company, keys)) = get_company_data();
-        let _blocks = [get_company_create_block(
-            node_id.clone(),
-            company.clone(),
-            &keys,
-        )];
 
         let node_id_clone = node_id.clone();
         // checks if we already have the chain
@@ -1820,10 +1668,120 @@ pub mod tests {
         );
 
         let block = get_company_create_block(node_id.clone(), company.clone(), &keys);
-        handler
-            .process_chain_data(&node_id, vec![block], Some(keys.clone()))
+
+        let result = handler
+            .apply_verified_block(&node_id, block, keys.clone())
             .await
-            .expect("Process chain data should be handled");
+            .unwrap();
+
+        assert_eq!(result, IncomingChainApplyResult::Applied);
+    }
+
+    #[tokio::test]
+    async fn test_invited_company_genesis_is_applied_before_membership() {
+        let (
+            mut chain_store,
+            mut store,
+            notification_store,
+            mut contact,
+            bill,
+            mut identity,
+            chain_event_store,
+            mut transport,
+            push_service,
+            mut contact_store,
+        ) = create_mocks();
+        let (node_id, (company, keys)) = get_company_data();
+
+        let node_id_clone = node_id.clone();
+        // checks if we already have the chain
+        chain_store
+            .expect_get_chain()
+            .with(eq(node_id.clone()))
+            .returning(move |_| {
+                Err(bcr_ebill_persistence::Error::NoSuchEntity(
+                    "company block".to_string(),
+                    node_id_clone.to_string(),
+                ))
+            })
+            .once();
+
+        let mut recipient = get_baseline_identity().identity;
+        recipient.node_id = node_id_test_another();
+
+        assert_ne!(recipient.node_id, company.signatories[0].node_id,);
+
+        identity
+            .expect_get()
+            .return_once(move || Ok(recipient))
+            .once();
+
+        contact_store.expect_get().returning(|_| Ok(None));
+        contact_store.expect_insert().returning(|_, _| Ok(()));
+
+        let expected_company_id = node_id.clone();
+        let mut tx = MockPersistenceTransactionApiMock::new();
+        tx.expect_append_company_blocks()
+            .withf(move |company_id, expected_latest, blocks| {
+                company_id == &expected_company_id && expected_latest.is_none() && blocks.len() == 1
+            })
+            .returning(|_, _, _| Ok(()))
+            .once();
+
+        let expected_company_id = company.id.clone();
+
+        tx.expect_insert_company()
+            .withf(move |persisted| {
+                persisted.id == expected_company_id
+                    && persisted.status == bcr_ebill_core::application::company::CompanyStatus::None
+            })
+            .returning(|_| Ok(()))
+            .once();
+
+        tx.expect_save_company_key_pair()
+            .returning(|_, _| Ok(()))
+            .once();
+        tx.expect_commit().return_once(|| Ok(()));
+        let transaction_mgr = transaction_manager_with(tx);
+
+        transport
+            .expect_add_identity()
+            .with(eq(node_id.clone()), eq(keys.clone()))
+            .returning(|_, _| Ok(()))
+            .once();
+
+        // and ensures that we have all nostr contacts for the company participants
+        contact
+            .expect_ensure_nostr_contact()
+            .with(eq(node_id.clone()))
+            .returning(|_| ())
+            .times(2);
+
+        let handler = CompanyChainEventProcessor::new(
+            Arc::new(chain_store),
+            Arc::new(store),
+            Arc::new(MockFileReferenceStore::new()),
+            Arc::new(identity),
+            Arc::new(notification_store),
+            Arc::new(contact),
+            Arc::new(bill),
+            Arc::new(push_service),
+            Arc::new(chain_event_store),
+            Arc::new(transport),
+            Arc::new(contact_store),
+            Arc::new(transaction_mgr),
+            bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
+        );
+
+        let block = get_company_create_block(node_id.clone(), company.clone(), &keys);
+
+        let result = handler
+            .apply_verified_block(&node_id, block, keys.clone())
+            .await
+            .unwrap();
+
+        assert_eq!(result, IncomingChainApplyResult::Applied);
     }
 
     #[tokio::test]
@@ -1871,10 +1829,11 @@ pub mod tests {
             .once();
 
         // we have a chain so get the keys
+        let keys_clone = keys.clone();
         store
             .expect_get_key_pair()
             .with(eq(node_id.clone()))
-            .returning(move |_| Ok(keys.clone()))
+            .returning(move |_| Ok(keys_clone.clone()))
             .once();
 
         // get the current company state
@@ -1934,14 +1893,16 @@ pub mod tests {
             Arc::new(test_cfg()),
         );
 
-        handler
-            .process_chain_data(&node_id, vec![update_block], None)
+        let result = handler
+            .apply_verified_block(&node_id, update_block, keys.clone())
             .await
-            .expect("Process chain data should be handled");
+            .unwrap();
+
+        assert_eq!(result, IncomingChainApplyResult::Applied);
     }
 
     #[tokio::test]
-    async fn test_recovers_chain_on_missing_blocks() {
+    async fn test_rejects_missing_blocks_without_resync() {
         let (
             mut chain_store,
             mut store,
@@ -1955,7 +1916,6 @@ pub mod tests {
             contact_store,
         ) = create_mocks();
         let (node_id, (company, keys)) = get_company_data();
-        let bcr_keys: BcrKeys = keys.clone();
         let blocks = vec![get_company_create_block(
             node_id.clone(),
             company.clone(),
@@ -1985,126 +1945,22 @@ pub mod tests {
             &data,
         );
 
-        let event1 = generate_test_event(
-            &bcr_keys,
-            None,
-            None,
-            as_event_payload(&node_id, skipped_chain.get_first_block()),
-            &node_id,
-        );
-
-        let event2 = generate_test_event(
-            &bcr_keys,
-            Some(event1.clone()),
-            Some(event1.clone()),
-            as_event_payload(&node_id, skipped_chain.get_latest_block()),
-            &node_id,
-        );
-
-        let event3 = generate_test_event(
-            &bcr_keys,
-            Some(event2.clone()),
-            Some(event1.clone()),
-            as_event_payload(&node_id, &skipped_block),
-            &node_id,
-        );
-
-        let event4 = generate_test_event(
-            &bcr_keys,
-            Some(event3.clone()),
-            Some(event1.clone()),
-            as_event_payload(&node_id, &update_block),
-            &node_id,
-        );
-
-        let nostr_chain = vec![
-            event1.clone(),
-            event2.clone(),
-            event3.clone(),
-            event4.clone(),
-        ];
-
-        // we need to validate if we are a signatory with our identity
-        identity
-            .expect_get()
-            .returning(|| Ok(get_baseline_identity().identity))
-            .times(2);
-
         // checks if we already have the chain
-        let expected_tip_hash = skipped_chain.get_latest_block().hash.clone();
         chain_store
             .expect_get_chain()
             .with(eq(node_id.clone()))
             .returning(move |_| Ok(skipped_chain.clone()))
-            .times(2);
+            .times(1);
 
         // we have a chain so get the keys
-        store
-            .expect_get_key_pair()
-            .with(eq(node_id.clone()))
-            .returning(move |_| Ok(keys.clone()))
-            .times(2);
+        let apply_keys = keys.clone();
 
-        // get the current company state
-        let expected_company = company.clone();
-        store
-            .expect_get()
-            .with(eq(node_id.clone()))
-            .returning(move |_| Ok(expected_company.clone()))
-            .once();
+        transport.expect_resolve_public_chain().never();
 
-        // and queries the chain from the transport
-        transport
-            .expect_resolve_public_chain()
-            .with(eq(node_id.to_string()), eq(BlockchainType::Company))
-            .returning(move |_, _| Ok(nostr_chain.clone()))
-            .once();
+        chain_event_store.expect_remove_chain_events().never();
+        chain_event_store.expect_add_chain_event().never();
 
-        // no need to ensure contacts in case of an update
-        contact
-            .expect_ensure_nostr_contact()
-            .with(eq(node_id.clone()))
-            .returning(|_| ())
-            .never();
-
-        chain_event_store
-            .expect_remove_chain_events()
-            .returning(|_, _| Ok(()));
-
-        chain_event_store
-            .expect_add_chain_event()
-            .returning(|_| Ok(()))
-            .times(4);
-
-        let expected_company_id = node_id.clone();
-        let skipped_hash = skipped_block.hash.clone();
-        let update_hash = update_block.hash.clone();
-        let mut tx = MockPersistenceTransactionApiMock::new();
-        tx.expect_append_company_blocks()
-            .withf(move |id, expected_latest, blocks| {
-                id == &expected_company_id
-                    && expected_latest
-                        .as_ref()
-                        .is_some_and(|block| block.hash == expected_tip_hash)
-                    && blocks.len() == 2
-                    && blocks[0].hash == skipped_hash
-                    && blocks[1].hash == update_hash
-            })
-            .once()
-            .returning(|_, _, _| Ok(()));
-        let expected_company_id = node_id.clone();
-        tx.expect_update_company()
-            .withf(move |id, company| {
-                id == &expected_company_id
-                    && company.id == expected_company_id
-                    && company.name == Name::new("another_name").unwrap()
-            })
-            .once()
-            .returning(|_, _| Ok(()));
-        tx.expect_save_company_key_pair().never();
-        tx.expect_set_company_email_confirmation().never();
-        tx.expect_commit().once().return_once(|| Ok(()));
-        let transaction_mgr = transaction_manager_with(tx);
+        contact.expect_ensure_nostr_contact().never();
 
         let handler = CompanyChainEventProcessor::new(
             Arc::new(chain_store),
@@ -2118,15 +1974,20 @@ pub mod tests {
             Arc::new(chain_event_store),
             Arc::new(transport),
             Arc::new(contact_store),
-            Arc::new(transaction_mgr),
+            Arc::new(MockTransactionManagerApiMock::new()),
             bitcoin::Network::Testnet,
             Arc::new(test_cfg()),
         );
 
-        handler
-            .process_chain_data(&node_id, vec![update_block], None)
+        let outcome = handler
+            .apply_verified_block(&node_id, update_block, apply_keys)
             .await
-            .expect("Process chain data should be handled");
+            .unwrap();
+
+        assert_eq!(
+            outcome,
+            IncomingChainApplyResult::Deferred(IncomingChainDependency::MissingPredecessor,),
+        );
     }
 
     fn as_event_payload(id: &NodeId, block: &CompanyBlock) -> EventEnvelope {
@@ -2209,10 +2070,11 @@ pub mod tests {
             .once();
 
         // we have a chain so get the keys
+        let keys_clone = keys.clone();
         store
             .expect_get_key_pair()
             .with(eq(node_id.clone()))
-            .returning(move |_| Ok(keys.clone()))
+            .returning(move |_| Ok(keys_clone.clone()))
             .once();
 
         // if node is invited, we clean local overrides
@@ -2263,10 +2125,12 @@ pub mod tests {
             Arc::new(test_cfg()),
         );
 
-        handler
-            .process_chain_data(&node_id, vec![update_block], None)
+        let result = handler
+            .apply_verified_block(&node_id, update_block, keys.clone())
             .await
-            .expect("Process chain data should be handled");
+            .unwrap();
+
+        assert_eq!(result, IncomingChainApplyResult::Applied);
     }
 
     #[tokio::test]
@@ -2321,10 +2185,11 @@ pub mod tests {
             .once();
 
         // we have a chain so get the keys
+        let keys_clone = keys.clone();
         store
             .expect_get_key_pair()
             .with(eq(node_id.clone()))
-            .returning(move |_| Ok(keys.clone()))
+            .returning(move |_| Ok(keys_clone.clone()))
             .once();
 
         // get the current company state
@@ -2368,10 +2233,12 @@ pub mod tests {
             Arc::new(test_cfg()),
         );
 
-        handler
-            .process_chain_data(&node_id, vec![update_block], None)
+        let result = handler
+            .apply_verified_block(&node_id, update_block, keys.clone())
             .await
-            .expect("Process chain data should be handled");
+            .unwrap();
+
+        assert_eq!(result, IncomingChainApplyResult::Applied);
     }
 
     #[tokio::test]
@@ -2426,10 +2293,11 @@ pub mod tests {
             .once();
 
         // we have a chain so get the keys
+        let keys_clone = keys.clone();
         store
             .expect_get_key_pair()
             .with(eq(node_id.clone()))
-            .returning(move |_| Ok(keys.clone()))
+            .returning(move |_| Ok(keys_clone.clone()))
             .once();
 
         // get the current company state
@@ -2473,10 +2341,12 @@ pub mod tests {
             Arc::new(test_cfg()),
         );
 
-        handler
-            .process_chain_data(&node_id, vec![update_block], None)
+        let result = handler
+            .apply_verified_block(&node_id, update_block, keys.clone())
             .await
-            .expect("Process chain data should be handled");
+            .unwrap();
+
+        assert_eq!(result, IncomingChainApplyResult::Applied);
     }
 
     #[tokio::test]
@@ -2533,10 +2403,11 @@ pub mod tests {
             .once();
 
         // we have a chain so get the keys
+        let keys_clone = keys.clone();
         store
             .expect_get_key_pair()
             .with(eq(node_id.clone()))
-            .returning(move |_| Ok(keys.clone()))
+            .returning(move |_| Ok(keys_clone.clone()))
             .once();
 
         let expected_company = company.clone();
@@ -2595,10 +2466,12 @@ pub mod tests {
             Arc::new(test_cfg()),
         );
 
-        handler
-            .process_chain_data(&node_id, vec![remove_block], None)
+        let result = handler
+            .apply_verified_block(&node_id, remove_block, keys.clone())
             .await
-            .expect("Process chain data should be handled");
+            .unwrap();
+
+        assert_eq!(result, IncomingChainApplyResult::Applied);
     }
 
     #[tokio::test]
@@ -2651,10 +2524,11 @@ pub mod tests {
             .once();
 
         // we have a chain so get the keys
+        let keys_clone = keys.clone();
         store
             .expect_get_key_pair()
             .with(eq(node_id.clone()))
-            .returning(move |_| Ok(keys.clone()))
+            .returning(move |_| Ok(keys_clone.clone()))
             .once();
 
         // get the current company state
@@ -2693,10 +2567,12 @@ pub mod tests {
             Arc::new(test_cfg()),
         );
 
-        handler
-            .process_chain_data(&node_id, vec![update_block], None)
+        let result = handler
+            .apply_verified_block(&node_id, update_block, keys.clone())
             .await
-            .expect("Process chain data should be handled");
+            .unwrap();
+
+        assert_eq!(result, IncomingChainApplyResult::Applied);
     }
 
     pub fn get_company_create_block(
@@ -3065,7 +2941,7 @@ pub mod tests {
             notification_store,
             contact,
             bill,
-            mut identity_store,
+            identity_store,
             mut chain_event_store,
             mut transport,
             push_service,
@@ -3124,17 +3000,17 @@ pub mod tests {
             .times(1)
             .returning(move |_| Ok(keys_clone.clone()));
 
-        identity_store
-            .expect_get()
-            .times(1)
-            .returning(|| Ok(get_baseline_identity().identity));
-
         transport
             .expect_resolve_public_chain()
             .times(1)
             .returning(move |_, _| Ok(vec![event0.clone(), remote_event.clone()]));
 
-        chain_event_store.expect_find_chain_events().times(0);
+        chain_event_store
+            .expect_find_chain_events()
+            .with(eq(company_id.to_string()), eq(BlockchainType::Company))
+            .once()
+            .returning(|_, _| Ok(vec![]));
+
         chain_event_store.expect_add_chain_event().times(0);
         chain_event_store.expect_remove_chain_events().times(0);
 
@@ -3181,7 +3057,7 @@ pub mod tests {
             notification_store,
             contact,
             bill,
-            mut identity_store,
+            identity_store,
             mut chain_event_store,
             mut transport,
             push_service,
@@ -3244,12 +3120,6 @@ pub mod tests {
             .with(eq(company_id.clone()))
             .times(1)
             .returning(move |_| Ok(keys_clone.clone()));
-
-        // resync_chain() fetches our personal identity before processing candidates.
-        identity_store
-            .expect_get()
-            .times(1)
-            .returning(|| Ok(get_baseline_identity().identity));
 
         transport
             .expect_resolve_public_chain()
@@ -3637,7 +3507,7 @@ pub mod tests {
         );
 
         handler
-            .resync_chain(&company_id, ResyncMode::Normal)
+            .resync_chain(&company_id, ResyncMode::NostrAuthoritative)
             .await
             .expect("resync should recover valid company blocks before an invalid remote tail");
     }
@@ -3849,8 +3719,1513 @@ pub mod tests {
             Arc::new(test_cfg()),
         );
         handler
-            .resync_chain(&company_id, ResyncMode::Normal)
+            .resync_chain(&company_id, ResyncMode::NostrAuthoritative)
             .await
             .expect("the longest protocol-valid prefix must win, not the longest raw Nostr branch");
+    }
+
+    #[tokio::test]
+    async fn test_processor_normal_resync_is_disabled() {
+        let (
+            chain_store,
+            store,
+            notification_store,
+            contact,
+            bill,
+            identity_store,
+            event_store,
+            mut transport,
+            push_service,
+            contact_store,
+        ) = create_mocks();
+        transport.expect_resolve_public_chain().never();
+        let handler = CompanyChainEventProcessor::new(
+            Arc::new(chain_store),
+            Arc::new(store),
+            Arc::new(MockFileReferenceStore::new()),
+            Arc::new(identity_store),
+            Arc::new(notification_store),
+            Arc::new(contact),
+            Arc::new(bill),
+            Arc::new(push_service),
+            Arc::new(event_store),
+            Arc::new(transport),
+            Arc::new(contact_store),
+            Arc::new(MockTransactionManagerApiMock::new()),
+            bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
+        );
+        let result = handler
+            .resync_chain(&node_id_test(), ResyncMode::Normal)
+            .await;
+        assert!(matches!(result, Err(Error::Blockchain(_))));
+    }
+
+    #[tokio::test]
+    async fn company_invite_sqlite_genesis_before_membership() {
+        // Integration test using SQLITE
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("company-invite.sqlite");
+        let db = SqlitePersistence::open(SqliteConfig::new(db_path.clone()))
+            .await
+            .unwrap();
+        let encryption = Arc::new(EncryptionContext::new(BcrKeys::new()));
+        let company_store = Arc::new(db.company_store(encryption.clone()));
+        let chain_store = Arc::new(db.company_chain_store());
+        let incoming_store = Arc::new(db.incoming_propagation_store(encryption.clone()));
+        let (company_id, (company, keys)) = get_company_data();
+        let recipient_id = node_id_test_another();
+        assert_ne!(recipient_id, company.signatories[0].node_id,);
+
+        // The local identity is the invited participant, not the company creator
+        let mut recipient = get_baseline_identity().identity;
+        recipient.node_id = recipient_id.clone();
+        let mut identity_store = MockIdentityStore::new();
+        identity_store
+            .expect_get()
+            .times(3)
+            .returning(move || Ok(recipient.clone()));
+        let mut transport = MockNotificationJsonTransport::new();
+        let expected_company_id = company_id.clone();
+        let expected_company_pubkey = keys.pub_key();
+        transport
+            .expect_add_identity()
+            .times(2)
+            .withf(move |id, added_keys| {
+                id == &expected_company_id && added_keys.pub_key() == expected_company_pubkey
+            })
+            .returning(|_, _| Ok(()));
+        transport.expect_resolve_public_chain().never();
+        let transport = Arc::new(transport);
+        let mut nostr_contacts = MockNostrContactProcessorApi::new();
+        nostr_contacts
+            .expect_ensure_nostr_contact()
+            .returning(|_| ());
+        let mut contacts = MockContactStore::new();
+        contacts.expect_get().once().returning(|_| Ok(None));
+        contacts.expect_insert().once().returning(|_, _| Ok(()));
+        let mut notifications = MockNotificationStore::new();
+        notifications
+            .expect_get_latest_by_reference_and_node_id()
+            .once()
+            .returning(|_, _, _| Ok(None));
+        notifications
+            .expect_add()
+            .withf(|n| {
+                n.notification_type
+                    == bcr_ebill_core::application::notification::NotificationType::Company
+            })
+            .returning(Ok)
+            .once();
+        let mut push = MockPushApi::new();
+        push.expect_send().once().returning(|_| ());
+        let processor = Arc::new(CompanyChainEventProcessor::new(
+            chain_store.clone(),
+            company_store.clone(),
+            Arc::new(MockFileReferenceStore::new()),
+            Arc::new(identity_store),
+            Arc::new(notifications),
+            Arc::new(nostr_contacts),
+            Arc::new(MockNotificationHandlerApi::new()),
+            Arc::new(push),
+            Arc::new(MockNostrChainEventStore::new()),
+            transport.clone(),
+            Arc::new(contacts),
+            Arc::new(db.transaction_mgr(encryption.clone())),
+            bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
+        ));
+
+        // 1. Process private company invitation
+        let (hint_tx, mut hint_rx) = tokio::sync::broadcast::channel(8);
+        let invite_handler =
+            CompanyInviteEventHandler::new(transport, processor.clone(), incoming_store)
+                .with_catchup_hints(hint_tx);
+        let envelope: EventEnvelope =
+            Event::new_company_invite(ChainInvite::company(company_id.to_string(), keys.clone()))
+                .try_into()
+                .unwrap();
+        invite_handler
+            .handle_event(envelope, &recipient_id, None, None)
+            .await
+            .unwrap();
+
+        // The company keys are persisted before the company blockchain has been initialized
+        let persisted_keys = company_store.get_key_pair(&company_id).await.unwrap();
+        assert_eq!(persisted_keys.pub_key(), keys.pub_key());
+        assert!(matches!(
+            chain_store.get_chain(&company_id).await,
+            Err(bcr_ebill_persistence::Error::NoSuchEntity(_, _))
+        ));
+        // The invitation requests immediate public chain catch-up
+        let hint = hint_rx.try_recv().unwrap();
+        assert_eq!(hint.chain_type, BlockchainType::Company);
+        assert_eq!(hint.chain_id, company_id.to_string());
+
+        // 2. Build the protocol-valid company history
+        // Create -> Creator Identity Proof -> Invite Signatory
+        let genesis = get_company_create_block(company_id.clone(), company, &keys);
+        let chain = CompanyBlockchain::new_from_blocks(vec![genesis]).unwrap();
+        let chain = add_creator_identity_proof_block(chain);
+        let chain = add_invite_signatory_block(chain);
+        let blocks = chain.blocks().clone();
+        assert_eq!(blocks.len(), 3);
+
+        // 3. invitation block cannot apply before genesis
+        assert_eq!(
+            processor
+                .apply_verified_block(&company_id, blocks[2].clone(), keys.clone(),)
+                .await
+                .unwrap(),
+            IncomingChainApplyResult::Deferred(IncomingChainDependency::ChainNotInitialized,),
+        );
+
+        // 4. Genesis is allowed even though the local user is not a company signatory yet
+        assert_eq!(
+            processor
+                .apply_verified_block(&company_id, blocks[0].clone(), keys.clone(),)
+                .await
+                .unwrap(),
+            IncomingChainApplyResult::Applied,
+        );
+        assert_eq!(
+            company_store.get(&company_id).await.unwrap().status,
+            CompanyStatus::None,
+        );
+        assert_eq!(
+            chain_store
+                .get_chain(&company_id)
+                .await
+                .unwrap()
+                .blocks()
+                .len(),
+            1,
+        );
+        // 5. Apply the creator identity proof
+        assert_eq!(
+            processor
+                .apply_verified_block(&company_id, blocks[1].clone(), keys.clone(),)
+                .await
+                .unwrap(),
+            IncomingChainApplyResult::Applied,
+        );
+
+        assert_eq!(
+            company_store.get(&company_id).await.unwrap().status,
+            CompanyStatus::None,
+        );
+
+        // 6. Only the later InviteSignatory block changes the local status to Invited
+        assert_eq!(
+            processor
+                .apply_verified_block(&company_id, blocks[2].clone(), keys.clone(),)
+                .await
+                .unwrap(),
+            IncomingChainApplyResult::Applied,
+        );
+        assert_eq!(
+            company_store.get(&company_id).await.unwrap().status,
+            CompanyStatus::Invited,
+        );
+        assert_eq!(
+            chain_store
+                .get_chain(&company_id)
+                .await
+                .unwrap()
+                .blocks()
+                .len(),
+            3,
+        );
+
+        // 7. Replaying the same blocks does not apply them again
+        for block in &blocks {
+            assert_eq!(
+                processor
+                    .apply_verified_block(&company_id, block.clone(), keys.clone(),)
+                    .await
+                    .unwrap(),
+                IncomingChainApplyResult::AlreadyApplied,
+            );
+        }
+
+        // 8. Simulate reinitialization with a new SQLite pool - state must survive the process boundary
+        let reopened = SqlitePersistence::open(SqliteConfig::new(db_path))
+            .await
+            .unwrap();
+        let reopened_company_store = reopened.company_store(encryption);
+        assert_eq!(
+            reopened_company_store
+                .get(&company_id)
+                .await
+                .unwrap()
+                .status,
+            CompanyStatus::Invited,
+        );
+        assert_eq!(
+            reopened
+                .company_chain_store()
+                .get_chain(&company_id)
+                .await
+                .unwrap()
+                .blocks()
+                .len(),
+            3,
+        );
+    }
+
+    #[tokio::test]
+    async fn company_invite_sqlite_verified_out_of_order_recovery() {
+        // Integration test using real SQLITE
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("company-invite.sqlite");
+        let db = SqlitePersistence::open(SqliteConfig::new(db_path.clone()))
+            .await
+            .unwrap();
+        let encryption = Arc::new(EncryptionContext::new(BcrKeys::new()));
+        let company_store = Arc::new(db.company_store(encryption.clone()));
+        let chain_store = Arc::new(db.company_chain_store());
+        let incoming_store = Arc::new(db.incoming_propagation_store(encryption.clone()));
+        let (company_id, (company, keys)) = get_company_data();
+        let recipient_id = node_id_test_another();
+        let chain_event_store = Arc::new(db.nostr_chain_event_store());
+        assert_ne!(recipient_id, company.signatories[0].node_id,);
+
+        // The local identity is the invited participant, not the company creator
+        let mut recipient = get_baseline_identity().identity;
+        recipient.node_id = recipient_id.clone();
+        let mut identity_store = MockIdentityStore::new();
+        identity_store
+            .expect_get()
+            .times(3)
+            .returning(move || Ok(recipient.clone()));
+        let mut transport = MockNotificationJsonTransport::new();
+        let expected_company_id = company_id.clone();
+        let expected_company_pubkey = keys.pub_key();
+        transport
+            .expect_add_identity()
+            .times(2)
+            .withf(move |id, added_keys| {
+                id == &expected_company_id && added_keys.pub_key() == expected_company_pubkey
+            })
+            .returning(|_, _| Ok(()));
+        transport
+            .expect_event_available_on_relay()
+            .times(9)
+            .returning(|_, relay| match relay.host_str() {
+                Some("r1.example" | "r2.example") => Ok(true),
+                Some("r3.example") => Ok(false),
+                other => panic!("Unexpected relay: {other:?}"),
+            });
+        transport
+            .expect_has_connected_read_relay()
+            .returning(|| true);
+        transport
+            .expect_fetch_event_from_relay()
+            .returning(|_, _| Ok(None));
+        transport.expect_resolve_public_chain().never();
+        let transport = Arc::new(transport);
+        let mut nostr_contacts = MockNostrContactProcessorApi::new();
+        nostr_contacts
+            .expect_ensure_nostr_contact()
+            .returning(|_| ());
+        let mut contacts = MockContactStore::new();
+        contacts.expect_get().once().returning(|_| Ok(None));
+        contacts.expect_insert().once().returning(|_, _| Ok(()));
+        let mut notifications = MockNotificationStore::new();
+        notifications
+            .expect_get_latest_by_reference_and_node_id()
+            .once()
+            .returning(|_, _, _| Ok(None));
+        notifications
+            .expect_add()
+            .withf(|n| {
+                n.notification_type
+                    == bcr_ebill_core::application::notification::NotificationType::Company
+            })
+            .returning(Ok)
+            .once();
+        let mut push = MockPushApi::new();
+        push.expect_send().once().returning(|_| ());
+        let processor = Arc::new(CompanyChainEventProcessor::new(
+            chain_store.clone(),
+            company_store.clone(),
+            Arc::new(MockFileReferenceStore::new()),
+            Arc::new(identity_store),
+            Arc::new(notifications),
+            Arc::new(nostr_contacts),
+            Arc::new(MockNotificationHandlerApi::new()),
+            Arc::new(push),
+            chain_event_store.clone(),
+            transport.clone(),
+            Arc::new(contacts),
+            Arc::new(db.transaction_mgr(encryption.clone())),
+            bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
+        ));
+
+        let (hint_tx, mut hint_rx) = tokio::sync::broadcast::channel(8);
+        let invite_handler = CompanyInviteEventHandler::new(
+            transport.clone(),
+            processor.clone(),
+            incoming_store.clone(),
+        )
+        .with_catchup_hints(hint_tx);
+        let envelope: EventEnvelope =
+            Event::new_company_invite(ChainInvite::company(company_id.to_string(), keys.clone()))
+                .try_into()
+                .unwrap();
+        invite_handler
+            .handle_event(envelope, &recipient_id, None, None)
+            .await
+            .unwrap();
+
+        // The company keys are persisted before the company blockchain has been initialized
+        let persisted_keys = company_store.get_key_pair(&company_id).await.unwrap();
+        assert_eq!(persisted_keys.pub_key(), keys.pub_key());
+        assert!(matches!(
+            chain_store.get_chain(&company_id).await,
+            Err(bcr_ebill_persistence::Error::NoSuchEntity(_, _))
+        ));
+        let chain_keys = Arc::new(ChainKeyService::new(
+            Arc::new(MockBillStore::new()),
+            company_store.clone(),
+            Arc::new(MockIdentityStore::new()),
+            bitcoin::Network::Testnet,
+        ));
+
+        let application = Arc::new(IncomingChainApplication::new(
+            chain_keys,
+            Arc::new(MockBillChainEventProcessorApi::new()),
+            processor.clone(),
+            Arc::new(MockIdentityChainEventProcessorApi::new()),
+            chain_event_store.clone(),
+        ));
+
+        let verifier = IncomingPropagationVerifier::new(
+            incoming_store.clone(),
+            transport.clone(),
+            application,
+        );
+
+        let snapshot = RelayQuorumSnapshot {
+            relays: vec![
+                Url::parse("wss://r1.example").unwrap(),
+                Url::parse("wss://r2.example").unwrap(),
+                Url::parse("wss://r3.example").unwrap(),
+            ],
+            required: 2,
+        };
+
+        // The invitation requests immediate public chain catch-up
+        let hint = hint_rx.try_recv().unwrap();
+        assert_eq!(hint.chain_type, BlockchainType::Company);
+        assert_eq!(hint.chain_id, company_id.to_string());
+
+        // 2. Build the protocol-valid company history
+        // Create -> Creator Identity Proof -> Invite Signatory
+        let genesis = get_company_create_block(company_id.clone(), company, &keys);
+        let chain = CompanyBlockchain::new_from_blocks(vec![genesis]).unwrap();
+        let chain = add_creator_identity_proof_block(chain);
+        let chain = add_invite_signatory_block(chain);
+        let blocks = chain.blocks().clone();
+        assert_eq!(blocks.len(), 3);
+
+        let genesis_event = generate_test_event(
+            &keys,
+            None,
+            None,
+            as_event_payload(&company_id, &blocks[0]),
+            &company_id,
+        );
+
+        let proof_event = generate_test_event(
+            &keys,
+            Some(genesis_event.clone()),
+            Some(genesis_event.clone()),
+            as_event_payload(&company_id, &blocks[1]),
+            &company_id,
+        );
+
+        let invite_event = generate_test_event(
+            &keys,
+            Some(proof_event.clone()),
+            Some(genesis_event.clone()),
+            as_event_payload(&company_id, &blocks[2]),
+            &company_id,
+        );
+
+        let genesis = incoming_company_candidate(genesis_event.clone(), &company_id, &snapshot);
+        let proof = incoming_company_candidate(proof_event.clone(), &company_id, &snapshot);
+        let invite = incoming_company_candidate(invite_event.clone(), &company_id, &snapshot);
+
+        // deliver invite block without predecessors
+        incoming_store
+            .upsert_candidate(&invite, Timestamp::zero())
+            .await
+            .unwrap();
+        assert_eq!(verifier.verify_due_once().await.unwrap(), 1,);
+        assert_eq!(verifier.apply_due_once().await.unwrap(), 1,);
+
+        // verified but not applied
+        assert!(
+            chain_store.get_chain(&company_id).await.is_err(),
+            "Invitation must not create the company before genesis",
+        );
+        let waiting = incoming_store
+            .get_verified_candidates(Timestamp::now() + Duration::from_secs(61), 10)
+            .await
+            .unwrap();
+        assert_eq!(waiting.len(), 1);
+        assert_eq!(waiting[0].event.id, invite_event.id);
+
+        // deliver genesis and proof
+        for candidate in [&genesis, &proof] {
+            incoming_store
+                .upsert_candidate(candidate, Timestamp::zero())
+                .await
+                .unwrap();
+        }
+        assert_eq!(verifier.verify_due_once().await.unwrap(), 2,);
+
+        // run application passes
+        for _ in 0..3 {
+            verifier.apply_due_once().await.unwrap();
+        }
+        assert_eq!(
+            company_store.get(&company_id).await.unwrap().status,
+            CompanyStatus::Invited,
+        );
+
+        // final state - company is created, we're invited
+        let persisted_chain = chain_store.get_chain(&company_id).await.unwrap();
+        assert_eq!(persisted_chain.blocks().len(), 3);
+        for (stored, expected) in persisted_chain.blocks().iter().zip(blocks.iter()) {
+            assert_eq!(stored.hash(), expected.hash());
+        }
+
+        // chain events were persisted
+        let chain_events = chain_event_store
+            .find_chain_events(&company_id.to_string(), BlockchainType::Company)
+            .await
+            .unwrap();
+        assert_eq!(chain_events.len(), 3);
+
+        // duplicate delivery does nothing
+        for candidate in [&genesis, &proof, &invite] {
+            incoming_store
+                .upsert_candidate(candidate, Timestamp::zero())
+                .await
+                .unwrap();
+        }
+        assert_eq!(verifier.verify_due_once().await.unwrap(), 0);
+        assert_eq!(verifier.apply_due_once().await.unwrap(), 0);
+        // no outstanding work in the queues
+        assert!(
+            incoming_store
+                .get_due_candidates(Timestamp::now() + Duration::from_secs(600), 10,)
+                .await
+                .unwrap()
+                .is_empty(),
+        );
+        assert!(
+            incoming_store
+                .get_verified_candidates(Timestamp::now() + Duration::from_secs(600), 10,)
+                .await
+                .unwrap()
+                .is_empty(),
+        );
+
+        // re-init DB, state was durable
+        let reopened = SqlitePersistence::open(SqliteConfig::new(db_path))
+            .await
+            .unwrap();
+        assert_eq!(
+            reopened
+                .company_store(encryption.clone())
+                .get(&company_id)
+                .await
+                .unwrap()
+                .status,
+            CompanyStatus::Invited,
+        );
+        assert_eq!(
+            reopened
+                .company_chain_store()
+                .get_chain(&company_id)
+                .await
+                .unwrap()
+                .blocks()
+                .len(),
+            3,
+        );
+    }
+
+    #[tokio::test]
+    async fn company_invite_wakes_sqlite_candidates_waiting_for_keys() {
+        // Integration test using real SQLITE
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("company-invite.sqlite");
+        let db = SqlitePersistence::open(SqliteConfig::new(db_path.clone()))
+            .await
+            .unwrap();
+        let encryption = Arc::new(EncryptionContext::new(BcrKeys::new()));
+        let company_store = Arc::new(db.company_store(encryption.clone()));
+        let chain_store = Arc::new(db.company_chain_store());
+        let incoming_store = Arc::new(db.incoming_propagation_store(encryption.clone()));
+        let (company_id, (company, keys)) = get_company_data();
+        let recipient_id = node_id_test_another();
+        let chain_event_store = Arc::new(db.nostr_chain_event_store());
+        assert_ne!(recipient_id, company.signatories[0].node_id,);
+
+        // The local identity is the invited participant, not the company creator
+        let mut recipient = get_baseline_identity().identity;
+        recipient.node_id = recipient_id.clone();
+        let mut identity_store = MockIdentityStore::new();
+        identity_store
+            .expect_get()
+            .times(3)
+            .returning(move || Ok(recipient.clone()));
+        let mut transport = MockNotificationJsonTransport::new();
+        let expected_company_id = company_id.clone();
+        let expected_company_pubkey = keys.pub_key();
+        transport
+            .expect_add_identity()
+            .times(2)
+            .withf(move |id, added_keys| {
+                id == &expected_company_id && added_keys.pub_key() == expected_company_pubkey
+            })
+            .returning(|_, _| Ok(()));
+        transport
+            .expect_event_available_on_relay()
+            .times(9)
+            .returning(|_, relay| match relay.host_str() {
+                Some("r1.example" | "r2.example") => Ok(true),
+                Some("r3.example") => Ok(false),
+                other => panic!("Unexpected relay: {other:?}"),
+            });
+        transport
+            .expect_has_connected_read_relay()
+            .returning(|| true);
+        transport
+            .expect_fetch_event_from_relay()
+            .returning(|_, _| Ok(None));
+        transport.expect_resolve_public_chain().never();
+        let transport = Arc::new(transport);
+        let mut nostr_contacts = MockNostrContactProcessorApi::new();
+        nostr_contacts
+            .expect_ensure_nostr_contact()
+            .returning(|_| ());
+        let mut contacts = MockContactStore::new();
+        contacts.expect_get().once().returning(|_| Ok(None));
+        contacts.expect_insert().once().returning(|_, _| Ok(()));
+        let mut notifications = MockNotificationStore::new();
+        notifications
+            .expect_get_latest_by_reference_and_node_id()
+            .once()
+            .returning(|_, _, _| Ok(None));
+        notifications
+            .expect_add()
+            .withf(|n| {
+                n.notification_type
+                    == bcr_ebill_core::application::notification::NotificationType::Company
+            })
+            .returning(Ok)
+            .once();
+        let mut push = MockPushApi::new();
+        push.expect_send().once().returning(|_| ());
+        let processor = Arc::new(CompanyChainEventProcessor::new(
+            chain_store.clone(),
+            company_store.clone(),
+            Arc::new(MockFileReferenceStore::new()),
+            Arc::new(identity_store),
+            Arc::new(notifications),
+            Arc::new(nostr_contacts),
+            Arc::new(MockNotificationHandlerApi::new()),
+            Arc::new(push),
+            chain_event_store.clone(),
+            transport.clone(),
+            Arc::new(contacts),
+            Arc::new(db.transaction_mgr(encryption.clone())),
+            bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
+        ));
+
+        let (hint_tx, mut hint_rx) = tokio::sync::broadcast::channel(8);
+        let invite_handler = CompanyInviteEventHandler::new(
+            transport.clone(),
+            processor.clone(),
+            incoming_store.clone(),
+        )
+        .with_catchup_hints(hint_tx);
+        assert!(matches!(
+            company_store.get_key_pair(&company_id).await,
+            Err(bcr_ebill_persistence::Error::NoSuchEntity(_, _))
+        ));
+
+        assert!(matches!(
+            chain_store.get_chain(&company_id).await,
+            Err(bcr_ebill_persistence::Error::NoSuchEntity(_, _))
+        ));
+        let envelope: EventEnvelope =
+            Event::new_company_invite(ChainInvite::company(company_id.to_string(), keys.clone()))
+                .try_into()
+                .unwrap();
+
+        let chain_keys = Arc::new(ChainKeyService::new(
+            Arc::new(MockBillStore::new()),
+            company_store.clone(),
+            Arc::new(MockIdentityStore::new()),
+            bitcoin::Network::Testnet,
+        ));
+
+        let application = Arc::new(IncomingChainApplication::new(
+            chain_keys,
+            Arc::new(MockBillChainEventProcessorApi::new()),
+            processor.clone(),
+            Arc::new(MockIdentityChainEventProcessorApi::new()),
+            chain_event_store.clone(),
+        ));
+
+        let verifier = IncomingPropagationVerifier::new(
+            incoming_store.clone(),
+            transport.clone(),
+            application,
+        );
+
+        let snapshot = RelayQuorumSnapshot {
+            relays: vec![
+                Url::parse("wss://r1.example").unwrap(),
+                Url::parse("wss://r2.example").unwrap(),
+                Url::parse("wss://r3.example").unwrap(),
+            ],
+            required: 2,
+        };
+
+        // 2. Build the protocol-valid company history
+        // Create -> Creator Identity Proof -> Invite Signatory
+        let genesis = get_company_create_block(company_id.clone(), company, &keys);
+        let chain = CompanyBlockchain::new_from_blocks(vec![genesis]).unwrap();
+        let chain = add_creator_identity_proof_block(chain);
+        let chain = add_invite_signatory_block(chain);
+        let blocks = chain.blocks().clone();
+        assert_eq!(blocks.len(), 3);
+
+        let genesis_event = generate_test_event(
+            &keys,
+            None,
+            None,
+            as_event_payload(&company_id, &blocks[0]),
+            &company_id,
+        );
+
+        let proof_event = generate_test_event(
+            &keys,
+            Some(genesis_event.clone()),
+            Some(genesis_event.clone()),
+            as_event_payload(&company_id, &blocks[1]),
+            &company_id,
+        );
+
+        let invite_event = generate_test_event(
+            &keys,
+            Some(proof_event.clone()),
+            Some(genesis_event.clone()),
+            as_event_payload(&company_id, &blocks[2]),
+            &company_id,
+        );
+
+        let genesis = incoming_company_candidate(genesis_event.clone(), &company_id, &snapshot);
+        let proof = incoming_company_candidate(proof_event.clone(), &company_id, &snapshot);
+        let invite = incoming_company_candidate(invite_event.clone(), &company_id, &snapshot);
+
+        // 1. The public company history arrives before its private invite
+        // All three candidates are queued
+        for candidate in [&genesis, &proof, &invite] {
+            incoming_store
+                .upsert_candidate(candidate, Timestamp::zero())
+                .await
+                .unwrap();
+        }
+
+        // 2. All three events pass 2-of-3 relay quorum
+        assert_eq!(verifier.verify_due_once().await.unwrap(), 3);
+        // 3. None can apply without the company keys
+        assert_eq!(verifier.apply_due_once().await.unwrap(), 3);
+        assert!(
+            chain_store.get_chain(&company_id).await.is_err(),
+            "Verified blocks must not initialize a company without keys",
+        );
+        // No block metadata should be written either
+        assert!(
+            chain_event_store
+                .find_chain_events(&company_id.to_string(), BlockchainType::Company,)
+                .await
+                .unwrap()
+                .is_empty(),
+        );
+
+        // Candidates remain verified and durable, scheduled for a missing-keys retry rather than being rejected
+        let waiting = incoming_store
+            .get_verified_candidates(Timestamp::now() + Duration::from_secs(301), 10)
+            .await
+            .unwrap();
+        assert_eq!(waiting.len(), 3);
+        for event in [&genesis_event, &proof_event, &invite_event] {
+            assert!(
+                waiting
+                    .iter()
+                    .any(|candidate| candidate.event.id == event.id),
+                "Candidate {} must remain queued while keys are missing",
+                event.id,
+            );
+        }
+
+        // 4. Now the private company invitation arrives
+        // This persists the company keys and wakes all verified candidates waiting for them
+        invite_handler
+            .handle_event(envelope, &recipient_id, None, None)
+            .await
+            .unwrap();
+
+        let persisted_keys = company_store.get_key_pair(&company_id).await.unwrap();
+        assert_eq!(persisted_keys.pub_key(), keys.pub_key());
+        // Confirm the immediate public catch-up hint was emitted
+        let hint = hint_rx.try_recv().unwrap();
+        assert_eq!(hint.chain_type, BlockchainType::Company);
+        assert_eq!(hint.chain_id, company_id.to_string());
+        // 5. All three candidates should now be due immediately
+        let ready = incoming_store
+            .get_verified_candidates(Timestamp::now(), 10)
+            .await
+            .unwrap();
+        assert_eq!(
+            ready.len(),
+            3,
+            "Company invite must wake every missing-keys candidate",
+        );
+
+        // These events are already verified. We dont repeat relay availability checks after receiving the keys
+        assert_eq!(verifier.verify_due_once().await.unwrap(), 0);
+
+        // 6. Apply in the normal verifier loop
+        // If blocks arrive out of order, predecessor application wakes the dependent blocks
+        for _ in 0..3 {
+            verifier.apply_due_once().await.unwrap();
+        }
+
+        // 7. The complete company chain is now initialized and our local identity has been invited
+        assert_eq!(
+            company_store.get(&company_id).await.unwrap().status,
+            CompanyStatus::Invited,
+        );
+        let stored_chain = chain_store.get_chain(&company_id).await.unwrap();
+        assert_eq!(stored_chain.blocks().len(), 3);
+        for (actual, expected) in stored_chain.blocks().iter().zip(blocks.iter()) {
+            assert_eq!(actual.hash(), expected.hash());
+        }
+        // Metadata is also persisted through IncomingChainApplication
+        let chain_events = chain_event_store
+            .find_chain_events(&company_id.to_string(), BlockchainType::Company)
+            .await
+            .unwrap();
+        assert_eq!(chain_events.len(), 3);
+
+        // 8. No verified work remains
+        assert!(
+            incoming_store
+                .get_due_candidates(Timestamp::now() + Duration::from_secs(600), 10,)
+                .await
+                .unwrap()
+                .is_empty(),
+        );
+        assert!(
+            incoming_store
+                .get_verified_candidates(Timestamp::now() + Duration::from_secs(600), 10,)
+                .await
+                .unwrap()
+                .is_empty(),
+        );
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum ForkChoiceCase {
+        LateFork,
+        BothVerified,
+        ForegroundIngestion,
+        ForegroundMissingQuorum,
+    }
+
+    #[tokio::test]
+    async fn company_verified_competing_forks_never_replace_sqlite_chain() {
+        company_fork_choice_case(ForkChoiceCase::LateFork).await;
+    }
+
+    #[tokio::test]
+    async fn company_best_verified_fork_wins_before_commit() {
+        company_fork_choice_case(ForkChoiceCase::BothVerified).await;
+    }
+
+    #[tokio::test]
+    async fn company_foreground_ingestion_selects_best_verified_fork() {
+        company_fork_choice_case(ForkChoiceCase::ForegroundIngestion).await;
+    }
+
+    #[tokio::test]
+    async fn company_foreground_ingestion_ignores_nonquorum_tail() {
+        company_fork_choice_case(ForkChoiceCase::ForegroundMissingQuorum).await;
+    }
+
+    async fn company_fork_choice_case(case: ForkChoiceCase) {
+        // Integration test using real SQLITE
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("company-invite.sqlite");
+        let db = SqlitePersistence::open(SqliteConfig::new(db_path.clone()))
+            .await
+            .unwrap();
+        let encryption = Arc::new(EncryptionContext::new(BcrKeys::new()));
+        let company_store = Arc::new(db.company_store(encryption.clone()));
+        let chain_store = Arc::new(db.company_chain_store());
+        let incoming_store = Arc::new(db.incoming_propagation_store(encryption.clone()));
+        let (company_id, (company, keys)) = get_company_data();
+        let recipient_id = node_id_test_another();
+        let chain_event_store = Arc::new(db.nostr_chain_event_store());
+        assert_ne!(recipient_id, company.signatories[0].node_id,);
+
+        // The local identity is the invited participant, not the company creator
+        let mut recipient = get_baseline_identity().identity;
+        recipient.node_id = recipient_id.clone();
+        let mut identity_store = MockIdentityStore::new();
+        identity_store
+            .expect_get()
+            .returning(move || Ok(recipient.clone()));
+
+        let unavailable_on_second_relay =
+            Arc::new(std::sync::Mutex::new(Vec::<nostr::event::EventId>::new()));
+        let unavailable = unavailable_on_second_relay.clone();
+
+        let mut transport = MockNotificationJsonTransport::new();
+        let expected_company_id = company_id.clone();
+        let expected_company_pubkey = keys.pub_key();
+        transport
+            .expect_add_identity()
+            .times(2)
+            .withf(move |id, added_keys| {
+                id == &expected_company_id && added_keys.pub_key() == expected_company_pubkey
+            })
+            .returning(|_, _| Ok(()));
+        transport
+            .expect_event_available_on_relay()
+            .times(18)
+            .returning(move |id, relay| match relay.host_str() {
+                Some("r1.example") => Ok(true),
+                Some("r2.example") => Ok(!unavailable.lock().unwrap().contains(&id)),
+                Some("r3.example") => Ok(false),
+                other => panic!("Unexpected relay: {other:?}"),
+            });
+
+        transport
+            .expect_has_connected_read_relay()
+            .returning(|| true);
+        transport
+            .expect_fetch_event_from_relay()
+            .returning(|_, _| Ok(None));
+        transport.expect_resolve_public_chain().never();
+        let transport = Arc::new(transport);
+        let mut nostr_contacts = MockNostrContactProcessorApi::new();
+        nostr_contacts
+            .expect_ensure_nostr_contact()
+            .returning(|_| ());
+        let mut contacts = MockContactStore::new();
+        contacts.expect_get().once().returning(|_| Ok(None));
+        contacts.expect_insert().once().returning(|_, _| Ok(()));
+        let mut notifications = MockNotificationStore::new();
+        notifications
+            .expect_get_latest_by_reference_and_node_id()
+            .once()
+            .returning(|_, _, _| Ok(None));
+        notifications
+            .expect_add()
+            .withf(|n| {
+                n.notification_type
+                    == bcr_ebill_core::application::notification::NotificationType::Company
+            })
+            .returning(Ok)
+            .once();
+        let mut push = MockPushApi::new();
+        push.expect_send().once().returning(|_| ());
+        let processor = Arc::new(CompanyChainEventProcessor::new(
+            chain_store.clone(),
+            company_store.clone(),
+            Arc::new(MockFileReferenceStore::new()),
+            Arc::new(identity_store),
+            Arc::new(notifications),
+            Arc::new(nostr_contacts),
+            Arc::new(MockNotificationHandlerApi::new()),
+            Arc::new(push),
+            chain_event_store.clone(),
+            transport.clone(),
+            Arc::new(contacts),
+            Arc::new(db.transaction_mgr(encryption.clone())),
+            bitcoin::Network::Testnet,
+            Arc::new(test_cfg()),
+        ));
+
+        let (hint_tx, mut hint_rx) = tokio::sync::broadcast::channel(8);
+        let invite_handler = CompanyInviteEventHandler::new(
+            transport.clone(),
+            processor.clone(),
+            incoming_store.clone(),
+        )
+        .with_catchup_hints(hint_tx);
+        let envelope: EventEnvelope =
+            Event::new_company_invite(ChainInvite::company(company_id.to_string(), keys.clone()))
+                .try_into()
+                .unwrap();
+        invite_handler
+            .handle_event(envelope, &recipient_id, None, None)
+            .await
+            .unwrap();
+
+        // The company keys are persisted before the company blockchain has been initialized
+        let persisted_keys = company_store.get_key_pair(&company_id).await.unwrap();
+        assert_eq!(persisted_keys.pub_key(), keys.pub_key());
+        assert!(matches!(
+            chain_store.get_chain(&company_id).await,
+            Err(bcr_ebill_persistence::Error::NoSuchEntity(_, _))
+        ));
+        let chain_keys = Arc::new(ChainKeyService::new(
+            Arc::new(MockBillStore::new()),
+            company_store.clone(),
+            Arc::new(MockIdentityStore::new()),
+            bitcoin::Network::Testnet,
+        ));
+
+        let application = Arc::new(IncomingChainApplication::new(
+            chain_keys,
+            Arc::new(MockBillChainEventProcessorApi::new()),
+            processor.clone(),
+            Arc::new(MockIdentityChainEventProcessorApi::new()),
+            chain_event_store.clone(),
+        ));
+
+        let verifier = IncomingPropagationVerifier::new(
+            incoming_store.clone(),
+            transport.clone(),
+            application,
+        );
+
+        let snapshot = RelayQuorumSnapshot {
+            relays: vec![
+                Url::parse("wss://r1.example").unwrap(),
+                Url::parse("wss://r2.example").unwrap(),
+                Url::parse("wss://r3.example").unwrap(),
+            ],
+            required: 2,
+        };
+
+        // The invitation requests immediate public chain catch-up
+        let hint = hint_rx.try_recv().unwrap();
+        assert_eq!(hint.chain_type, BlockchainType::Company);
+        assert_eq!(hint.chain_id, company_id.to_string());
+
+        // 2. Build the protocol-valid company history
+        // Create -> Creator Identity Proof -> Invite Signatory
+        let genesis = get_company_create_block(company_id.clone(), company, &keys);
+        let chain = CompanyBlockchain::new_from_blocks(vec![genesis]).unwrap();
+        let chain = add_creator_identity_proof_block(chain);
+        let chain = add_invite_signatory_block(chain);
+        let blocks = chain.blocks().clone();
+        assert_eq!(blocks.len(), 3);
+
+        let genesis_event = generate_test_event(
+            &keys,
+            None,
+            None,
+            as_event_payload(&company_id, &blocks[0]),
+            &company_id,
+        );
+
+        let proof_event = generate_test_event(
+            &keys,
+            Some(genesis_event.clone()),
+            Some(genesis_event.clone()),
+            as_event_payload(&company_id, &blocks[1]),
+            &company_id,
+        );
+
+        let invite_event = generate_test_event(
+            &keys,
+            Some(proof_event.clone()),
+            Some(genesis_event.clone()),
+            as_event_payload(&company_id, &blocks[2]),
+            &company_id,
+        );
+
+        let genesis = incoming_company_candidate(genesis_event.clone(), &company_id, &snapshot);
+        let proof = incoming_company_candidate(proof_event.clone(), &company_id, &snapshot);
+        let invite = incoming_company_candidate(invite_event.clone(), &company_id, &snapshot);
+
+        // deliver invite block without predecessors
+        if matches!(
+            case,
+            ForkChoiceCase::LateFork | ForkChoiceCase::BothVerified
+        ) {
+            incoming_store
+                .upsert_candidate(&invite, Timestamp::zero())
+                .await
+                .unwrap();
+            assert_eq!(verifier.verify_due_once().await.unwrap(), 1,);
+            assert_eq!(verifier.apply_due_once().await.unwrap(), 1,);
+
+            // verified but not applied
+            assert!(
+                chain_store.get_chain(&company_id).await.is_err(),
+                "Invitation must not create the company before genesis",
+            );
+            let waiting = incoming_store
+                .get_verified_candidates(Timestamp::now() + Duration::from_secs(61), 10)
+                .await
+                .unwrap();
+            assert_eq!(waiting.len(), 1);
+            assert_eq!(waiting[0].event.id, invite_event.id);
+
+            // deliver genesis and proof
+            for candidate in [&genesis, &proof] {
+                incoming_store
+                    .upsert_candidate(candidate, Timestamp::zero())
+                    .await
+                    .unwrap();
+            }
+            assert_eq!(verifier.verify_due_once().await.unwrap(), 2,);
+
+            // run application passes
+            for _ in 0..3 {
+                verifier.apply_due_once().await.unwrap();
+            }
+            assert_eq!(
+                company_store.get(&company_id).await.unwrap().status,
+                CompanyStatus::Invited,
+            );
+
+            // final state - company is created, we're invited
+            let persisted_chain = chain_store.get_chain(&company_id).await.unwrap();
+            assert_eq!(persisted_chain.blocks().len(), 3);
+            for (stored, expected) in persisted_chain.blocks().iter().zip(blocks.iter()) {
+                assert_eq!(stored.hash(), expected.hash());
+            }
+        }
+        // Common history: Create -> Proof -> Invite (height 3)
+        let previous = &blocks[2];
+        let creator_keys = BcrKeys::from_private_key(&private_key_test());
+        // Branch A: the block we want to keep
+        let a4_data = update_company_block_with_name(Some(Name::new("Accepted branch").unwrap()));
+        let a4 =
+            get_company_update_block(company_id.clone(), previous, &creator_keys, &keys, &a4_data);
+        // Branch B: a different, independently valid block at height 4
+        let b4_data =
+            update_company_block_with_name(Some(Name::new("Alternative branch").unwrap()));
+        let b4 =
+            get_company_update_block(company_id.clone(), previous, &creator_keys, &keys, &b4_data);
+        let (a4, b4) =
+            if compare_block_chains(std::slice::from_ref(&a4), std::slice::from_ref(&b4)).is_gt() {
+                (b4, a4)
+            } else {
+                (a4, b4)
+            };
+        // Extend branch B, making it longer than branch A
+        let b5_data =
+            update_company_block_with_name(Some(Name::new("Alternative extension").unwrap()));
+        let b5 = get_company_update_block(company_id.clone(), &b4, &creator_keys, &keys, &b5_data);
+        assert_ne!(a4.hash(), b4.hash());
+        // Both alternatives are structurally valid independent chains
+        let mut branch_a = chain.clone();
+        assert!(branch_a.try_add_block(a4.clone()));
+        assert!(branch_a.is_chain_valid());
+        let mut branch_b = chain.clone();
+        assert!(branch_b.try_add_block(b4.clone()));
+        assert!(branch_b.try_add_block(b5.clone()));
+        assert!(branch_b.is_chain_valid());
+
+        let a4_event = generate_test_event(
+            &keys,
+            Some(invite_event.clone()),
+            Some(genesis_event.clone()),
+            as_event_payload(&company_id, &a4),
+            &company_id,
+        );
+        let b4_event = generate_test_event(
+            &keys,
+            Some(invite_event.clone()),
+            Some(genesis_event.clone()),
+            as_event_payload(&company_id, &b4),
+            &company_id,
+        );
+        let b5_event = generate_test_event(
+            &keys,
+            Some(b4_event.clone()),
+            Some(genesis_event.clone()),
+            as_event_payload(&company_id, &b5),
+            &company_id,
+        );
+        let candidate_a4 = incoming_company_candidate(a4_event.clone(), &company_id, &snapshot);
+        let candidate_b4 = incoming_company_candidate(b4_event.clone(), &company_id, &snapshot);
+        let candidate_b5 = incoming_company_candidate(b5_event.clone(), &company_id, &snapshot);
+
+        match case {
+            ForkChoiceCase::LateFork => {
+                // A is the only continuation at application time
+                incoming_store
+                    .upsert_candidate(&candidate_a4, Timestamp::zero())
+                    .await
+                    .unwrap();
+                assert_eq!(verifier.verify_due_once().await.unwrap(), 1,);
+                assert_eq!(verifier.apply_due_once().await.unwrap(), 1,);
+                let persisted = chain_store.get_chain(&company_id).await.unwrap();
+                assert_eq!(persisted.get_latest_block().hash(), a4.hash(),);
+                // B and C arrive only after A committed.
+                for candidate in [&candidate_b4, &candidate_b5] {
+                    incoming_store
+                        .upsert_candidate(candidate, Timestamp::zero())
+                        .await
+                        .unwrap();
+                }
+                assert_eq!(verifier.verify_due_once().await.unwrap(), 2,);
+                verifier.apply_due_once().await.unwrap();
+            }
+            ForkChoiceCase::BothVerified => {
+                // Every competing event is verified before any of them is applied
+                for candidate in [&candidate_a4, &candidate_b4, &candidate_b5] {
+                    incoming_store
+                        .upsert_candidate(candidate, Timestamp::zero())
+                        .await
+                        .unwrap();
+                }
+                assert_eq!(verifier.verify_due_once().await.unwrap(), 3,);
+                // Force A to be the only currently due candidate
+                // The chain-scoped selection query must still see B/C
+                let future = Timestamp::now() + Duration::from_secs(600);
+                incoming_store
+                    .mark_application_deferred(
+                        &candidate_b4.event.id.to_string(),
+                        Some(future),
+                        ApplicationWaitReason::Transient,
+                        "B is not currently due",
+                    )
+                    .await
+                    .unwrap();
+                incoming_store
+                    .mark_application_deferred(
+                        &candidate_b5.event.id.to_string(),
+                        Some(future),
+                        ApplicationWaitReason::MissingPredecessor,
+                        "Waiting for B",
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(verifier.apply_due_once().await.unwrap(), 1,);
+                // A was due, but B -> C was preferred
+                // Therefore A must not have committed
+                let persisted = chain_store.get_chain(&company_id).await.unwrap();
+                assert_eq!(persisted.blocks().len(), 3);
+                assert_eq!(persisted.get_latest_block().hash(), blocks[2].hash(),);
+
+                let status = incoming_store
+                    .get_chain_queue_status("company", &company_id.to_string())
+                    .await
+                    .unwrap();
+                assert_eq!(status.verified, 3);
+                assert_eq!(status.conflicting_forks, 0);
+                // A must not continuously occupy the due batch
+                assert!(
+                    incoming_store
+                        .get_verified_candidates(Timestamp::now(), 16,)
+                        .await
+                        .unwrap()
+                        .is_empty(),
+                );
+                // Make B due, but leave C waiting for its predecessor
+                incoming_store
+                    .mark_application_deferred(
+                        &candidate_b4.event.id.to_string(),
+                        Some(Timestamp::zero()),
+                        ApplicationWaitReason::Transient,
+                        "Retry preferred branch",
+                    )
+                    .await
+                    .unwrap();
+                verifier.apply_due_once().await.unwrap();
+                let persisted = chain_store.get_chain(&company_id).await.unwrap();
+                assert_eq!(persisted.blocks().len(), 4);
+                assert_eq!(persisted.get_latest_block().hash(), b4.hash(),);
+                // B's application should wake C
+                assert!(
+                    incoming_store
+                        .get_verified_candidates(Timestamp::now(), 16,)
+                        .await
+                        .unwrap()
+                        .iter()
+                        .any(|candidate| { candidate.event.id == candidate_b5.event.id }),
+                );
+                verifier.apply_due_once().await.unwrap();
+            }
+            ForkChoiceCase::ForegroundIngestion | ForkChoiceCase::ForegroundMissingQuorum => {
+                if case == ForkChoiceCase::ForegroundMissingQuorum {
+                    // B5 exists but does not reach relay quorum
+                    unavailable_on_second_relay
+                        .lock()
+                        .unwrap()
+                        .push(b5_event.id);
+                }
+                let progress = verifier
+                    .ingest_verified_chain(
+                        BlockchainType::Company,
+                        &company_id.to_string(),
+                        vec![
+                            genesis_event.clone(),
+                            proof_event.clone(),
+                            invite_event.clone(),
+                            a4_event.clone(),
+                            b4_event.clone(),
+                            b5_event.clone(),
+                        ],
+                        snapshot.clone(),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(progress.enqueued, 6);
+                let expected_applied = if case == ForkChoiceCase::ForegroundIngestion {
+                    5
+                } else {
+                    4
+                };
+                assert_eq!(progress.applied_prefix, expected_applied,);
+            }
+        }
+
+        let longer_branch_wins = matches!(
+            case,
+            ForkChoiceCase::BothVerified | ForkChoiceCase::ForegroundIngestion
+        );
+        // Make the losing candidate immediately due so we dont need to sleep for the fork-selection retry interval
+        let losing_candidate = match case {
+            ForkChoiceCase::BothVerified | ForkChoiceCase::ForegroundIngestion => {
+                Some(&candidate_a4)
+            }
+            ForkChoiceCase::ForegroundMissingQuorum => Some(&candidate_b4),
+            ForkChoiceCase::LateFork => None,
+        };
+
+        if let Some(candidate) = losing_candidate {
+            incoming_store
+                .mark_application_deferred(
+                    &candidate.event.id.to_string(),
+                    Some(Timestamp::zero()),
+                    ApplicationWaitReason::Transient,
+                    "Recheck losing branch after winner committed",
+                )
+                .await
+                .unwrap();
+
+            verifier.apply_due_once().await.unwrap();
+        }
+        let (expected_height, expected_tip) = if longer_branch_wins {
+            (5, b5.hash())
+        } else {
+            (4, a4.hash())
+        };
+        let persisted = chain_store.get_chain(&company_id).await.unwrap();
+        assert_eq!(persisted.blocks().len(), expected_height,);
+        assert_eq!(persisted.get_latest_block().hash(), expected_tip,);
+        assert_eq!(
+            company_store.get(&company_id).await.unwrap().status,
+            CompanyStatus::Invited,
+        );
+        // Only the committed branch has application metadata
+        let events = chain_event_store
+            .find_chain_events(&company_id.to_string(), BlockchainType::Company)
+            .await
+            .unwrap();
+        assert_eq!(events.len(), expected_height);
+        assert_eq!(
+            events.iter().any(|e| &e.block_hash == a4.hash()),
+            !longer_branch_wins,
+        );
+        assert_eq!(
+            events.iter().any(|e| &e.block_hash == b4.hash()),
+            longer_branch_wins,
+        );
+        assert_eq!(
+            events.iter().any(|e| &e.block_hash == b5.hash()),
+            longer_branch_wins,
+        );
+        let status = incoming_store
+            .get_chain_queue_status("company", &company_id.to_string())
+            .await
+            .unwrap();
+        assert_eq!(status.applied, expected_height as u64);
+        match case {
+            ForkChoiceCase::LateFork => {
+                assert_eq!(status.conflicting_forks, 2);
+                assert_eq!(status.pending, 0);
+            }
+            ForkChoiceCase::BothVerified | ForkChoiceCase::ForegroundIngestion => {
+                assert_eq!(status.conflicting_forks, 1);
+                assert_eq!(status.pending, 0);
+            }
+            ForkChoiceCase::ForegroundMissingQuorum => {
+                assert_eq!(status.conflicting_forks, 1);
+                assert_eq!(status.pending, 1);
+            }
+        }
+        // No ordinary application work remains due, even in the future. The losing forks have been parked
+        assert!(
+            incoming_store
+                .get_verified_candidates(Timestamp::now() + Duration::from_secs(600), 16,)
+                .await
+                .unwrap()
+                .is_empty(),
+        );
+        // Reopen SQLite and prove the selected branch is durable
+        let reopened = SqlitePersistence::open(SqliteConfig::new(db_path))
+            .await
+            .unwrap();
+        let persisted = reopened
+            .company_chain_store()
+            .get_chain(&company_id)
+            .await
+            .unwrap();
+        assert_eq!(persisted.blocks().len(), expected_height,);
+        assert_eq!(persisted.get_latest_block().hash(), expected_tip,);
+    }
+
+    #[tokio::test]
+    async fn company_bill_recovery_survives_post_commit_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("company-bill-recovery.sqlite");
+        let db = SqlitePersistence::open(SqliteConfig::new(db_path.clone()))
+            .await
+            .unwrap();
+        let encryption = Arc::new(EncryptionContext::new(BcrKeys::new()));
+        let network = bitcoin::Network::Testnet;
+        let (company_id, (company, keys)) = get_company_data();
+        let genesis = get_company_create_block(company_id.clone(), company.clone(), &keys);
+        let chain = CompanyBlockchain::new_from_blocks(vec![genesis]).unwrap();
+        let chain = add_creator_identity_proof_block(chain);
+        assert_eq!(chain.blocks().len(), 2);
+        let mut tx = db
+            .transaction_mgr(encryption.clone())
+            .begin()
+            .await
+            .unwrap();
+        tx.append_company_blocks(&company_id, None, chain.blocks())
+            .await
+            .unwrap();
+        tx.insert_company(&company).await.unwrap();
+        tx.save_company_key_pair(&company_id, &keys).await.unwrap();
+        tx.commit().await.unwrap();
+
+        let bill_keys = BcrKeys::new();
+        let bill_id = BillId::new(bill_keys.pub_key(), network);
+        let block = CompanyBlock::create_block_for_sign_company_bill(
+            company_id.clone(),
+            chain.get_latest_block(),
+            &CompanySignCompanyBillBlockData {
+                bill_id: bill_id.clone(),
+                block_id: BlockId::first(),
+                block_hash: Sha256Hash::new("bill genesis"),
+                operation: BillOpCode::Issue,
+                bill_key: Some(bill_keys.get_private_key()),
+            },
+            &BcrKeys::from_private_key(&private_key_test()),
+            &keys,
+            test_ts(),
+        )
+        .unwrap();
+        let expected_hash = block.hash().clone();
+        let mut bill_invite = MockNotificationHandlerApi::new();
+        let mut attempts = 0;
+        let expected_company_id = company_id.clone();
+        bill_invite
+            .expect_handle_event()
+            .times(2)
+            .returning(move |envelope, recipient, _, _| {
+                assert_eq!(recipient, &expected_company_id);
+                let event = Event::<ChainInvite>::try_from(envelope).unwrap();
+                assert_eq!(event.data.chain_type, BlockchainType::Bill,);
+                assert_eq!(event.data.chain_id, bill_id.to_string(),);
+                assert_eq!(event.data.keys.private_key, bill_keys.get_private_key(),);
+                attempts += 1;
+                if attempts == 1 {
+                    Err(Error::Persistence(
+                        "Could not persist bill invitation".into(),
+                    ))
+                } else {
+                    Ok(())
+                }
+            });
+
+        let bill_invite = Arc::new(bill_invite);
+        let make_processor = |db: &SqlitePersistence| {
+            let mut identity_store = MockIdentityStore::new();
+            identity_store
+                .expect_get()
+                .returning(|| Ok(get_baseline_identity().identity));
+            CompanyChainEventProcessor::new(
+                Arc::new(db.company_chain_store()),
+                Arc::new(db.company_store(encryption.clone())),
+                Arc::new(MockFileReferenceStore::new()),
+                Arc::new(identity_store),
+                Arc::new(MockNotificationStore::new()),
+                Arc::new(MockNostrContactProcessorApi::new()),
+                bill_invite.clone(),
+                Arc::new(MockPushApi::new()),
+                Arc::new(db.nostr_chain_event_store()),
+                Arc::new(MockNotificationJsonTransport::new()),
+                Arc::new(MockContactStore::new()),
+                Arc::new(db.transaction_mgr(encryption.clone())),
+                network,
+                Arc::new(test_cfg()),
+            )
+        };
+
+        let processor = make_processor(&db);
+        // Real business validation and transaction succeed
+        // But the invitation effect fails
+        let result = processor
+            .apply_verified_block(&company_id, block.clone(), keys.clone())
+            .await;
+        assert!(matches!(result, Err(Error::Persistence(_))));
+        let persisted = db
+            .company_chain_store()
+            .get_chain(&company_id)
+            .await
+            .unwrap();
+        assert_eq!(persisted.blocks().len(), 3);
+        assert_eq!(persisted.get_latest_block().hash(), &expected_hash,);
+        // Simulate shutdown and reopening the same database
+        drop(processor);
+        db.close().await;
+        let reopened = SqlitePersistence::open(SqliteConfig::new(db_path))
+            .await
+            .unwrap();
+        let processor = make_processor(&reopened);
+
+        // parent block is already committed, but its key-recovery effect must still be attempted
+        assert_eq!(
+            processor
+                .apply_verified_block(&company_id, block, keys,)
+                .await
+                .unwrap(),
+            IncomingChainApplyResult::AlreadyApplied,
+        );
+        let persisted = reopened
+            .company_chain_store()
+            .get_chain(&company_id)
+            .await
+            .unwrap();
+
+        // No duplicate block or chain replacement
+        assert_eq!(persisted.blocks().len(), 3);
+        assert_eq!(persisted.get_latest_block().hash(), &expected_hash,);
     }
 }

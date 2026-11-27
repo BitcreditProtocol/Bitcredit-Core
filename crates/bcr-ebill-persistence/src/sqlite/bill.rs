@@ -1,9 +1,9 @@
 use crate::sql::bill::{
     BILL_EXISTS, BILLS_WITH_LATEST_OP_CODE, BillCacheRow, BitcreditBillResultDb, CLEAR_CACHE,
-    GET_BILL_IDS, INVALIDATE_CACHE, IS_PAID, PaymentStateRow, SELECT_CACHE_ONE, SELECT_KEYS,
-    SELECT_OFFER_TO_SELL_PAYMENT, SELECT_PAYMENT, SELECT_RECOURSE_PAYMENT, UPSERT_CACHE,
-    UPSERT_OFFER_TO_SELL_PAYMENT, UPSERT_PAYMENT, UPSERT_RECOURSE_PAYMENT, WAITING_FOR_PAYMENT,
-    payment_state_to_db,
+    GET_BILL_IDS, GET_BILL_KEY_IDS, INVALIDATE_CACHE, IS_PAID, PaymentStateRow, SELECT_CACHE_ONE,
+    SELECT_KEYS, SELECT_OFFER_TO_SELL_PAYMENT, SELECT_PAYMENT, SELECT_RECOURSE_PAYMENT,
+    UPSERT_CACHE, UPSERT_OFFER_TO_SELL_PAYMENT, UPSERT_PAYMENT, UPSERT_RECOURSE_PAYMENT,
+    WAITING_FOR_PAYMENT, payment_state_to_db,
 };
 use crate::sql::{block_id_to_db, timestamp_to_db};
 use crate::{EncryptionContext, Error, Result};
@@ -295,6 +295,13 @@ impl BillStoreApi for SqliteBillStore {
         );
         let rows: Vec<Text<BillId>> = builder.build_query_scalar().fetch_all(&self.pool).await?;
         Ok(rows.into_iter().map(Text::into_inner).collect())
+    }
+
+    async fn get_key_ids(&self) -> Result<Vec<BillId>> {
+        let ids: Vec<Text<BillId>> = sqlx::query_scalar(GET_BILL_KEY_IDS)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(ids.into_iter().map(Text::into_inner).collect())
     }
 }
 

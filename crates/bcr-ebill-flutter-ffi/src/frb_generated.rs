@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 441969371;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1310747867;
 
 // Section: executor
 
@@ -2206,6 +2206,115 @@ fn wire__crate__ffi__api__general__get_status_impl(
         },
     )
 }
+fn wire__crate__ffi__api__bill__incoming_queue_status_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "incoming_queue_status",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_id = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, crate::ffi::error::EbillFfiError>(
+                    (move || async move {
+                        let output_ok =
+                            crate::ffi::api::bill::incoming_queue_status(&api_id).await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__ffi__api__company__incoming_queue_status_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "incoming_queue_status",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_id = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, crate::ffi::error::EbillFfiError>(
+                    (move || async move {
+                        let output_ok =
+                            crate::ffi::api::company::incoming_queue_status(&api_id).await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
+fn wire__crate__ffi__api__identity__incoming_queue_status_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "incoming_queue_status",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, crate::ffi::error::EbillFfiError>(
+                    (move || async move {
+                        let output_ok = crate::ffi::api::identity::incoming_queue_status().await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
 fn wire__crate__ffi__init_app_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -3855,6 +3964,44 @@ fn wire__crate__ffi__reset_ebill_instance_impl(
         },
     )
 }
+fn wire__crate__ffi__restore_ebill_instance_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "restore_ebill_instance",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_instance_id = <crate::ffi::InstanceId>::sse_decode(&mut deserializer);
+            let api_conf = <crate::ffi::EbillConfig>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, crate::ffi::error::EbillFfiError>(
+                    (move || async move {
+                        let output_ok =
+                            crate::ffi::restore_ebill_instance(api_instance_id, api_conf).await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
 fn wire__crate__ffi__api__general__retry_pending_propagations_now_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -4029,45 +4176,6 @@ fn wire__crate__ffi__api__identity__seed_backup_impl(
                 transform_result_sse::<_, crate::ffi::error::EbillFfiError>(
                     (move || async move {
                         let output_ok = crate::ffi::api::identity::seed_backup().await?;
-                        std::result::Result::Ok(output_ok)
-                    })()
-                    .await,
-                )
-            }
-        },
-    )
-}
-fn wire__crate__ffi__api__identity__seed_recover_impl(
-    port_: flutter_rust_bridge::for_generated::MessagePort,
-    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
-    rust_vec_len_: i32,
-    data_len_: i32,
-) {
-    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
-        flutter_rust_bridge::for_generated::TaskInfo {
-            debug_name: "seed_recover",
-            port: Some(port_),
-            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
-        },
-        move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_seed_phrase_payload =
-                <crate::ffi::data::identity::SeedPhrase>::sse_decode(&mut deserializer);
-            deserializer.end();
-            move |context| async move {
-                transform_result_sse::<_, crate::ffi::error::EbillFfiError>(
-                    (move || async move {
-                        let output_ok =
-                            crate::ffi::api::identity::seed_recover(api_seed_phrase_payload)
-                                .await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -6218,73 +6326,74 @@ impl SseDecode for crate::ffi::error::EbillFfiErrorCode {
 42 => crate::ffi::error::EbillFfiErrorCode::NoConfirmedEmailForIdentIdentity,
 43 => crate::ffi::error::EbillFfiErrorCode::NoFileForFileUploadId,
 44 => crate::ffi::error::EbillFfiErrorCode::NotFound,
-45 => crate::ffi::error::EbillFfiErrorCode::Internal,
-46 => crate::ffi::error::EbillFfiErrorCode::ExternalApi,
-47 => crate::ffi::error::EbillFfiErrorCode::Crypto,
-48 => crate::ffi::error::EbillFfiErrorCode::Persistence,
-49 => crate::ffi::error::EbillFfiErrorCode::Blockchain,
-50 => crate::ffi::error::EbillFfiErrorCode::Protocol,
-51 => crate::ffi::error::EbillFfiErrorCode::InvalidRelayUrl,
-52 => crate::ffi::error::EbillFfiErrorCode::Serialization,
-53 => crate::ffi::error::EbillFfiErrorCode::Init,
-54 => crate::ffi::error::EbillFfiErrorCode::NotificationNetwork,
-55 => crate::ffi::error::EbillFfiErrorCode::NotificationMessage,
-56 => crate::ffi::error::EbillFfiErrorCode::InvalidOperation,
-57 => crate::ffi::error::EbillFfiErrorCode::BillAlreadyAccepted,
-58 => crate::ffi::error::EbillFfiErrorCode::BillWasRejectedToAccept,
-59 => crate::ffi::error::EbillFfiErrorCode::BillAcceptanceExpired,
-60 => crate::ffi::error::EbillFfiErrorCode::BillWasRejectedToPay,
-61 => crate::ffi::error::EbillFfiErrorCode::BillPaymentExpired,
-62 => crate::ffi::error::EbillFfiErrorCode::BillWasRecoursedToTheEnd,
-63 => crate::ffi::error::EbillFfiErrorCode::BillAlreadyRequestedToAccept,
-64 => crate::ffi::error::EbillFfiErrorCode::BillNotAccepted,
-65 => crate::ffi::error::EbillFfiErrorCode::CallerIsNotDrawee,
-66 => crate::ffi::error::EbillFfiErrorCode::CallerIsNotHolder,
-67 => crate::ffi::error::EbillFfiErrorCode::CallerIsNotRecoursee,
-68 => crate::ffi::error::EbillFfiErrorCode::CallerIsNotBuyer,
-69 => crate::ffi::error::EbillFfiErrorCode::RequestAlreadyRejected,
-70 => crate::ffi::error::EbillFfiErrorCode::BillAlreadyPaid,
-71 => crate::ffi::error::EbillFfiErrorCode::BillWasNotRequestedToPay,
-72 => crate::ffi::error::EbillFfiErrorCode::BillWasNotOfferedToSell,
-73 => crate::ffi::error::EbillFfiErrorCode::BillRequestToAcceptDidNotExpireAndWasNotRejected,
-74 => crate::ffi::error::EbillFfiErrorCode::BillRequestToPayDidNotExpireAndWasNotRejected,
-75 => crate::ffi::error::EbillFfiErrorCode::RecourseeNotPastHolder,
-76 => crate::ffi::error::EbillFfiErrorCode::BillWasNotRequestedToRecourse,
-77 => crate::ffi::error::EbillFfiErrorCode::BillIsNotRequestedToRecourseAndWaitingForPayment,
-78 => crate::ffi::error::EbillFfiErrorCode::BillIsNotOfferToSellWaitingForPayment,
-79 => crate::ffi::error::EbillFfiErrorCode::BillSellDataInvalid,
-80 => crate::ffi::error::EbillFfiErrorCode::BillRecourseDataInvalid,
-81 => crate::ffi::error::EbillFfiErrorCode::BillIsRequestedToPayAndWaitingForPayment,
-82 => crate::ffi::error::EbillFfiErrorCode::BillIsOfferedToSellAndWaitingForPayment,
-83 => crate::ffi::error::EbillFfiErrorCode::BillIsInRecourseAndWaitingForPayment,
-84 => crate::ffi::error::EbillFfiErrorCode::SignatoryNotInContacts,
-85 => crate::ffi::error::EbillFfiErrorCode::SignatoryAlreadySignatory,
-86 => crate::ffi::error::EbillFfiErrorCode::CantRemoveLastSignatory,
-87 => crate::ffi::error::EbillFfiErrorCode::NotASignatory,
-88 => crate::ffi::error::EbillFfiErrorCode::NotARemovedOrRejectedSignatory,
-89 => crate::ffi::error::EbillFfiErrorCode::NotInvitedAsSignatory,
-90 => crate::ffi::error::EbillFfiErrorCode::NoSignerIdentityProof,
-91 => crate::ffi::error::EbillFfiErrorCode::FileIsTooBig,
-92 => crate::ffi::error::EbillFfiErrorCode::FileIsEmpty,
-93 => crate::ffi::error::EbillFfiErrorCode::TooManyFiles,
-94 => crate::ffi::error::EbillFfiErrorCode::InvalidFileName,
-95 => crate::ffi::error::EbillFfiErrorCode::UnknownNodeId,
-96 => crate::ffi::error::EbillFfiErrorCode::CallerMustBeSignatory,
-97 => crate::ffi::error::EbillFfiErrorCode::CallerMustBeCreator,
-98 => crate::ffi::error::EbillFfiErrorCode::CallerMustBeIdentifiedCreator,
-99 => crate::ffi::error::EbillFfiErrorCode::InvalidIdentityProof,
-100 => crate::ffi::error::EbillFfiErrorCode::InvalidReferenceBlock,
-101 => crate::ffi::error::EbillFfiErrorCode::MintRequestToPayWithoutCustomAddress,
-102 => crate::ffi::error::EbillFfiErrorCode::InvalidSignature,
-103 => crate::ffi::error::EbillFfiErrorCode::InvalidHash,
-104 => crate::ffi::error::EbillFfiErrorCode::InvalidUrl,
-105 => crate::ffi::error::EbillFfiErrorCode::InvalidIdentityProofStatus,
-106 => crate::ffi::error::EbillFfiErrorCode::Json,
-107 => crate::ffi::error::EbillFfiErrorCode::InvalidBillAction,
-108 => crate::ffi::error::EbillFfiErrorCode::InvalidCompanyAction,
-109 => crate::ffi::error::EbillFfiErrorCode::InvalidIdentityAction,
-110 => crate::ffi::error::EbillFfiErrorCode::CompanySignerCreatorMismatch,
-111 => crate::ffi::error::EbillFfiErrorCode::InvalidMintRequestId,
+45 => crate::ffi::error::EbillFfiErrorCode::InvalidIncomingBlock,
+46 => crate::ffi::error::EbillFfiErrorCode::Internal,
+47 => crate::ffi::error::EbillFfiErrorCode::ExternalApi,
+48 => crate::ffi::error::EbillFfiErrorCode::Crypto,
+49 => crate::ffi::error::EbillFfiErrorCode::Persistence,
+50 => crate::ffi::error::EbillFfiErrorCode::Blockchain,
+51 => crate::ffi::error::EbillFfiErrorCode::Protocol,
+52 => crate::ffi::error::EbillFfiErrorCode::InvalidRelayUrl,
+53 => crate::ffi::error::EbillFfiErrorCode::Serialization,
+54 => crate::ffi::error::EbillFfiErrorCode::Init,
+55 => crate::ffi::error::EbillFfiErrorCode::NotificationNetwork,
+56 => crate::ffi::error::EbillFfiErrorCode::NotificationMessage,
+57 => crate::ffi::error::EbillFfiErrorCode::InvalidOperation,
+58 => crate::ffi::error::EbillFfiErrorCode::BillAlreadyAccepted,
+59 => crate::ffi::error::EbillFfiErrorCode::BillWasRejectedToAccept,
+60 => crate::ffi::error::EbillFfiErrorCode::BillAcceptanceExpired,
+61 => crate::ffi::error::EbillFfiErrorCode::BillWasRejectedToPay,
+62 => crate::ffi::error::EbillFfiErrorCode::BillPaymentExpired,
+63 => crate::ffi::error::EbillFfiErrorCode::BillWasRecoursedToTheEnd,
+64 => crate::ffi::error::EbillFfiErrorCode::BillAlreadyRequestedToAccept,
+65 => crate::ffi::error::EbillFfiErrorCode::BillNotAccepted,
+66 => crate::ffi::error::EbillFfiErrorCode::CallerIsNotDrawee,
+67 => crate::ffi::error::EbillFfiErrorCode::CallerIsNotHolder,
+68 => crate::ffi::error::EbillFfiErrorCode::CallerIsNotRecoursee,
+69 => crate::ffi::error::EbillFfiErrorCode::CallerIsNotBuyer,
+70 => crate::ffi::error::EbillFfiErrorCode::RequestAlreadyRejected,
+71 => crate::ffi::error::EbillFfiErrorCode::BillAlreadyPaid,
+72 => crate::ffi::error::EbillFfiErrorCode::BillWasNotRequestedToPay,
+73 => crate::ffi::error::EbillFfiErrorCode::BillWasNotOfferedToSell,
+74 => crate::ffi::error::EbillFfiErrorCode::BillRequestToAcceptDidNotExpireAndWasNotRejected,
+75 => crate::ffi::error::EbillFfiErrorCode::BillRequestToPayDidNotExpireAndWasNotRejected,
+76 => crate::ffi::error::EbillFfiErrorCode::RecourseeNotPastHolder,
+77 => crate::ffi::error::EbillFfiErrorCode::BillWasNotRequestedToRecourse,
+78 => crate::ffi::error::EbillFfiErrorCode::BillIsNotRequestedToRecourseAndWaitingForPayment,
+79 => crate::ffi::error::EbillFfiErrorCode::BillIsNotOfferToSellWaitingForPayment,
+80 => crate::ffi::error::EbillFfiErrorCode::BillSellDataInvalid,
+81 => crate::ffi::error::EbillFfiErrorCode::BillRecourseDataInvalid,
+82 => crate::ffi::error::EbillFfiErrorCode::BillIsRequestedToPayAndWaitingForPayment,
+83 => crate::ffi::error::EbillFfiErrorCode::BillIsOfferedToSellAndWaitingForPayment,
+84 => crate::ffi::error::EbillFfiErrorCode::BillIsInRecourseAndWaitingForPayment,
+85 => crate::ffi::error::EbillFfiErrorCode::SignatoryNotInContacts,
+86 => crate::ffi::error::EbillFfiErrorCode::SignatoryAlreadySignatory,
+87 => crate::ffi::error::EbillFfiErrorCode::CantRemoveLastSignatory,
+88 => crate::ffi::error::EbillFfiErrorCode::NotASignatory,
+89 => crate::ffi::error::EbillFfiErrorCode::NotARemovedOrRejectedSignatory,
+90 => crate::ffi::error::EbillFfiErrorCode::NotInvitedAsSignatory,
+91 => crate::ffi::error::EbillFfiErrorCode::NoSignerIdentityProof,
+92 => crate::ffi::error::EbillFfiErrorCode::FileIsTooBig,
+93 => crate::ffi::error::EbillFfiErrorCode::FileIsEmpty,
+94 => crate::ffi::error::EbillFfiErrorCode::TooManyFiles,
+95 => crate::ffi::error::EbillFfiErrorCode::InvalidFileName,
+96 => crate::ffi::error::EbillFfiErrorCode::UnknownNodeId,
+97 => crate::ffi::error::EbillFfiErrorCode::CallerMustBeSignatory,
+98 => crate::ffi::error::EbillFfiErrorCode::CallerMustBeCreator,
+99 => crate::ffi::error::EbillFfiErrorCode::CallerMustBeIdentifiedCreator,
+100 => crate::ffi::error::EbillFfiErrorCode::InvalidIdentityProof,
+101 => crate::ffi::error::EbillFfiErrorCode::InvalidReferenceBlock,
+102 => crate::ffi::error::EbillFfiErrorCode::MintRequestToPayWithoutCustomAddress,
+103 => crate::ffi::error::EbillFfiErrorCode::InvalidSignature,
+104 => crate::ffi::error::EbillFfiErrorCode::InvalidHash,
+105 => crate::ffi::error::EbillFfiErrorCode::InvalidUrl,
+106 => crate::ffi::error::EbillFfiErrorCode::InvalidIdentityProofStatus,
+107 => crate::ffi::error::EbillFfiErrorCode::Json,
+108 => crate::ffi::error::EbillFfiErrorCode::InvalidBillAction,
+109 => crate::ffi::error::EbillFfiErrorCode::InvalidCompanyAction,
+110 => crate::ffi::error::EbillFfiErrorCode::InvalidIdentityAction,
+111 => crate::ffi::error::EbillFfiErrorCode::CompanySignerCreatorMismatch,
+112 => crate::ffi::error::EbillFfiErrorCode::InvalidMintRequestId,
             _ => unreachable!("Invalid variant for EbillFfiErrorCode: {}", inner),
         };
     }
@@ -6610,6 +6719,32 @@ impl SseDecode for crate::ffi::data::identity::IdentityTypeFfi {
             0 => crate::ffi::data::identity::IdentityTypeFfi::Ident,
             1 => crate::ffi::data::identity::IdentityTypeFfi::Anon,
             _ => unreachable!("Invalid variant for IdentityTypeFfi: {}", inner),
+        };
+    }
+}
+
+impl SseDecode for crate::ffi::data::IncomingChainQueueStatusFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_pending = <u64>::sse_decode(deserializer);
+        let mut var_verified = <u64>::sse_decode(deserializer);
+        let mut var_applied = <u64>::sse_decode(deserializer);
+        let mut var_rejected = <u64>::sse_decode(deserializer);
+        let mut var_readyToApply = <u64>::sse_decode(deserializer);
+        let mut var_missingKeys = <u64>::sse_decode(deserializer);
+        let mut var_missingPredecessor = <u64>::sse_decode(deserializer);
+        let mut var_transientApplicationFailures = <u64>::sse_decode(deserializer);
+        let mut var_conflictingForks = <u64>::sse_decode(deserializer);
+        return crate::ffi::data::IncomingChainQueueStatusFfi {
+            pending: var_pending,
+            verified: var_verified,
+            applied: var_applied,
+            rejected: var_rejected,
+            ready_to_apply: var_readyToApply,
+            missing_keys: var_missingKeys,
+            missing_predecessor: var_missingPredecessor,
+            transient_application_failures: var_transientApplicationFailures,
+            conflicting_forks: var_conflictingForks,
         };
     }
 }
@@ -7674,6 +7809,19 @@ impl SseDecode for Option<crate::ffi::data::PropagationBlockInfoFfi> {
     }
 }
 
+impl SseDecode for Option<crate::ffi::data::PropagationQuorumFfi> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::ffi::data::PropagationQuorumFfi>::sse_decode(
+                deserializer,
+            ));
+        } else {
+            return None;
+        }
+    }
+}
+
 impl SseDecode for Option<crate::ffi::data::PropagationStatusFfi> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -8058,6 +8206,22 @@ impl SseDecode for crate::ffi::data::PropagationMessageFfi {
     }
 }
 
+impl SseDecode for crate::ffi::data::PropagationQuorumFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_propagated = <bool>::sse_decode(deserializer);
+        let mut var_requiredAcks = <u64>::sse_decode(deserializer);
+        let mut var_totalRelays = <u64>::sse_decode(deserializer);
+        let mut var_confirmedRelays = <Vec<String>>::sse_decode(deserializer);
+        return crate::ffi::data::PropagationQuorumFfi {
+            propagated: var_propagated,
+            required_acks: var_requiredAcks,
+            total_relays: var_totalRelays,
+            confirmed_relays: var_confirmedRelays,
+        };
+    }
+}
+
 impl SseDecode for crate::ffi::data::PropagationRelayFfi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -8087,6 +8251,8 @@ impl SseDecode for crate::ffi::data::PropagationStatusFfi {
             <Vec<crate::ffi::data::PropagationMessageFfi>>::sse_decode(deserializer);
         let mut var_lastBlock =
             <Option<crate::ffi::data::PropagationBlockInfoFfi>>::sse_decode(deserializer);
+        let mut var_quorum =
+            <Option<crate::ffi::data::PropagationQuorumFfi>>::sse_decode(deserializer);
         return crate::ffi::data::PropagationStatusFfi {
             id: var_id,
             subject_type: var_subjectType,
@@ -8094,6 +8260,7 @@ impl SseDecode for crate::ffi::data::PropagationStatusFfi {
             created_at: var_createdAt,
             messages: var_messages,
             last_block: var_lastBlock,
+            quorum: var_quorum,
         };
     }
 }
@@ -8582,181 +8749,197 @@ fn pde_ffi_dispatcher_primary_impl(
             data_len,
         ),
         58 => wire__crate__ffi__api__general__get_status_impl(port, ptr, rust_vec_len, data_len),
-        59 => wire__crate__ffi__init_app_impl(port, ptr, rust_vec_len, data_len),
-        60 => wire__crate__ffi__init_ebill_instance_impl(port, ptr, rust_vec_len, data_len),
-        61 => {
+        59 => wire__crate__ffi__api__bill__incoming_queue_status_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        60 => wire__crate__ffi__api__company__incoming_queue_status_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        61 => wire__crate__ffi__api__identity__incoming_queue_status_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        62 => wire__crate__ffi__init_app_impl(port, ptr, rust_vec_len, data_len),
+        63 => wire__crate__ffi__init_ebill_instance_impl(port, ptr, rust_vec_len, data_len),
+        64 => {
             wire__crate__ffi__api__company__invite_signatory_impl(port, ptr, rust_vec_len, data_len)
         }
-        62 => wire__crate__ffi__api__bill__issue_impl(port, ptr, rust_vec_len, data_len),
-        63 => wire__crate__ffi__api__bill__issue_blank_impl(port, ptr, rust_vec_len, data_len),
-        64 => wire__crate__ffi__api__general__link_to_pay_impl(port, ptr, rust_vec_len, data_len),
-        65 => wire__crate__ffi__api__bill__list_impl(port, ptr, rust_vec_len, data_len),
-        66 => wire__crate__ffi__api__company__list_impl(port, ptr, rust_vec_len, data_len),
-        67 => wire__crate__ffi__api__contact__list_impl(port, ptr, rust_vec_len, data_len),
-        68 => wire__crate__ffi__api__notification__list_impl(port, ptr, rust_vec_len, data_len),
-        69 => wire__crate__ffi__api__company__list_invites_impl(port, ptr, rust_vec_len, data_len),
-        70 => wire__crate__ffi__api__bill__list_light_impl(port, ptr, rust_vec_len, data_len),
-        71 => wire__crate__ffi__api__contact__list_pending_contact_shares_impl(
+        65 => wire__crate__ffi__api__bill__issue_impl(port, ptr, rust_vec_len, data_len),
+        66 => wire__crate__ffi__api__bill__issue_blank_impl(port, ptr, rust_vec_len, data_len),
+        67 => wire__crate__ffi__api__general__link_to_pay_impl(port, ptr, rust_vec_len, data_len),
+        68 => wire__crate__ffi__api__bill__list_impl(port, ptr, rust_vec_len, data_len),
+        69 => wire__crate__ffi__api__company__list_impl(port, ptr, rust_vec_len, data_len),
+        70 => wire__crate__ffi__api__contact__list_impl(port, ptr, rust_vec_len, data_len),
+        71 => wire__crate__ffi__api__notification__list_impl(port, ptr, rust_vec_len, data_len),
+        72 => wire__crate__ffi__api__company__list_invites_impl(port, ptr, rust_vec_len, data_len),
+        73 => wire__crate__ffi__api__bill__list_light_impl(port, ptr, rust_vec_len, data_len),
+        74 => wire__crate__ffi__api__contact__list_pending_contact_shares_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        72 => {
+        75 => {
             wire__crate__ffi__api__company__list_signatories_impl(port, ptr, rust_vec_len, data_len)
         }
-        73 => wire__crate__ffi__api__company__locally_hide_signatory_impl(
+        76 => wire__crate__ffi__api__company__locally_hide_signatory_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        74 => wire__crate__ffi__api__notification__mark_as_done_impl(
+        77 => wire__crate__ffi__api__notification__mark_as_done_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        75 => wire__crate__ffi__api__general__mempool_link_impl(port, ptr, rust_vec_len, data_len),
-        76 => wire__crate__ffi__api__bill__mint_state_impl(port, ptr, rust_vec_len, data_len),
-        77 => wire__crate__ffi__data__notification_filters_ffi_default_impl(
+        78 => wire__crate__ffi__api__general__mempool_link_impl(port, ptr, rust_vec_len, data_len),
+        79 => wire__crate__ffi__api__bill__mint_state_impl(port, ptr, rust_vec_len, data_len),
+        80 => wire__crate__ffi__data__notification_filters_ffi_default_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        78 => wire__crate__ffi__api__bill__offer_to_sell_impl(port, ptr, rust_vec_len, data_len),
-        79 => {
+        81 => wire__crate__ffi__api__bill__offer_to_sell_impl(port, ptr, rust_vec_len, data_len),
+        82 => {
             wire__crate__ffi__api__bill__offer_to_sell_blank_impl(port, ptr, rust_vec_len, data_len)
         }
-        80 => wire__crate__ffi__data__optional_postal_address_ffi_is_none_impl(
+        83 => wire__crate__ffi__data__optional_postal_address_ffi_is_none_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        81 => wire__crate__ffi__api__general__overview_impl(port, ptr, rust_vec_len, data_len),
-        82 => wire__crate__ffi__api__bill__past_endorsees_impl(port, ptr, rust_vec_len, data_len),
-        83 => wire__crate__ffi__api__bill__past_payments_impl(port, ptr, rust_vec_len, data_len),
-        84 => {
+        84 => wire__crate__ffi__api__general__overview_impl(port, ptr, rust_vec_len, data_len),
+        85 => wire__crate__ffi__api__bill__past_endorsees_impl(port, ptr, rust_vec_len, data_len),
+        86 => wire__crate__ffi__api__bill__past_payments_impl(port, ptr, rust_vec_len, data_len),
+        87 => {
             wire__crate__ffi__api__bill__propagation_status_impl(port, ptr, rust_vec_len, data_len)
         }
-        85 => wire__crate__ffi__api__company__propagation_status_impl(
+        88 => wire__crate__ffi__api__company__propagation_status_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        86 => wire__crate__ffi__api__identity__propagation_status_impl(
+        89 => wire__crate__ffi__api__identity__propagation_status_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        87 => wire__crate__ffi__api__contact__reject_contact_share_impl(
+        90 => wire__crate__ffi__api__contact__reject_contact_share_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        88 => wire__crate__ffi__api__company__reject_invite_impl(port, ptr, rust_vec_len, data_len),
-        89 => {
+        91 => wire__crate__ffi__api__company__reject_invite_impl(port, ptr, rust_vec_len, data_len),
+        92 => {
             wire__crate__ffi__api__bill__reject_mint_offer_impl(port, ptr, rust_vec_len, data_len)
         }
-        90 => wire__crate__ffi__api__bill__reject_to_accept_impl(port, ptr, rust_vec_len, data_len),
-        91 => wire__crate__ffi__api__bill__reject_to_buy_impl(port, ptr, rust_vec_len, data_len),
-        92 => wire__crate__ffi__api__bill__reject_to_pay_impl(port, ptr, rust_vec_len, data_len),
-        93 => wire__crate__ffi__api__bill__reject_to_pay_recourse_impl(
+        93 => wire__crate__ffi__api__bill__reject_to_accept_impl(port, ptr, rust_vec_len, data_len),
+        94 => wire__crate__ffi__api__bill__reject_to_buy_impl(port, ptr, rust_vec_len, data_len),
+        95 => wire__crate__ffi__api__bill__reject_to_pay_impl(port, ptr, rust_vec_len, data_len),
+        96 => wire__crate__ffi__api__bill__reject_to_pay_recourse_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        94 => wire__crate__ffi__api__contact__remove_impl(port, ptr, rust_vec_len, data_len),
-        95 => {
+        97 => wire__crate__ffi__api__contact__remove_impl(port, ptr, rust_vec_len, data_len),
+        98 => {
             wire__crate__ffi__api__company__remove_signatory_impl(port, ptr, rust_vec_len, data_len)
         }
-        96 => {
+        99 => {
             wire__crate__ffi__api__bill__request_to_accept_impl(port, ptr, rust_vec_len, data_len)
         }
-        97 => wire__crate__ffi__api__bill__request_to_mint_impl(port, ptr, rust_vec_len, data_len),
-        98 => wire__crate__ffi__api__bill__request_to_pay_impl(port, ptr, rust_vec_len, data_len),
-        99 => wire__crate__ffi__api__bill__request_to_pay_as_mint_impl(
+        100 => wire__crate__ffi__api__bill__request_to_mint_impl(port, ptr, rust_vec_len, data_len),
+        101 => wire__crate__ffi__api__bill__request_to_pay_impl(port, ptr, rust_vec_len, data_len),
+        102 => wire__crate__ffi__api__bill__request_to_pay_as_mint_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        100 => wire__crate__ffi__api__bill__request_to_recourse_bill_acceptance_impl(
+        103 => wire__crate__ffi__api__bill__request_to_recourse_bill_acceptance_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        101 => wire__crate__ffi__api__bill__request_to_recourse_bill_payment_impl(
+        104 => wire__crate__ffi__api__bill__request_to_recourse_bill_payment_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        102 => wire__crate__ffi__reset_ebill_instance_impl(port, ptr, rust_vec_len, data_len),
-        103 => wire__crate__ffi__api__general__retry_pending_propagations_now_impl(
+        105 => wire__crate__ffi__reset_ebill_instance_impl(port, ptr, rust_vec_len, data_len),
+        106 => wire__crate__ffi__restore_ebill_instance_impl(port, ptr, rust_vec_len, data_len),
+        107 => wire__crate__ffi__api__general__retry_pending_propagations_now_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        104 => wire__crate__ffi__api__bill__search_impl(port, ptr, rust_vec_len, data_len),
-        105 => wire__crate__ffi__api__contact__search_impl(port, ptr, rust_vec_len, data_len),
-        106 => wire__crate__ffi__api__general__search_impl(port, ptr, rust_vec_len, data_len),
-        107 => wire__crate__ffi__api__identity__seed_backup_impl(port, ptr, rust_vec_len, data_len),
-        108 => {
-            wire__crate__ffi__api__identity__seed_recover_impl(port, ptr, rust_vec_len, data_len)
-        }
-        109 => wire__crate__ffi__set_active_instance_impl(port, ptr, rust_vec_len, data_len),
-        110 => wire__crate__ffi__api__bill__share_bill_with_court_impl(
+        108 => wire__crate__ffi__api__bill__search_impl(port, ptr, rust_vec_len, data_len),
+        109 => wire__crate__ffi__api__contact__search_impl(port, ptr, rust_vec_len, data_len),
+        110 => wire__crate__ffi__api__general__search_impl(port, ptr, rust_vec_len, data_len),
+        111 => wire__crate__ffi__api__identity__seed_backup_impl(port, ptr, rust_vec_len, data_len),
+        112 => wire__crate__ffi__set_active_instance_impl(port, ptr, rust_vec_len, data_len),
+        113 => wire__crate__ffi__api__bill__share_bill_with_court_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        111 => wire__crate__ffi__api__company__share_contact_details_impl(
+        114 => wire__crate__ffi__api__company__share_contact_details_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        112 => wire__crate__ffi__api__identity__share_contact_details_impl(
+        115 => wire__crate__ffi__api__identity__share_contact_details_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        113 => {
+        116 => {
             wire__crate__ffi__api__notification__subscribe_impl(port, ptr, rust_vec_len, data_len)
         }
-        114 => wire__crate__ffi__api__bill__sweep_btc_funds_impl(port, ptr, rust_vec_len, data_len),
-        115 => wire__crate__ffi__api__identity__switch_impl(port, ptr, rust_vec_len, data_len),
-        116 => wire__crate__ffi__api__bill__sync_bill_chain_impl(port, ptr, rust_vec_len, data_len),
-        117 => wire__crate__ffi__api__company__sync_company_chain_impl(
+        117 => wire__crate__ffi__api__bill__sweep_btc_funds_impl(port, ptr, rust_vec_len, data_len),
+        118 => wire__crate__ffi__api__identity__switch_impl(port, ptr, rust_vec_len, data_len),
+        119 => wire__crate__ffi__api__bill__sync_bill_chain_impl(port, ptr, rust_vec_len, data_len),
+        120 => wire__crate__ffi__api__company__sync_company_chain_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        118 => wire__crate__ffi__api__identity__sync_identity_chain_impl(
+        121 => wire__crate__ffi__api__identity__sync_identity_chain_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        119 => wire__crate__ffi__api__general__temp_file_impl(port, ptr, rust_vec_len, data_len),
-        120 => wire__crate__ffi__api__bill__upload_impl(port, ptr, rust_vec_len, data_len),
-        121 => wire__crate__ffi__api__company__upload_impl(port, ptr, rust_vec_len, data_len),
-        122 => wire__crate__ffi__api__contact__upload_impl(port, ptr, rust_vec_len, data_len),
-        123 => wire__crate__ffi__api__identity__upload_impl(port, ptr, rust_vec_len, data_len),
-        124 => wire__crate__ffi__api__company__verify_email_impl(port, ptr, rust_vec_len, data_len),
-        125 => {
+        122 => wire__crate__ffi__api__general__temp_file_impl(port, ptr, rust_vec_len, data_len),
+        123 => wire__crate__ffi__api__bill__upload_impl(port, ptr, rust_vec_len, data_len),
+        124 => wire__crate__ffi__api__company__upload_impl(port, ptr, rust_vec_len, data_len),
+        125 => wire__crate__ffi__api__contact__upload_impl(port, ptr, rust_vec_len, data_len),
+        126 => wire__crate__ffi__api__identity__upload_impl(port, ptr, rust_vec_len, data_len),
+        127 => wire__crate__ffi__api__company__verify_email_impl(port, ptr, rust_vec_len, data_len),
+        128 => {
             wire__crate__ffi__api__identity__verify_email_impl(port, ptr, rust_vec_len, data_len)
         }
         _ => unreachable!(),
@@ -10622,73 +10805,74 @@ impl flutter_rust_bridge::IntoDart for crate::ffi::error::EbillFfiErrorCode {
             Self::NoConfirmedEmailForIdentIdentity => 42.into_dart(),
             Self::NoFileForFileUploadId => 43.into_dart(),
             Self::NotFound => 44.into_dart(),
-            Self::Internal => 45.into_dart(),
-            Self::ExternalApi => 46.into_dart(),
-            Self::Crypto => 47.into_dart(),
-            Self::Persistence => 48.into_dart(),
-            Self::Blockchain => 49.into_dart(),
-            Self::Protocol => 50.into_dart(),
-            Self::InvalidRelayUrl => 51.into_dart(),
-            Self::Serialization => 52.into_dart(),
-            Self::Init => 53.into_dart(),
-            Self::NotificationNetwork => 54.into_dart(),
-            Self::NotificationMessage => 55.into_dart(),
-            Self::InvalidOperation => 56.into_dart(),
-            Self::BillAlreadyAccepted => 57.into_dart(),
-            Self::BillWasRejectedToAccept => 58.into_dart(),
-            Self::BillAcceptanceExpired => 59.into_dart(),
-            Self::BillWasRejectedToPay => 60.into_dart(),
-            Self::BillPaymentExpired => 61.into_dart(),
-            Self::BillWasRecoursedToTheEnd => 62.into_dart(),
-            Self::BillAlreadyRequestedToAccept => 63.into_dart(),
-            Self::BillNotAccepted => 64.into_dart(),
-            Self::CallerIsNotDrawee => 65.into_dart(),
-            Self::CallerIsNotHolder => 66.into_dart(),
-            Self::CallerIsNotRecoursee => 67.into_dart(),
-            Self::CallerIsNotBuyer => 68.into_dart(),
-            Self::RequestAlreadyRejected => 69.into_dart(),
-            Self::BillAlreadyPaid => 70.into_dart(),
-            Self::BillWasNotRequestedToPay => 71.into_dart(),
-            Self::BillWasNotOfferedToSell => 72.into_dart(),
-            Self::BillRequestToAcceptDidNotExpireAndWasNotRejected => 73.into_dart(),
-            Self::BillRequestToPayDidNotExpireAndWasNotRejected => 74.into_dart(),
-            Self::RecourseeNotPastHolder => 75.into_dart(),
-            Self::BillWasNotRequestedToRecourse => 76.into_dart(),
-            Self::BillIsNotRequestedToRecourseAndWaitingForPayment => 77.into_dart(),
-            Self::BillIsNotOfferToSellWaitingForPayment => 78.into_dart(),
-            Self::BillSellDataInvalid => 79.into_dart(),
-            Self::BillRecourseDataInvalid => 80.into_dart(),
-            Self::BillIsRequestedToPayAndWaitingForPayment => 81.into_dart(),
-            Self::BillIsOfferedToSellAndWaitingForPayment => 82.into_dart(),
-            Self::BillIsInRecourseAndWaitingForPayment => 83.into_dart(),
-            Self::SignatoryNotInContacts => 84.into_dart(),
-            Self::SignatoryAlreadySignatory => 85.into_dart(),
-            Self::CantRemoveLastSignatory => 86.into_dart(),
-            Self::NotASignatory => 87.into_dart(),
-            Self::NotARemovedOrRejectedSignatory => 88.into_dart(),
-            Self::NotInvitedAsSignatory => 89.into_dart(),
-            Self::NoSignerIdentityProof => 90.into_dart(),
-            Self::FileIsTooBig => 91.into_dart(),
-            Self::FileIsEmpty => 92.into_dart(),
-            Self::TooManyFiles => 93.into_dart(),
-            Self::InvalidFileName => 94.into_dart(),
-            Self::UnknownNodeId => 95.into_dart(),
-            Self::CallerMustBeSignatory => 96.into_dart(),
-            Self::CallerMustBeCreator => 97.into_dart(),
-            Self::CallerMustBeIdentifiedCreator => 98.into_dart(),
-            Self::InvalidIdentityProof => 99.into_dart(),
-            Self::InvalidReferenceBlock => 100.into_dart(),
-            Self::MintRequestToPayWithoutCustomAddress => 101.into_dart(),
-            Self::InvalidSignature => 102.into_dart(),
-            Self::InvalidHash => 103.into_dart(),
-            Self::InvalidUrl => 104.into_dart(),
-            Self::InvalidIdentityProofStatus => 105.into_dart(),
-            Self::Json => 106.into_dart(),
-            Self::InvalidBillAction => 107.into_dart(),
-            Self::InvalidCompanyAction => 108.into_dart(),
-            Self::InvalidIdentityAction => 109.into_dart(),
-            Self::CompanySignerCreatorMismatch => 110.into_dart(),
-            Self::InvalidMintRequestId => 111.into_dart(),
+            Self::InvalidIncomingBlock => 45.into_dart(),
+            Self::Internal => 46.into_dart(),
+            Self::ExternalApi => 47.into_dart(),
+            Self::Crypto => 48.into_dart(),
+            Self::Persistence => 49.into_dart(),
+            Self::Blockchain => 50.into_dart(),
+            Self::Protocol => 51.into_dart(),
+            Self::InvalidRelayUrl => 52.into_dart(),
+            Self::Serialization => 53.into_dart(),
+            Self::Init => 54.into_dart(),
+            Self::NotificationNetwork => 55.into_dart(),
+            Self::NotificationMessage => 56.into_dart(),
+            Self::InvalidOperation => 57.into_dart(),
+            Self::BillAlreadyAccepted => 58.into_dart(),
+            Self::BillWasRejectedToAccept => 59.into_dart(),
+            Self::BillAcceptanceExpired => 60.into_dart(),
+            Self::BillWasRejectedToPay => 61.into_dart(),
+            Self::BillPaymentExpired => 62.into_dart(),
+            Self::BillWasRecoursedToTheEnd => 63.into_dart(),
+            Self::BillAlreadyRequestedToAccept => 64.into_dart(),
+            Self::BillNotAccepted => 65.into_dart(),
+            Self::CallerIsNotDrawee => 66.into_dart(),
+            Self::CallerIsNotHolder => 67.into_dart(),
+            Self::CallerIsNotRecoursee => 68.into_dart(),
+            Self::CallerIsNotBuyer => 69.into_dart(),
+            Self::RequestAlreadyRejected => 70.into_dart(),
+            Self::BillAlreadyPaid => 71.into_dart(),
+            Self::BillWasNotRequestedToPay => 72.into_dart(),
+            Self::BillWasNotOfferedToSell => 73.into_dart(),
+            Self::BillRequestToAcceptDidNotExpireAndWasNotRejected => 74.into_dart(),
+            Self::BillRequestToPayDidNotExpireAndWasNotRejected => 75.into_dart(),
+            Self::RecourseeNotPastHolder => 76.into_dart(),
+            Self::BillWasNotRequestedToRecourse => 77.into_dart(),
+            Self::BillIsNotRequestedToRecourseAndWaitingForPayment => 78.into_dart(),
+            Self::BillIsNotOfferToSellWaitingForPayment => 79.into_dart(),
+            Self::BillSellDataInvalid => 80.into_dart(),
+            Self::BillRecourseDataInvalid => 81.into_dart(),
+            Self::BillIsRequestedToPayAndWaitingForPayment => 82.into_dart(),
+            Self::BillIsOfferedToSellAndWaitingForPayment => 83.into_dart(),
+            Self::BillIsInRecourseAndWaitingForPayment => 84.into_dart(),
+            Self::SignatoryNotInContacts => 85.into_dart(),
+            Self::SignatoryAlreadySignatory => 86.into_dart(),
+            Self::CantRemoveLastSignatory => 87.into_dart(),
+            Self::NotASignatory => 88.into_dart(),
+            Self::NotARemovedOrRejectedSignatory => 89.into_dart(),
+            Self::NotInvitedAsSignatory => 90.into_dart(),
+            Self::NoSignerIdentityProof => 91.into_dart(),
+            Self::FileIsTooBig => 92.into_dart(),
+            Self::FileIsEmpty => 93.into_dart(),
+            Self::TooManyFiles => 94.into_dart(),
+            Self::InvalidFileName => 95.into_dart(),
+            Self::UnknownNodeId => 96.into_dart(),
+            Self::CallerMustBeSignatory => 97.into_dart(),
+            Self::CallerMustBeCreator => 98.into_dart(),
+            Self::CallerMustBeIdentifiedCreator => 99.into_dart(),
+            Self::InvalidIdentityProof => 100.into_dart(),
+            Self::InvalidReferenceBlock => 101.into_dart(),
+            Self::MintRequestToPayWithoutCustomAddress => 102.into_dart(),
+            Self::InvalidSignature => 103.into_dart(),
+            Self::InvalidHash => 104.into_dart(),
+            Self::InvalidUrl => 105.into_dart(),
+            Self::InvalidIdentityProofStatus => 106.into_dart(),
+            Self::Json => 107.into_dart(),
+            Self::InvalidBillAction => 108.into_dart(),
+            Self::InvalidCompanyAction => 109.into_dart(),
+            Self::InvalidIdentityAction => 110.into_dart(),
+            Self::CompanySignerCreatorMismatch => 111.into_dart(),
+            Self::InvalidMintRequestId => 112.into_dart(),
             _ => unreachable!(),
         }
     }
@@ -11067,6 +11251,36 @@ impl flutter_rust_bridge::IntoIntoDart<crate::ffi::data::identity::IdentityTypeF
     for crate::ffi::data::identity::IdentityTypeFfi
 {
     fn into_into_dart(self) -> crate::ffi::data::identity::IdentityTypeFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::ffi::data::IncomingChainQueueStatusFfi {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.pending.into_into_dart().into_dart(),
+            self.verified.into_into_dart().into_dart(),
+            self.applied.into_into_dart().into_dart(),
+            self.rejected.into_into_dart().into_dart(),
+            self.ready_to_apply.into_into_dart().into_dart(),
+            self.missing_keys.into_into_dart().into_dart(),
+            self.missing_predecessor.into_into_dart().into_dart(),
+            self.transient_application_failures
+                .into_into_dart()
+                .into_dart(),
+            self.conflicting_forks.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::ffi::data::IncomingChainQueueStatusFfi
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::ffi::data::IncomingChainQueueStatusFfi>
+    for crate::ffi::data::IncomingChainQueueStatusFfi
+{
+    fn into_into_dart(self) -> crate::ffi::data::IncomingChainQueueStatusFfi {
         self
     }
 }
@@ -12165,6 +12379,29 @@ impl flutter_rust_bridge::IntoIntoDart<crate::ffi::data::PropagationMessageFfi>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::ffi::data::PropagationQuorumFfi {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.propagated.into_into_dart().into_dart(),
+            self.required_acks.into_into_dart().into_dart(),
+            self.total_relays.into_into_dart().into_dart(),
+            self.confirmed_relays.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::ffi::data::PropagationQuorumFfi
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::ffi::data::PropagationQuorumFfi>
+    for crate::ffi::data::PropagationQuorumFfi
+{
+    fn into_into_dart(self) -> crate::ffi::data::PropagationQuorumFfi {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::ffi::data::PropagationRelayFfi {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -12198,6 +12435,7 @@ impl flutter_rust_bridge::IntoDart for crate::ffi::data::PropagationStatusFfi {
             self.created_at.into_into_dart().into_dart(),
             self.messages.into_into_dart().into_dart(),
             self.last_block.into_into_dart().into_dart(),
+            self.quorum.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -13736,73 +13974,74 @@ crate::ffi::error::EbillFfiErrorCode::AcceptMintOfferExpired => { 41 }
 crate::ffi::error::EbillFfiErrorCode::NoConfirmedEmailForIdentIdentity => { 42 }
 crate::ffi::error::EbillFfiErrorCode::NoFileForFileUploadId => { 43 }
 crate::ffi::error::EbillFfiErrorCode::NotFound => { 44 }
-crate::ffi::error::EbillFfiErrorCode::Internal => { 45 }
-crate::ffi::error::EbillFfiErrorCode::ExternalApi => { 46 }
-crate::ffi::error::EbillFfiErrorCode::Crypto => { 47 }
-crate::ffi::error::EbillFfiErrorCode::Persistence => { 48 }
-crate::ffi::error::EbillFfiErrorCode::Blockchain => { 49 }
-crate::ffi::error::EbillFfiErrorCode::Protocol => { 50 }
-crate::ffi::error::EbillFfiErrorCode::InvalidRelayUrl => { 51 }
-crate::ffi::error::EbillFfiErrorCode::Serialization => { 52 }
-crate::ffi::error::EbillFfiErrorCode::Init => { 53 }
-crate::ffi::error::EbillFfiErrorCode::NotificationNetwork => { 54 }
-crate::ffi::error::EbillFfiErrorCode::NotificationMessage => { 55 }
-crate::ffi::error::EbillFfiErrorCode::InvalidOperation => { 56 }
-crate::ffi::error::EbillFfiErrorCode::BillAlreadyAccepted => { 57 }
-crate::ffi::error::EbillFfiErrorCode::BillWasRejectedToAccept => { 58 }
-crate::ffi::error::EbillFfiErrorCode::BillAcceptanceExpired => { 59 }
-crate::ffi::error::EbillFfiErrorCode::BillWasRejectedToPay => { 60 }
-crate::ffi::error::EbillFfiErrorCode::BillPaymentExpired => { 61 }
-crate::ffi::error::EbillFfiErrorCode::BillWasRecoursedToTheEnd => { 62 }
-crate::ffi::error::EbillFfiErrorCode::BillAlreadyRequestedToAccept => { 63 }
-crate::ffi::error::EbillFfiErrorCode::BillNotAccepted => { 64 }
-crate::ffi::error::EbillFfiErrorCode::CallerIsNotDrawee => { 65 }
-crate::ffi::error::EbillFfiErrorCode::CallerIsNotHolder => { 66 }
-crate::ffi::error::EbillFfiErrorCode::CallerIsNotRecoursee => { 67 }
-crate::ffi::error::EbillFfiErrorCode::CallerIsNotBuyer => { 68 }
-crate::ffi::error::EbillFfiErrorCode::RequestAlreadyRejected => { 69 }
-crate::ffi::error::EbillFfiErrorCode::BillAlreadyPaid => { 70 }
-crate::ffi::error::EbillFfiErrorCode::BillWasNotRequestedToPay => { 71 }
-crate::ffi::error::EbillFfiErrorCode::BillWasNotOfferedToSell => { 72 }
-crate::ffi::error::EbillFfiErrorCode::BillRequestToAcceptDidNotExpireAndWasNotRejected => { 73 }
-crate::ffi::error::EbillFfiErrorCode::BillRequestToPayDidNotExpireAndWasNotRejected => { 74 }
-crate::ffi::error::EbillFfiErrorCode::RecourseeNotPastHolder => { 75 }
-crate::ffi::error::EbillFfiErrorCode::BillWasNotRequestedToRecourse => { 76 }
-crate::ffi::error::EbillFfiErrorCode::BillIsNotRequestedToRecourseAndWaitingForPayment => { 77 }
-crate::ffi::error::EbillFfiErrorCode::BillIsNotOfferToSellWaitingForPayment => { 78 }
-crate::ffi::error::EbillFfiErrorCode::BillSellDataInvalid => { 79 }
-crate::ffi::error::EbillFfiErrorCode::BillRecourseDataInvalid => { 80 }
-crate::ffi::error::EbillFfiErrorCode::BillIsRequestedToPayAndWaitingForPayment => { 81 }
-crate::ffi::error::EbillFfiErrorCode::BillIsOfferedToSellAndWaitingForPayment => { 82 }
-crate::ffi::error::EbillFfiErrorCode::BillIsInRecourseAndWaitingForPayment => { 83 }
-crate::ffi::error::EbillFfiErrorCode::SignatoryNotInContacts => { 84 }
-crate::ffi::error::EbillFfiErrorCode::SignatoryAlreadySignatory => { 85 }
-crate::ffi::error::EbillFfiErrorCode::CantRemoveLastSignatory => { 86 }
-crate::ffi::error::EbillFfiErrorCode::NotASignatory => { 87 }
-crate::ffi::error::EbillFfiErrorCode::NotARemovedOrRejectedSignatory => { 88 }
-crate::ffi::error::EbillFfiErrorCode::NotInvitedAsSignatory => { 89 }
-crate::ffi::error::EbillFfiErrorCode::NoSignerIdentityProof => { 90 }
-crate::ffi::error::EbillFfiErrorCode::FileIsTooBig => { 91 }
-crate::ffi::error::EbillFfiErrorCode::FileIsEmpty => { 92 }
-crate::ffi::error::EbillFfiErrorCode::TooManyFiles => { 93 }
-crate::ffi::error::EbillFfiErrorCode::InvalidFileName => { 94 }
-crate::ffi::error::EbillFfiErrorCode::UnknownNodeId => { 95 }
-crate::ffi::error::EbillFfiErrorCode::CallerMustBeSignatory => { 96 }
-crate::ffi::error::EbillFfiErrorCode::CallerMustBeCreator => { 97 }
-crate::ffi::error::EbillFfiErrorCode::CallerMustBeIdentifiedCreator => { 98 }
-crate::ffi::error::EbillFfiErrorCode::InvalidIdentityProof => { 99 }
-crate::ffi::error::EbillFfiErrorCode::InvalidReferenceBlock => { 100 }
-crate::ffi::error::EbillFfiErrorCode::MintRequestToPayWithoutCustomAddress => { 101 }
-crate::ffi::error::EbillFfiErrorCode::InvalidSignature => { 102 }
-crate::ffi::error::EbillFfiErrorCode::InvalidHash => { 103 }
-crate::ffi::error::EbillFfiErrorCode::InvalidUrl => { 104 }
-crate::ffi::error::EbillFfiErrorCode::InvalidIdentityProofStatus => { 105 }
-crate::ffi::error::EbillFfiErrorCode::Json => { 106 }
-crate::ffi::error::EbillFfiErrorCode::InvalidBillAction => { 107 }
-crate::ffi::error::EbillFfiErrorCode::InvalidCompanyAction => { 108 }
-crate::ffi::error::EbillFfiErrorCode::InvalidIdentityAction => { 109 }
-crate::ffi::error::EbillFfiErrorCode::CompanySignerCreatorMismatch => { 110 }
-crate::ffi::error::EbillFfiErrorCode::InvalidMintRequestId => { 111 }
+crate::ffi::error::EbillFfiErrorCode::InvalidIncomingBlock => { 45 }
+crate::ffi::error::EbillFfiErrorCode::Internal => { 46 }
+crate::ffi::error::EbillFfiErrorCode::ExternalApi => { 47 }
+crate::ffi::error::EbillFfiErrorCode::Crypto => { 48 }
+crate::ffi::error::EbillFfiErrorCode::Persistence => { 49 }
+crate::ffi::error::EbillFfiErrorCode::Blockchain => { 50 }
+crate::ffi::error::EbillFfiErrorCode::Protocol => { 51 }
+crate::ffi::error::EbillFfiErrorCode::InvalidRelayUrl => { 52 }
+crate::ffi::error::EbillFfiErrorCode::Serialization => { 53 }
+crate::ffi::error::EbillFfiErrorCode::Init => { 54 }
+crate::ffi::error::EbillFfiErrorCode::NotificationNetwork => { 55 }
+crate::ffi::error::EbillFfiErrorCode::NotificationMessage => { 56 }
+crate::ffi::error::EbillFfiErrorCode::InvalidOperation => { 57 }
+crate::ffi::error::EbillFfiErrorCode::BillAlreadyAccepted => { 58 }
+crate::ffi::error::EbillFfiErrorCode::BillWasRejectedToAccept => { 59 }
+crate::ffi::error::EbillFfiErrorCode::BillAcceptanceExpired => { 60 }
+crate::ffi::error::EbillFfiErrorCode::BillWasRejectedToPay => { 61 }
+crate::ffi::error::EbillFfiErrorCode::BillPaymentExpired => { 62 }
+crate::ffi::error::EbillFfiErrorCode::BillWasRecoursedToTheEnd => { 63 }
+crate::ffi::error::EbillFfiErrorCode::BillAlreadyRequestedToAccept => { 64 }
+crate::ffi::error::EbillFfiErrorCode::BillNotAccepted => { 65 }
+crate::ffi::error::EbillFfiErrorCode::CallerIsNotDrawee => { 66 }
+crate::ffi::error::EbillFfiErrorCode::CallerIsNotHolder => { 67 }
+crate::ffi::error::EbillFfiErrorCode::CallerIsNotRecoursee => { 68 }
+crate::ffi::error::EbillFfiErrorCode::CallerIsNotBuyer => { 69 }
+crate::ffi::error::EbillFfiErrorCode::RequestAlreadyRejected => { 70 }
+crate::ffi::error::EbillFfiErrorCode::BillAlreadyPaid => { 71 }
+crate::ffi::error::EbillFfiErrorCode::BillWasNotRequestedToPay => { 72 }
+crate::ffi::error::EbillFfiErrorCode::BillWasNotOfferedToSell => { 73 }
+crate::ffi::error::EbillFfiErrorCode::BillRequestToAcceptDidNotExpireAndWasNotRejected => { 74 }
+crate::ffi::error::EbillFfiErrorCode::BillRequestToPayDidNotExpireAndWasNotRejected => { 75 }
+crate::ffi::error::EbillFfiErrorCode::RecourseeNotPastHolder => { 76 }
+crate::ffi::error::EbillFfiErrorCode::BillWasNotRequestedToRecourse => { 77 }
+crate::ffi::error::EbillFfiErrorCode::BillIsNotRequestedToRecourseAndWaitingForPayment => { 78 }
+crate::ffi::error::EbillFfiErrorCode::BillIsNotOfferToSellWaitingForPayment => { 79 }
+crate::ffi::error::EbillFfiErrorCode::BillSellDataInvalid => { 80 }
+crate::ffi::error::EbillFfiErrorCode::BillRecourseDataInvalid => { 81 }
+crate::ffi::error::EbillFfiErrorCode::BillIsRequestedToPayAndWaitingForPayment => { 82 }
+crate::ffi::error::EbillFfiErrorCode::BillIsOfferedToSellAndWaitingForPayment => { 83 }
+crate::ffi::error::EbillFfiErrorCode::BillIsInRecourseAndWaitingForPayment => { 84 }
+crate::ffi::error::EbillFfiErrorCode::SignatoryNotInContacts => { 85 }
+crate::ffi::error::EbillFfiErrorCode::SignatoryAlreadySignatory => { 86 }
+crate::ffi::error::EbillFfiErrorCode::CantRemoveLastSignatory => { 87 }
+crate::ffi::error::EbillFfiErrorCode::NotASignatory => { 88 }
+crate::ffi::error::EbillFfiErrorCode::NotARemovedOrRejectedSignatory => { 89 }
+crate::ffi::error::EbillFfiErrorCode::NotInvitedAsSignatory => { 90 }
+crate::ffi::error::EbillFfiErrorCode::NoSignerIdentityProof => { 91 }
+crate::ffi::error::EbillFfiErrorCode::FileIsTooBig => { 92 }
+crate::ffi::error::EbillFfiErrorCode::FileIsEmpty => { 93 }
+crate::ffi::error::EbillFfiErrorCode::TooManyFiles => { 94 }
+crate::ffi::error::EbillFfiErrorCode::InvalidFileName => { 95 }
+crate::ffi::error::EbillFfiErrorCode::UnknownNodeId => { 96 }
+crate::ffi::error::EbillFfiErrorCode::CallerMustBeSignatory => { 97 }
+crate::ffi::error::EbillFfiErrorCode::CallerMustBeCreator => { 98 }
+crate::ffi::error::EbillFfiErrorCode::CallerMustBeIdentifiedCreator => { 99 }
+crate::ffi::error::EbillFfiErrorCode::InvalidIdentityProof => { 100 }
+crate::ffi::error::EbillFfiErrorCode::InvalidReferenceBlock => { 101 }
+crate::ffi::error::EbillFfiErrorCode::MintRequestToPayWithoutCustomAddress => { 102 }
+crate::ffi::error::EbillFfiErrorCode::InvalidSignature => { 103 }
+crate::ffi::error::EbillFfiErrorCode::InvalidHash => { 104 }
+crate::ffi::error::EbillFfiErrorCode::InvalidUrl => { 105 }
+crate::ffi::error::EbillFfiErrorCode::InvalidIdentityProofStatus => { 106 }
+crate::ffi::error::EbillFfiErrorCode::Json => { 107 }
+crate::ffi::error::EbillFfiErrorCode::InvalidBillAction => { 108 }
+crate::ffi::error::EbillFfiErrorCode::InvalidCompanyAction => { 109 }
+crate::ffi::error::EbillFfiErrorCode::InvalidIdentityAction => { 110 }
+crate::ffi::error::EbillFfiErrorCode::CompanySignerCreatorMismatch => { 111 }
+crate::ffi::error::EbillFfiErrorCode::InvalidMintRequestId => { 112 }
  _ => { unimplemented!(""); }}, serializer);
     }
 }
@@ -14077,6 +14316,21 @@ impl SseEncode for crate::ffi::data::identity::IdentityTypeFfi {
             },
             serializer,
         );
+    }
+}
+
+impl SseEncode for crate::ffi::data::IncomingChainQueueStatusFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <u64>::sse_encode(self.pending, serializer);
+        <u64>::sse_encode(self.verified, serializer);
+        <u64>::sse_encode(self.applied, serializer);
+        <u64>::sse_encode(self.rejected, serializer);
+        <u64>::sse_encode(self.ready_to_apply, serializer);
+        <u64>::sse_encode(self.missing_keys, serializer);
+        <u64>::sse_encode(self.missing_predecessor, serializer);
+        <u64>::sse_encode(self.transient_application_failures, serializer);
+        <u64>::sse_encode(self.conflicting_forks, serializer);
     }
 }
 
@@ -14886,6 +15140,16 @@ impl SseEncode for Option<crate::ffi::data::PropagationBlockInfoFfi> {
     }
 }
 
+impl SseEncode for Option<crate::ffi::data::PropagationQuorumFfi> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::ffi::data::PropagationQuorumFfi>::sse_encode(value, serializer);
+        }
+    }
+}
+
 impl SseEncode for Option<crate::ffi::data::PropagationStatusFfi> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -15164,6 +15428,16 @@ impl SseEncode for crate::ffi::data::PropagationMessageFfi {
     }
 }
 
+impl SseEncode for crate::ffi::data::PropagationQuorumFfi {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.propagated, serializer);
+        <u64>::sse_encode(self.required_acks, serializer);
+        <u64>::sse_encode(self.total_relays, serializer);
+        <Vec<String>>::sse_encode(self.confirmed_relays, serializer);
+    }
+}
+
 impl SseEncode for crate::ffi::data::PropagationRelayFfi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -15187,6 +15461,7 @@ impl SseEncode for crate::ffi::data::PropagationStatusFfi {
             self.last_block,
             serializer,
         );
+        <Option<crate::ffi::data::PropagationQuorumFfi>>::sse_encode(self.quorum, serializer);
     }
 }
 

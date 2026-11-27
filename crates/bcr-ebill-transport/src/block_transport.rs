@@ -1,23 +1,30 @@
+use crate::chain_keys::KnownChain;
 use crate::handler::public_chain_helpers::{BlockData, resolve_event_chains};
 use crate::handler::{
     BillChainEventProcessorApi, CompanyChainEventProcessorApi, IdentityChainEventProcessorApi,
 };
+use crate::incoming_verification::IncomingChainCatchupApi;
 use crate::nostr_transport::NostrTransportService;
 use async_trait::async_trait;
 use bcr_common::core::{BillId, NodeId};
 use bcr_ebill_api::Config;
+use bcr_ebill_api::service::transport_service::propagation::RelayQuorumSnapshot;
 use bcr_ebill_api::service::transport_service::{BlockTransportServiceApi, ResyncMode};
 use bcr_ebill_api::service::transport_service::{Error, Result};
 use bcr_ebill_core::application::{ServiceTraitBounds, ValidationError};
 use bcr_ebill_core::protocol::blockchain::BlockchainType;
 use bcr_ebill_core::protocol::blockchain::bill::BillBlock;
+use bcr_ebill_core::protocol::crypto::BcrKeys;
 use bcr_ebill_core::protocol::event::{
     BillChainEvent, CompanyChainEvent, EventEnvelope, IdentityChainEvent,
 };
 use bcr_ebill_core::protocol::{Sha256Hash, Timestamp};
 use bcr_ebill_persistence::traits::nostr::NostrChainEvent;
 use bcr_ebill_persistence::traits::propagation::PreparedPropagationMessage;
-use log::error;
+use bcr_ebill_persistence::traits::propagation::{
+    IncomingChainQueueStatus, IncomingPropagationStoreApi,
+};
+use log::{error, info, warn};
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -27,7 +34,13 @@ pub struct BlockTransportService {
     bill_chain_event_processor: Arc<dyn BillChainEventProcessorApi>,
     company_chain_event_processor: Arc<dyn CompanyChainEventProcessorApi>,
     identity_chain_event_processor: Arc<dyn IdentityChainEventProcessorApi>,
+    incoming_queue_store: Option<Arc<dyn IncomingPropagationStoreApi>>,
     config: Arc<Config>,
+    manual_catchup: Option<(
+        Arc<dyn IncomingChainCatchupApi>,
+        RelayQuorumSnapshot,
+        NodeId,
+    )>,
 }
 
 impl BlockTransportService {
@@ -43,7 +56,9 @@ impl BlockTransportService {
             bill_chain_event_processor,
             company_chain_event_processor,
             identity_chain_event_processor,
+            incoming_queue_store: None,
             config,
+            manual_catchup: None,
         }
     }
 }
@@ -60,6 +75,7 @@ impl BlockTransportService {
         chain_id: &str,
         chain_type: BlockchainType,
         block_height: usize,
+        keys: &BcrKeys,
     ) -> Result<(Option<NostrChainEvent>, Option<NostrChainEvent>)> {
         if block_height == 0 {
             return Err(Error::Blockchain("Invalid block height 0".to_owned()));
@@ -70,7 +86,7 @@ impl BlockTransportService {
 
         let (previous, root) = self
             .nostr_transport
-            .find_root_and_previous_event(previous_hash, chain_id, chain_type)
+            .find_root_and_previous_event(previous_hash, chain_id, chain_type, block_height, keys)
             .await?;
 
         if Self::validate_predecessor_metadata(
@@ -96,7 +112,7 @@ impl BlockTransportService {
 
         let (previous, root) = self
             .nostr_transport
-            .find_root_and_previous_event(previous_hash, chain_id, chain_type)
+            .find_root_and_previous_event(previous_hash, chain_id, chain_type, block_height, keys)
             .await?;
 
         Self::validate_predecessor_metadata(
@@ -114,7 +130,7 @@ impl BlockTransportService {
         Ok((previous, root))
     }
 
-    fn validate_predecessor_metadata(
+    pub(crate) fn validate_predecessor_metadata(
         previous_hash: &Sha256Hash,
         chain_id: &str,
         chain_type: BlockchainType,
@@ -154,6 +170,7 @@ impl BlockTransportService {
             || root.block_height != 1
             || !root.is_root_event()
             || previous.root_id != root.event_id
+            || root.reply_id.is_some()
         {
             return Err(Error::Blockchain(format!(
                 "Invalid root Nostr event metadata for {chain_type:?} chain {chain_id}"
@@ -231,6 +248,7 @@ impl BlockTransportService {
                     &input.chain_id,
                     input.chain_type,
                     input.block_height,
+                    &input.keys,
                 )
                 .await?
             };
@@ -275,6 +293,73 @@ impl BlockTransportService {
         }
         Ok(prepared)
     }
+
+    pub fn with_manual_catchup(
+        mut self,
+        catchup: Arc<dyn IncomingChainCatchupApi>,
+        snapshot: RelayQuorumSnapshot,
+        primary_node_id: NodeId,
+    ) -> Self {
+        self.manual_catchup = Some((catchup, snapshot, primary_node_id));
+        self
+    }
+
+    async fn enqueue_resync_chain(
+        &self,
+        chain_type: BlockchainType,
+        chain_id: String,
+    ) -> Result<()> {
+        let Some((catchup, snapshot, _)) = &self.manual_catchup else {
+            return Err(Error::Message(
+                "Incoming chain catch-up is not configured".into(),
+            ));
+        };
+        if !self
+            .nostr_transport
+            .get_first_transport()
+            .has_connected_read_relay()
+            .await
+        {
+            return Err(Error::Network(
+                "Cannot resync: no connected Nostr read relays".into(),
+            ));
+        }
+        let discovered = catchup
+            .catch_up_chain(
+                &KnownChain {
+                    chain_type,
+                    chain_id: chain_id.clone(),
+                },
+                snapshot,
+            )
+            .await?;
+        info!(
+            "Nostr resync for {chain_type} {chain_id}: replayed {discovered} event observations - quorum verification and application remain asynchronous"
+        );
+        Ok(())
+    }
+
+    pub fn with_incoming_queue_store(
+        mut self,
+        store: Arc<dyn IncomingPropagationStoreApi>,
+    ) -> Self {
+        self.incoming_queue_store = Some(store);
+        self
+    }
+
+    async fn incoming_status(
+        &self,
+        chain_type: BlockchainType,
+        chain_id: &str,
+    ) -> Result<IncomingChainQueueStatus> {
+        let store = self.incoming_queue_store.as_ref().ok_or_else(|| {
+            Error::Persistence("Incoming queue status store not configured".into())
+        })?;
+        store
+            .get_chain_queue_status(&chain_type.to_string(), chain_id)
+            .await
+            .map_err(|e| Error::Persistence(e.to_string()))
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -287,6 +372,7 @@ struct ChainEventToPrepare {
     previous_hash: Sha256Hash,
     block_time: Timestamp,
     envelope: EventEnvelope,
+    keys: BcrKeys,
 }
 
 impl ChainEventToPrepare {
@@ -303,6 +389,7 @@ impl ChainEventToPrepare {
             previous_hash: event.data.block.previous_hash.clone(),
             block_time: event.data.block.timestamp,
             envelope: event.try_into()?,
+            keys: events.keys.clone(),
         })
     }
 
@@ -319,6 +406,7 @@ impl ChainEventToPrepare {
             previous_hash: event.data.block.previous_hash.clone(),
             block_time: event.data.block.timestamp,
             envelope: event.try_into()?,
+            keys: events.keys.clone(),
         })
     }
 
@@ -335,6 +423,7 @@ impl ChainEventToPrepare {
             previous_hash: event.data.block.previous_hash.clone(),
             block_time: event.data.block.timestamp,
             envelope: event.try_into()?,
+            keys: events.bill_keys.clone(),
         })
     }
 }
@@ -424,16 +513,35 @@ impl BlockTransportServiceApi for BlockTransportService {
         from_nostr: bool,
         mode: ResyncMode,
     ) -> Result<()> {
+        if !from_nostr {
+            return self
+                .bill_chain_event_processor
+                .invalidate_cache_for_bill(bill_id)
+                .await;
+        }
         // if dev mode is off - we return an error
         if matches!(mode, ResyncMode::NostrAuthoritative) && !self.config.dev_mode_config.on {
             error!("Called dev mode operation with dev mode disabled - please enable!");
             return Err(Error::Validation(ValidationError::InvalidOperation));
         }
-
-        self.bill_chain_event_processor
-            .resync_chain(bill_id, from_nostr, mode)
-            .await?;
-        Ok(())
+        if matches!(&mode, ResyncMode::OnlyMissingMetadata { .. }) {
+            return self
+                .bill_chain_event_processor
+                .resync_chain(bill_id, true, mode)
+                .await;
+        }
+        if matches!(&mode, ResyncMode::NostrAuthoritative) {
+            warn!(
+                "DEV MODE: explicitly overriding local bill chain {bill_id} with a remote Nostr chain"
+            );
+            return self
+                .bill_chain_event_processor
+                .resync_chain(bill_id, true, mode)
+                .await;
+        }
+        // ResyncMode::Normal: discover only - incoming worker verifies and applies eligible blocks afterward
+        self.enqueue_resync_chain(BlockchainType::Bill, bill_id.to_string())
+            .await
     }
 
     /// Resync company chain
@@ -443,11 +551,23 @@ impl BlockTransportServiceApi for BlockTransportService {
             error!("Called dev mode operation with dev mode disabled - please enable!");
             return Err(Error::Validation(ValidationError::InvalidOperation));
         }
-
-        self.company_chain_event_processor
-            .resync_chain(company_id, mode)
-            .await?;
-        Ok(())
+        if matches!(&mode, ResyncMode::OnlyMissingMetadata { .. }) {
+            return self
+                .company_chain_event_processor
+                .resync_chain(company_id, mode)
+                .await;
+        }
+        if matches!(&mode, ResyncMode::NostrAuthoritative) {
+            warn!(
+                "DEV MODE: explicitly overriding local company chain {company_id} with a remote Nostr chain"
+            );
+            return self
+                .company_chain_event_processor
+                .resync_chain(company_id, mode)
+                .await;
+        }
+        self.enqueue_resync_chain(BlockchainType::Company, company_id.to_string())
+            .await
     }
 
     /// Resync identity chain
@@ -457,11 +577,23 @@ impl BlockTransportServiceApi for BlockTransportService {
             error!("Called dev mode operation with dev mode disabled - please enable!");
             return Err(Error::Validation(ValidationError::InvalidOperation));
         }
+        if matches!(&mode, ResyncMode::OnlyMissingMetadata { .. }) {
+            return self.identity_chain_event_processor.resync_chain(mode).await;
+        }
+        if matches!(&mode, ResyncMode::NostrAuthoritative) {
+            warn!(
+                "DEV MODE: explicitly overriding the local identity chain with a remote Nostr chain"
+            );
+            return self.identity_chain_event_processor.resync_chain(mode).await;
+        }
 
-        self.identity_chain_event_processor
-            .resync_chain(mode)
-            .await?;
-        Ok(())
+        let primary_node_id = self
+            .manual_catchup
+            .as_ref()
+            .map(|(_, _, node_id)| node_id.clone())
+            .ok_or_else(|| Error::Message("Incoming chain catch-up is not configured".into()))?;
+        self.enqueue_resync_chain(BlockchainType::Identity, primary_node_id.to_string())
+            .await
     }
 
     /// Fetch all chains for this bill id from nostr and attempt to find one which exactly matches the given blocks
@@ -551,15 +683,43 @@ impl BlockTransportServiceApi for BlockTransportService {
             .await?;
         Ok(vec![message])
     }
+
+    async fn get_incoming_bill_queue_status(
+        &self,
+        bill_id: &BillId,
+    ) -> Result<IncomingChainQueueStatus> {
+        self.incoming_status(BlockchainType::Bill, &bill_id.to_string())
+            .await
+    }
+
+    async fn get_incoming_company_queue_status(
+        &self,
+        company_id: &NodeId,
+    ) -> Result<IncomingChainQueueStatus> {
+        self.incoming_status(BlockchainType::Company, &company_id.to_string())
+            .await
+    }
+
+    async fn get_incoming_identity_queue_status(&self) -> Result<IncomingChainQueueStatus> {
+        let (_, _, primary_node_id) = self
+            .manual_catchup
+            .as_ref()
+            .ok_or_else(|| Error::Message("identity is not configured".into()))?;
+        self.incoming_status(BlockchainType::Identity, &primary_node_id.to_string())
+            .await
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::handler::public_chain_helpers::EventContainer;
     use crate::handler::{
         MockBillChainEventProcessorApi, MockCompanyChainEventProcessorApi,
         MockIdentityChainEventProcessorApi,
     };
+    use crate::incoming_verification::MockIncomingChainCatchupApi;
+    use crate::test_utils::node_id_test;
     use crate::test_utils::{
         MockContactStore, MockNostrChainEventStore, MockNostrContactStore,
         MockNotificationJsonTransport, bill_id_test, get_genesis_chain, get_nostr_transport,
@@ -572,6 +732,8 @@ mod tests {
     use bcr_ebill_core::protocol::{BlockId, Sha256Hash, Timestamp};
     use bcr_ebill_persistence::traits::nostr::NostrChainEvent;
     use nostr::event::FinalizeEvent;
+    use std::sync::Mutex as StdMutex;
+    use url::Url;
 
     fn create_test_chain_event(
         chain_id: &str,
@@ -645,8 +807,8 @@ mod tests {
         let mut chain_event_store = MockNostrChainEventStore::new();
         // No previous event in store for genesis block
         chain_event_store
-            .expect_find_by_block_hash()
-            .returning(|_| Ok(None));
+            .expect_find_chain_events()
+            .returning(|_, _| Ok(vec![]));
 
         let service = get_service(chain_event_store);
         let result = service
@@ -655,6 +817,7 @@ mod tests {
                 "test_chain",
                 BlockchainType::Bill,
                 1,
+                &crate::test_utils::get_bill_keys(),
             )
             .await;
 
@@ -669,8 +832,8 @@ mod tests {
         let mut chain_event_store = MockNostrChainEventStore::new();
         // No previous event in store for non-genesis block
         chain_event_store
-            .expect_find_by_block_hash()
-            .returning(|_| Ok(None));
+            .expect_find_chain_events()
+            .returning(|_, _| Ok(vec![]));
 
         let mut bill_chain_event_processor = MockBillChainEventProcessorApi::new();
         bill_chain_event_processor
@@ -687,6 +850,7 @@ mod tests {
                 &bill_id_test().to_string(),
                 BlockchainType::Bill,
                 2,
+                &crate::test_utils::get_bill_keys(),
             )
             .await;
 
@@ -698,24 +862,31 @@ mod tests {
 
     #[tokio::test]
     async fn test_validate_previous_event_exists_accepts_with_previous() {
-        let mut chain_event_store = MockNostrChainEventStore::new();
-        let previous_hash = Sha256Hash::new("previous_hash");
-        let previous_event =
-            create_test_chain_event("test_chain", BlockchainType::Bill, 1, previous_hash.clone());
-
-        chain_event_store
-            .expect_find_by_block_hash()
-            .returning(move |_| Ok(Some(previous_event.clone())));
-
-        let service = get_service(chain_event_store);
-        let result = service
-            .validate_previous_event_exists(&previous_hash, "test_chain", BlockchainType::Bill, 2)
-            .await;
-
-        assert!(result.is_ok());
-        let (previous, root) = result.unwrap();
-        assert!(previous.is_some());
-        assert!(root.is_some());
+        let bill_id = bill_id_test();
+        let chain_id = bill_id.to_string();
+        let chain = get_genesis_chain(Some(crate::test_utils::get_baseline_bill(&bill_id)));
+        let genesis = chain.get_first_block().clone();
+        let previous_hash = genesis.hash.clone();
+        let event = generate_test_event(None, None, 1, genesis.clone());
+        let metadata = EventContainer::new(event, None, None, BlockData::Bill(genesis))
+            .as_chain_store_event(&chain_id, BlockchainType::Bill, 1);
+        let mut store = MockNostrChainEventStore::new();
+        store
+            .expect_find_chain_events()
+            .once()
+            .returning(move |_, _| Ok(vec![metadata.clone()]));
+        let service = get_service(store);
+        let (previous, root) = service
+            .validate_previous_event_exists(
+                &previous_hash,
+                &chain_id,
+                BlockchainType::Bill,
+                2,
+                &crate::test_utils::get_bill_keys(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(previous.unwrap().event_id, root.unwrap().event_id,);
     }
 
     fn generate_test_event(
@@ -948,13 +1119,10 @@ mod tests {
         let bill_id = bill_id_test();
         let chain_id = bill_id.to_string();
         let previous_hash = Sha256Hash::new("previous_hash");
-        let previous =
-            create_test_chain_event(&chain_id, BlockchainType::Bill, 2, previous_hash.clone());
         let mut store = MockNostrChainEventStore::new();
         store
-            .expect_find_by_block_hash()
-            .returning(move |_| Ok(Some(previous.clone())));
-        store.expect_find_root_event().returning(|_, _| Ok(None));
+            .expect_find_chain_events()
+            .returning(|_, _| Ok(vec![]));
         let mut processor = MockBillChainEventProcessorApi::new();
         processor
             .expect_resync_chain()
@@ -962,11 +1130,178 @@ mod tests {
             .returning(|_, _, _| Ok(()));
         let service = get_service_with_bill_chain_event_processor(processor, store);
         let result = service
-            .validate_previous_event_exists(&previous_hash, &chain_id, BlockchainType::Bill, 3)
+            .validate_previous_event_exists(
+                &previous_hash,
+                &chain_id,
+                BlockchainType::Bill,
+                3,
+                &crate::test_utils::get_bill_keys(),
+            )
             .await;
 
         let error = result.unwrap_err().to_string();
         assert!(error.contains("preflight failed"));
-        assert!(error.contains("missing root event"));
+        assert!(error.contains("missing previous block"));
+    }
+
+    #[tokio::test]
+    async fn normal_resync_uses_durable_catchup_not_legacy_processors() {
+        let observed = Arc::new(StdMutex::new(Vec::<KnownChain>::new()));
+        let observed_for_mock = observed.clone();
+        let mut catchup = MockIncomingChainCatchupApi::new();
+        catchup
+            .expect_catch_up_chain()
+            .times(3)
+            .returning(move |chain, snapshot| {
+                assert_eq!(snapshot.required, 2);
+                observed_for_mock.lock().unwrap().push(chain.clone());
+                Ok(2)
+            });
+
+        let mut transport = MockNotificationJsonTransport::new();
+        transport
+            .expect_has_connected_read_relay()
+            .times(3)
+            .returning(|| true);
+        let service = get_service_with_transport(transport, MockNostrChainEventStore::new())
+            .with_manual_catchup(
+                Arc::new(catchup),
+                RelayQuorumSnapshot {
+                    relays: vec![
+                        Url::parse("wss://r1.example").unwrap(),
+                        Url::parse("wss://r2.example").unwrap(),
+                        Url::parse("wss://r3.example").unwrap(),
+                    ],
+                    required: 2,
+                },
+                node_id_test(),
+            );
+
+        let bill_id = bill_id_test();
+        let company_id = node_id_test();
+        let primary_id = node_id_test();
+        service
+            .resync_bill_chain(&bill_id, true, ResyncMode::Normal)
+            .await
+            .unwrap();
+        service
+            .resync_company_chain(&company_id, ResyncMode::Normal)
+            .await
+            .unwrap();
+        service
+            .resync_identity_chain(ResyncMode::Normal)
+            .await
+            .unwrap();
+        assert_eq!(
+            *observed.lock().unwrap(),
+            vec![
+                KnownChain {
+                    chain_type: BlockchainType::Bill,
+                    chain_id: bill_id.to_string(),
+                },
+                KnownChain {
+                    chain_type: BlockchainType::Company,
+                    chain_id: company_id.to_string(),
+                },
+                KnownChain {
+                    chain_type: BlockchainType::Identity,
+                    chain_id: primary_id.to_string(),
+                },
+            ],
+        );
+    }
+
+    #[tokio::test]
+    async fn bill_cache_only_resync_does_not_query_nostr() {
+        let mut bill_processor = MockBillChainEventProcessorApi::new();
+        bill_processor
+            .expect_invalidate_cache_for_bill()
+            .once()
+            .returning(|_| Ok(()));
+        bill_processor.expect_resync_chain().never();
+        let service = get_service_with_bill_chain_event_processor(
+            bill_processor,
+            MockNostrChainEventStore::new(),
+        );
+        service
+            .resync_bill_chain(&bill_id_test(), false, ResyncMode::Normal)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn metadata_only_resync_uses_existing_metadata_repair() {
+        let mut bill_processor = MockBillChainEventProcessorApi::new();
+        bill_processor
+            .expect_resync_chain()
+            .once()
+            .withf(|_, from_nostr, mode| {
+                *from_nostr && matches!(mode, ResyncMode::OnlyMissingMetadata { .. })
+            })
+            .returning(|_, _, _| Ok(()));
+        let service = get_service_with_bill_chain_event_processor(
+            bill_processor,
+            MockNostrChainEventStore::new(),
+        );
+        service
+            .resync_bill_chain(
+                &bill_id_test(),
+                true,
+                ResyncMode::OnlyMissingMetadata {
+                    up_to_hash: Sha256Hash::new("test-hash"),
+                },
+            )
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn authoritative_resync_uses_explicit_dev_escape_hatch() {
+        let mut config = test_cfg();
+        config.dev_mode_config.on = true;
+        let mut bill_processor = MockBillChainEventProcessorApi::new();
+        bill_processor
+            .expect_resync_chain()
+            .once()
+            .withf(|_, from_nostr, mode| {
+                *from_nostr && matches!(mode, ResyncMode::NostrAuthoritative)
+            })
+            .returning(|_, _, _| Ok(()));
+        let mut company_processor = MockCompanyChainEventProcessorApi::new();
+        company_processor
+            .expect_resync_chain()
+            .once()
+            .withf(|_, mode| matches!(mode, ResyncMode::NostrAuthoritative))
+            .returning(|_, _| Ok(()));
+        let mut identity_processor = MockIdentityChainEventProcessorApi::new();
+        identity_processor
+            .expect_resync_chain()
+            .once()
+            .withf(|mode| matches!(mode, ResyncMode::NostrAuthoritative))
+            .returning(|_| Ok(()));
+        let service = BlockTransportService::new(
+            Arc::new(get_nostr_transport(
+                MockNotificationJsonTransport::new(),
+                MockContactStore::new(),
+                MockNostrContactStore::new(),
+                MockNostrChainEventStore::new(),
+            )),
+            Arc::new(bill_processor),
+            Arc::new(company_processor),
+            Arc::new(identity_processor),
+            Arc::new(config),
+        );
+        service
+            .resync_bill_chain(&bill_id_test(), true, ResyncMode::NostrAuthoritative)
+            .await
+            .unwrap();
+        service
+            .resync_company_chain(&node_id_test(), ResyncMode::NostrAuthoritative)
+            .await
+            .unwrap();
+        service
+            .resync_identity_chain(ResyncMode::NostrAuthoritative)
+            .await
+            .unwrap();
     }
 }

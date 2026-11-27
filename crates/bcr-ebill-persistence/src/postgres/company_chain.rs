@@ -60,6 +60,14 @@ impl CompanyChainStoreApi for PostgresCompanyChainStore {
             .bind(Text(id.clone()))
             .fetch_all(&self.pool)
             .await?;
+
+        if rows.is_empty() {
+            return Err(Error::NoSuchEntity(
+                "company chain".to_string(),
+                id.to_string(),
+            ));
+        }
+
         let blocks: Vec<CompanyBlock> = rows
             .into_iter()
             .map(TryInto::try_into)

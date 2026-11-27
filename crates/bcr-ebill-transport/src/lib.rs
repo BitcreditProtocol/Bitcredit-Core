@@ -1,8 +1,11 @@
 #![recursion_limit = "256"]
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use bcr_common::core::NodeId;
 use bcr_ebill_api::external::mint::MintClientApi;
+use bcr_ebill_api::service::transport_service::propagation::{
+    BLOCK_PROPAGATION_THRESHOLD, relay_quorum_snapshot,
+};
 use bcr_ebill_api::service::transport_service::{Error, Result, TransportServiceApi};
 use bcr_ebill_api::{
     Config, DbContext,
@@ -18,10 +21,9 @@ use bcr_ebill_core::protocol::event::EventType;
 use bcr_ebill_persistence::{traits::company::CompanyStoreApi, traits::identity::IdentityStoreApi};
 use chain_keys::ChainKeyServiceApi;
 use handler::{
-    BillActionEventHandler, BillChainEventHandler, BillChainEventProcessor, BillInviteEventHandler,
-    CompanyChainEventHandler, CompanyChainEventProcessor, CompanyInviteEventHandler,
-    IdentityChainEventHandler, IdentityChainEventProcessor, LoggingEventHandler,
-    NostrContactProcessor, NotificationHandlerApi,
+    BillActionEventHandler, BillChainEventProcessor, BillInviteEventHandler,
+    CompanyChainEventProcessor, CompanyInviteEventHandler, IdentityChainEventProcessor,
+    LoggingEventHandler, NostrContactProcessor, NotificationHandlerApi,
 };
 use log::{debug, error, warn};
 pub use nostr_transport::NostrTransportService;
@@ -30,6 +32,7 @@ mod block_transport;
 pub mod chain_keys;
 mod contact_transport;
 pub mod handler;
+pub mod incoming_verification;
 mod nostr;
 mod nostr_transport;
 mod notification_transport;
@@ -52,7 +55,9 @@ use crate::block_transport::BlockTransportService;
 use crate::contact_transport::ContactTransportService;
 use crate::handler::{
     ContactShareEventHandler, DirectMessageEventProcessor, FileMetadataProcessor,
+    IncomingChainApplication,
 };
+use crate::incoming_verification::IncomingPropagationVerifier;
 use crate::notification_transport::NotificationTransportService;
 use crate::transport_service::TransportService;
 
@@ -74,30 +79,27 @@ pub async fn create_nostr_clients(
 
     debug!("Adding primary identity: {}", primary_node_id);
 
-    // optionally collect all company accounts
-    let mut companies = match company_store.get_all().await {
-        Ok(companies) => companies,
-        Err(e) => {
-            error!("Failed to get companies for nostr client: {e}");
-            HashMap::new()
-        }
-    };
-
+    // collect company accounts
     // we collect companies we were invited to as well, so we can accept/reject the invite
-    let invite_companies = match company_store.get_active_company_invites().await {
-        Ok(companies) => companies,
-        Err(e) => {
-            error!("Failed to get invite companies for nostr client: {e}");
-            HashMap::new()
-        }
-    };
-    companies.extend(invite_companies);
+    let company_ids = company_store.get_key_ids().await.map_err(|e| {
+        Error::Persistence(format!(
+            "Could not enumerate company signers during Nostr startup: {e}"
+        ))
+    })?;
 
-    // Add all company identities
-    for (_company, company_keys) in companies.values() {
-        let company_node_id = NodeId::new(company_keys.pub_key(), config.bitcoin_network());
-        debug!("Adding company identity: {}", company_node_id);
-        identities.push((company_node_id, company_keys.clone()));
+    for company_id in company_ids {
+        let company_keys = company_store.get_key_pair(&company_id).await.map_err(|e| {
+            Error::Persistence(format!(
+                "Could not load company signer {company_id} during Nostr startup: {e}"
+            ))
+        })?;
+        if NodeId::new(company_keys.pub_key(), config.bitcoin_network()) != company_id {
+            return Err(Error::Crypto(format!(
+                "Company signer keys do not match company {company_id}"
+            )));
+        }
+        debug!("Adding company signer: {company_id}");
+        identities.push((company_id, company_keys));
     }
 
     // Create single multi-identity client with all identities
@@ -163,7 +165,7 @@ pub async fn create_transport_service(
     ));
     let bill_invite_handler = Arc::new(BillInviteEventHandler::new(
         bill_processor.clone(),
-        db_context.nostr_chain_event_store.clone(),
+        db_context.incoming_propagation_store.clone(),
     ));
     let company_processor = Arc::new(CompanyChainEventProcessor::new(
         db_context.company_chain_store.clone(),
@@ -184,7 +186,7 @@ pub async fn create_transport_service(
     let company_invite_handler = CompanyInviteEventHandler::new(
         transport.clone(),
         company_processor.clone(),
-        db_context.nostr_chain_event_store.clone(),
+        db_context.incoming_propagation_store.clone(),
     );
     let identity_processor = Arc::new(IdentityChainEventProcessor::new(
         db_context.identity_chain_store.clone(),
@@ -210,13 +212,45 @@ pub async fn create_transport_service(
         config.clone(),
     ));
 
-    let block_transport = Arc::new(BlockTransportService::new(
-        nostr_transport.clone(),
+    let chain_key_service = Arc::new(chain_keys::ChainKeyService::new(
+        db_context.bill_store.clone(),
+        db_context.company_store.clone(),
+        db_context.identity_store.clone(),
+        config.bitcoin_network(),
+    ));
+    let incoming_application = Arc::new(IncomingChainApplication::new(
+        chain_key_service,
         bill_processor.clone(),
         company_processor.clone(),
         identity_processor.clone(),
-        config.clone(),
+        db_context.nostr_chain_event_store.clone(),
     ));
+    let manual_catchup = Arc::new(
+        IncomingPropagationVerifier::new(
+            db_context.incoming_propagation_store.clone(),
+            transport.clone(),
+            incoming_application,
+        )
+        .with_catchup_cursors(db_context.nostr_event_offset_store.clone()),
+    );
+    let snapshot = relay_quorum_snapshot(&config.nostr_config.relays, BLOCK_PROPAGATION_THRESHOLD)?;
+    let primary_keys = db_context
+        .identity_store
+        .get_key_pair()
+        .await
+        .map_err(|e| Error::Persistence(e.to_string()))?;
+    let primary_node_id = NodeId::new(primary_keys.pub_key(), config.bitcoin_network());
+    let block_transport = Arc::new(
+        BlockTransportService::new(
+            nostr_transport.clone(),
+            bill_processor.clone(),
+            company_processor.clone(),
+            identity_processor.clone(),
+            config.clone(),
+        )
+        .with_manual_catchup(manual_catchup, snapshot, primary_node_id)
+        .with_incoming_queue_store(db_context.incoming_propagation_store.clone()),
+    );
 
     let contact_transport = Arc::new(ContactTransportService::new(
         nostr_transport.clone(),
@@ -279,10 +313,15 @@ pub async fn create_nostr_consumer(
         config.clone(),
     ));
 
-    let bill_invite_handler = Arc::new(BillInviteEventHandler::new(
-        bill_processor.clone(),
-        db_context.nostr_chain_event_store.clone(),
-    ));
+    let (catchup_tx, _) = tokio::sync::broadcast::channel::<chain_keys::KnownChain>(64);
+
+    let bill_invite_handler = Arc::new(
+        BillInviteEventHandler::new(
+            bill_processor.clone(),
+            db_context.incoming_propagation_store.clone(),
+        )
+        .with_catchup_hints(catchup_tx.clone()),
+    );
 
     let company_processor = Arc::new(CompanyChainEventProcessor::new(
         db_context.company_chain_store.clone(),
@@ -304,8 +343,9 @@ pub async fn create_nostr_consumer(
     let company_invite_handler = CompanyInviteEventHandler::new(
         transport.clone(),
         company_processor.clone(),
-        db_context.nostr_chain_event_store.clone(),
-    );
+        db_context.incoming_propagation_store.clone(),
+    )
+    .with_catchup_hints(catchup_tx.clone());
 
     let identity_processor = Arc::new(IdentityChainEventProcessor::new(
         db_context.identity_chain_store.clone(),
@@ -334,22 +374,7 @@ pub async fn create_nostr_consumer(
             bill_processor.clone(),
         )),
         bill_invite_handler,
-        Arc::new(BillChainEventHandler::new(
-            bill_processor.clone(),
-            db_context.bill_store.clone(),
-            db_context.nostr_chain_event_store.clone(),
-        )),
         Arc::new(company_invite_handler),
-        Arc::new(CompanyChainEventHandler::new(
-            db_context.company_store.clone(),
-            company_processor.clone(),
-            db_context.nostr_chain_event_store.clone(),
-        )),
-        Arc::new(IdentityChainEventHandler::new(
-            db_context.identity_store.clone(),
-            identity_processor.clone(),
-            db_context.nostr_chain_event_store.clone(),
-        )),
         Arc::new(ContactShareEventHandler::new(
             transport.clone(),
             db_context.contact_store.clone(),
@@ -359,10 +384,21 @@ pub async fn create_nostr_consumer(
             push_service.clone(),
         )),
     ];
+
+    let incoming_application = IncomingChainApplication::new(
+        chain_key_service.clone(),
+        bill_processor.clone(),
+        company_processor.clone(),
+        identity_processor.clone(),
+        db_context.nostr_chain_event_store.clone(),
+    );
+
     debug!("initializing nostr consumer with single multi-identity client");
     let file_metadata_processor = Arc::new(FileMetadataProcessor::new(
         db_context.file_reference_store.clone(),
     ));
+    let relay_snapshot =
+        relay_quorum_snapshot(&config.nostr_config.relays, BLOCK_PROPAGATION_THRESHOLD)?;
     let consumer = NostrConsumer::new(
         client,
         contact_service,
@@ -370,14 +406,25 @@ pub async fn create_nostr_consumer(
         db_context.nostr_event_offset_store.clone(),
         chain_key_service,
         file_metadata_processor,
-    );
+    )
+    .with_incoming_verifier(
+        Arc::new(
+            IncomingPropagationVerifier::new(
+                db_context.incoming_propagation_store.clone(),
+                transport,
+                Arc::new(incoming_application),
+            )
+            .with_catchup_cursors(db_context.nostr_event_offset_store.clone()),
+        ),
+        relay_snapshot,
+    )
+    .with_catchup_hints(catchup_tx);
     Ok(consumer)
 }
 
 pub async fn create_restore_account_service(
     config: Arc<Config>,
     keys: &BcrKeys,
-    chain_key_service: Arc<dyn ChainKeyServiceApi>,
     push_service: Arc<dyn PushApi>,
     mint_client: Arc<dyn MintClientApi>,
 ) -> Result<RestoreAccountService> {
@@ -418,7 +465,7 @@ pub async fn create_restore_account_service(
 
     let bill_invite_handler = Arc::new(BillInviteEventHandler::new(
         bill_processor.clone(),
-        db_context.nostr_chain_event_store.clone(),
+        db_context.incoming_propagation_store.clone(),
     ));
 
     let company_processor = Arc::new(CompanyChainEventProcessor::new(
@@ -441,7 +488,7 @@ pub async fn create_restore_account_service(
     let company_invite_handler = Arc::new(CompanyInviteEventHandler::new(
         nostr_client.clone(),
         company_processor.clone(),
-        db_context.nostr_chain_event_store.clone(),
+        db_context.incoming_propagation_store.clone(),
     ));
 
     let contact_share_handler = Arc::new(ContactShareEventHandler::new(
@@ -468,19 +515,42 @@ pub async fn create_restore_account_service(
         config.clone(),
     ));
 
+    let chain_key_service = Arc::new(
+        chain_keys::ChainKeyService::new(
+            db_context.bill_store.clone(),
+            db_context.company_store.clone(),
+            db_context.identity_store.clone(),
+            config.bitcoin_network(),
+        )
+        .with_identity_key_override(node_id.clone(), keys.clone()),
+    );
+
+    let incoming_application = Arc::new(IncomingChainApplication::new(
+        chain_key_service.clone(),
+        bill_processor.clone(),
+        company_processor.clone(),
+        processor.clone(),
+        db_context.nostr_chain_event_store.clone(),
+    ));
+
+    let verified_ingestion = Arc::new(IncomingPropagationVerifier::new(
+        db_context.incoming_propagation_store.clone(),
+        nostr_client.clone(),
+        incoming_application,
+    ));
+
+    let relay_snapshot =
+        relay_quorum_snapshot(&config.nostr_config.relays, BLOCK_PROPAGATION_THRESHOLD)?;
+
     let dm_processor = Arc::new(
         DirectMessageEventProcessor::new(
             nostr_client.clone(),
             db_context.nostr_event_offset_store.clone(),
-            chain_key_service.clone(),
             vec![
                 company_invite_handler,
                 bill_invite_handler,
                 contact_share_handler,
             ],
-            Arc::new(FileMetadataProcessor::new(
-                db_context.file_reference_store.clone(),
-            )),
         )
         .await,
     );
@@ -489,9 +559,104 @@ pub async fn create_restore_account_service(
         nostr_client,
         processor,
         dm_processor,
-        db_context.nostr_chain_event_store.clone(),
+        verified_ingestion,
+        chain_key_service.clone(),
+        relay_snapshot,
         keys.clone(),
         node_id,
     )
     .await)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::handler::test_utils::{MockCompanyStore, MockIdentityStore};
+    use crate::test_utils::{MockNostrContactStore, test_cfg};
+    use bcr_ebill_persistence::Error as PersistenceError;
+
+    fn identity_store() -> MockIdentityStore {
+        let mut store = MockIdentityStore::new();
+
+        store
+            .expect_get_key_pair()
+            .once()
+            .returning(|| Ok(BcrKeys::new()));
+
+        store
+    }
+
+    #[tokio::test]
+    async fn nostr_startup_fails_when_company_list_cannot_be_loaded() {
+        let mut companies = MockCompanyStore::new();
+        companies
+            .expect_get_key_ids()
+            .once()
+            .returning(|| Err(PersistenceError::Persistence("database unavailable".into())));
+        companies.expect_get_key_pair().never();
+        let result = create_nostr_clients(
+            Arc::new(test_cfg()),
+            Arc::new(identity_store()),
+            Arc::new(companies),
+            Arc::new(MockNostrContactStore::new()),
+        )
+        .await;
+        assert!(matches!(
+            result,
+            Err(Error::Persistence(message))
+                if message.contains("enumerate company signers")
+        ));
+    }
+
+    #[tokio::test]
+    async fn nostr_startup_fails_when_company_keys_cannot_be_loaded() {
+        let keys = BcrKeys::new();
+        let company_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
+        let mut companies = MockCompanyStore::new();
+        let listed_id = company_id.clone();
+        companies
+            .expect_get_key_ids()
+            .once()
+            .returning(move || Ok(vec![listed_id.clone()]));
+        companies
+            .expect_get_key_pair()
+            .once()
+            .withf(move |id| id == &company_id)
+            .returning(|_| Err(PersistenceError::Persistence("key lookup failed".into())));
+        let result = create_nostr_clients(
+            Arc::new(test_cfg()),
+            Arc::new(identity_store()),
+            Arc::new(companies),
+            Arc::new(MockNostrContactStore::new()),
+        )
+        .await;
+        assert!(matches!(
+            result,
+            Err(Error::Persistence(message))
+                if message.contains("Could not load company signer")
+        ));
+    }
+
+    #[tokio::test]
+    async fn nostr_startup_rejects_mismatched_company_keys() {
+        let keys = BcrKeys::new();
+        let company_id = NodeId::new(keys.pub_key(), bitcoin::Network::Testnet);
+        let mut companies = MockCompanyStore::new();
+        companies
+            .expect_get_key_ids()
+            .once()
+            .returning(move || Ok(vec![company_id.clone()]));
+        companies
+            .expect_get_key_pair()
+            .once()
+            .returning(|_| Ok(BcrKeys::new()));
+        let result = create_nostr_clients(
+            Arc::new(test_cfg()),
+            Arc::new(identity_store()),
+            Arc::new(companies),
+            Arc::new(MockNostrContactStore::new()),
+        )
+        .await;
+        assert!(matches!(result, Err(Error::Crypto(_))));
+    }
 }

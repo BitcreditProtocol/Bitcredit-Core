@@ -10,8 +10,12 @@ use bcr_ebill_api::{
     Config as ApiConfig, CourtConfig, DevModeConfig, MintConfig, NostrConfig, PaymentConfig,
     get_db_context, util::validate_node_id_network,
 };
+use bcr_ebill_api::{
+    external::mint::MintClient, service::transport_service::restore::RestoreAccountApi,
+};
 use bcr_ebill_core::protocol::crypto::BcrKeys;
 use bcr_ebill_persistence::DbConfig;
+use bcr_ebill_transport::{create_restore_account_service, push_notification::PushService};
 use flutter_rust_bridge::{JoinHandle, frb};
 use log::{debug, error, info, warn};
 use once_cell::sync::Lazy;
@@ -115,6 +119,26 @@ pub async fn init_ebill_instance(
     instance_id: InstanceId,
     conf: EbillConfig,
 ) -> Result<(), EbillFfiError> {
+    init_ebill_instance_inner(instance_id, conf, false).await
+}
+
+/// Restore into a fresh database using the recovered mnemonic
+/// from the configuration, before starting background workers.
+/// The caller must stop any previous instance and clear its
+/// local state before calling this function.
+#[frb]
+pub async fn restore_ebill_instance(
+    instance_id: InstanceId,
+    conf: EbillConfig,
+) -> Result<(), EbillFfiError> {
+    init_ebill_instance_inner(instance_id, conf, true).await
+}
+
+async fn init_ebill_instance_inner(
+    instance_id: InstanceId,
+    conf: EbillConfig,
+    restore: bool,
+) -> Result<(), EbillFfiError> {
     let log_level = match conf.log_level {
         Some(ref log_level) => match log_level.as_str() {
             "info" => log::LevelFilter::Info,
@@ -137,7 +161,7 @@ pub async fn init_ebill_instance(
         }
     }
 
-    let runtime = Arc::new(create_runtime(conf).await?);
+    let runtime = Arc::new(create_runtime(conf, restore).await?);
     let mut manager = INSTANCE_MANAGER.write().await;
     if manager.instances.contains_key(&instance_id) {
         drop(manager);
@@ -179,7 +203,7 @@ struct EbillRuntime {
     nostr_subscription_handle: Mutex<Option<JoinHandle<()>>>,
 }
 
-async fn create_runtime(conf: EbillConfig) -> Result<EbillRuntime, EbillFfiError> {
+async fn create_runtime(conf: EbillConfig, restore: bool) -> Result<EbillRuntime, EbillFfiError> {
     init_crypto_provider();
     info!("Initializing Rust Ebill FFI");
 
@@ -205,6 +229,20 @@ async fn create_runtime(conf: EbillConfig) -> Result<EbillRuntime, EbillFfiError
         .identity_store
         .get_or_create_key_pair(&parsed_mnemonic_keys, &conf.mnemonic)
         .await?;
+
+    // call restore before initializing runtime to avoid dead data in the old DB
+    if restore {
+        info!("Restoring account before starting runtime workers");
+        let recovery_service = create_restore_account_service(
+            api_config.clone(),
+            &keys,
+            Arc::new(PushService::new()),
+            Arc::new(MintClient::new(api_config.clone())),
+        )
+        .await?;
+        recovery_service.restore_account().await?;
+        info!("Foreground account restoration completed");
+    }
 
     let node_id = NodeId::new(keys.pub_key(), api_config.bitcoin_network());
     info!("Initialized Flutter API {}", general::VERSION);

@@ -17,6 +17,7 @@ use bcr_ebill_core::protocol::{
 };
 
 use crate::{
+    Error,
     tests::{
         tests::{
             bill_id_test, bill_identified_participant_only_node_id, empty_address,
@@ -96,6 +97,11 @@ where
     S: BillChainStoreApi + ?Sized,
 {
     let bill_id = bill_id_test();
+
+    assert!(matches!(
+        store.get_chain(&bill_id).await,
+        Err(Error::NoSuchEntity(..))
+    ));
 
     // empty chain
     assert!(get_latest_block(store, &bill_id).await.is_err());

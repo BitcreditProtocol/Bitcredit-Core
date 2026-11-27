@@ -10,7 +10,8 @@ use std::{
     },
     time::Duration,
 };
-use tokio::{task::JoinHandle, time::Instant};
+use tokio::task::{JoinHandle, JoinSet};
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 const BILL_PAYMENT_CHECK_INTERVAL_SECS: u64 = 60;
@@ -21,6 +22,14 @@ const RELAY_SYNC_INTERVAL_SECS: u64 = 300;
 
 type JobFuture = Pin<Box<dyn Future<Output = bool> + Send + 'static>>;
 type JobFn = fn(Arc<Context>) -> JobFuture;
+
+struct JobRunningGuard(Arc<AtomicBool>);
+
+impl Drop for JobRunningGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
 
 struct Job {
     name: &'static str,
@@ -41,7 +50,13 @@ impl Job {
         }
     }
 
-    fn try_spawn(&mut self, now: Instant, ctx: Arc<Context>, cancel: CancellationToken) {
+    fn try_spawn(
+        &mut self,
+        now: Instant,
+        ctx: Arc<Context>,
+        cancel: CancellationToken,
+        tasks: &mut JoinSet<()>,
+    ) {
         let network = ctx.cfg.bitcoin_network.clone();
         if self.is_running.load(Ordering::Acquire) {
             warn!(
@@ -63,8 +78,10 @@ impl Job {
         let name = self.name;
         let run = self.run;
         let is_running = Arc::clone(&self.is_running);
+        let running_guard = JobRunningGuard(is_running);
 
-        flutter_rust_bridge::spawn(async move {
+        tasks.spawn(async move {
+            let _running_guard = running_guard;
             info!("[{network}] Running {name}");
 
             let result = tokio::select! {
@@ -78,8 +95,6 @@ impl Job {
             if result == Some(true) {
                 info!("[{network}] Finished running {name}");
             }
-
-            is_running.store(false, Ordering::Release);
         });
     }
 }
@@ -114,6 +129,7 @@ pub fn start_jobs(
         ctx.transport_service.connect().await;
 
         let mut jobs = create_jobs();
+        let mut tasks = JoinSet::new();
 
         let mut ticker = tokio::time::interval(Duration::from_secs(scheduler_interval_secs));
         loop {
@@ -124,12 +140,17 @@ pub fn start_jobs(
                 }
                 now = ticker.tick() => {
                     for job in &mut jobs {
-                        job.try_spawn(now, ctx.clone(), cancel.clone());
+                        job.try_spawn(now, ctx.clone(), cancel.clone(), &mut tasks);
+                    }
+                }
+                Some(result) = tasks.join_next(), if !tasks.is_empty() => {
+                    if let Err(e) = result {
+                        error!("[{network}] Periodic job task failed: {e}");
                     }
                 }
             }
         }
-
+        tasks.shutdown().await;
         info!("[{network}] Job runner stopped");
     })
 }

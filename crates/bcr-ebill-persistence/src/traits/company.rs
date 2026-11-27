@@ -64,6 +64,8 @@ pub trait CompanyStoreApi: ServiceTraitBounds {
 
     /// Gets the companies where the is currently invited to
     async fn get_active_company_invites(&self) -> Result<HashMap<NodeId, (Company, BcrKeys)>>;
+    /// Lists company IDs for which keys are stored locally including companies not yet initialized.
+    async fn get_key_ids(&self) -> Result<Vec<NodeId>>;
 }
 
 #[async_trait]

@@ -115,3 +115,6 @@ Future<void> locallyHideSignatory({
 
 Future<PropagationStatusFfi?> propagationStatus({required String id}) =>
     RustLib.instance.api.crateFfiApiCompanyPropagationStatus(id: id);
+
+Future<IncomingChainQueueStatusFfi> incomingQueueStatus({required String id}) =>
+    RustLib.instance.api.crateFfiApiCompanyIncomingQueueStatus(id: id);

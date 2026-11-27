@@ -1,8 +1,8 @@
 use crate::ffi::{
     context::Context,
     data::{
-        Base64FileResponse, BinaryFileResponse, OptionalPostalAddressFfi, PropagationStatusFfi,
-        UploadFile, UploadFileResponse,
+        Base64FileResponse, BinaryFileResponse, IncomingChainQueueStatusFfi,
+        OptionalPostalAddressFfi, PropagationStatusFfi, UploadFile, UploadFileResponse,
         identity::{
             ChangeIdentityEmailPayload, ChangeIdentityPayload, ConfirmEmailPayload,
             IdentityEmailConfirmationFfi, IdentityFfi, IdentityTypeFfi, NewIdentityPayload,
@@ -14,10 +14,11 @@ use crate::ffi::{
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use bcr_common::core::NodeId;
+use bcr_ebill_api::service::transport_service::propagation::BLOCK_PROPAGATION_THRESHOLD;
 use bcr_ebill_api::service::{
     Error,
     file_upload_service::{UploadFileHandler, detect_content_type_for_bytes},
-    transport_service::{ResyncMode, restore::RestoreAccountApi},
+    transport_service::ResyncMode,
 };
 use bcr_ebill_core::{
     application::{
@@ -30,7 +31,6 @@ use bcr_ebill_core::{
         ProtocolValidationError, Timestamp, Zip, blockchain::identity::IdentityType,
     },
 };
-use bcr_ebill_transport::create_restore_account_service;
 use flutter_rust_bridge::frb;
 use std::{str::FromStr, sync::Arc};
 use uuid::Uuid;
@@ -330,26 +330,6 @@ pub async fn seed_backup() -> Result<SeedPhrase, EbillFfiError> {
 }
 
 #[frb]
-pub async fn seed_recover(seed_phrase_payload: SeedPhrase) -> Result<(), EbillFfiError> {
-    let ctx = get_active_ctx().await?;
-    ctx.identity_service
-        .recover_from_seedphrase(&seed_phrase_payload.seed_phrase)
-        .await?;
-
-    let keys = ctx.identity_service.get_keys().await?;
-    let recovery_service = create_restore_account_service(
-        ctx.cfg.clone(),
-        &keys,
-        ctx.chain_key_service.clone(),
-        ctx.push_service.clone(),
-        ctx.mint_client.clone(),
-    )
-    .await?;
-    recovery_service.restore_account().await?;
-    Ok(())
-}
-
-#[frb]
 pub async fn share_contact_details(share_contact_to: ShareContactTo) -> Result<(), EbillFfiError> {
     let ctx = get_active_ctx().await?;
     let node_id =
@@ -464,7 +444,22 @@ pub async fn propagation_status() -> Result<Option<PropagationStatusFfi>, EbillF
             }
         }
     }
-    let mut response: PropagationStatusFfi = status.into();
+    let mut response = PropagationStatusFfi::with_quorum(
+        status,
+        &ctx.cfg.nostr_config.relays,
+        BLOCK_PROPAGATION_THRESHOLD,
+    )?;
     response.last_block = last_block.map(Into::into);
     Ok(Some(response))
+}
+
+#[frb]
+pub async fn incoming_queue_status() -> Result<IncomingChainQueueStatusFfi, EbillFfiError> {
+    let ctx = get_active_ctx().await?;
+    let status = ctx
+        .transport_service
+        .block_transport()
+        .get_incoming_identity_queue_status()
+        .await?;
+    Ok(status.into())
 }

@@ -290,8 +290,8 @@ impl Validate for BillValidateActionData {
                     return Err(ProtocolValidationError::CallerIsNotHolder);
                 }
 
-                if let Ok(OfferToSellWaitingForPayment::Yes(payment_info)) =
-                    self.waiting_for_offer_to_sell()
+                if let OfferToSellWaitingForPayment::Yes(payment_info) =
+                    self.waiting_for_offer_to_sell()?
                 {
                     // only check action data for deep validation
                     if let BillValidationActionMode::Deep(ref bill_action) = self.mode {

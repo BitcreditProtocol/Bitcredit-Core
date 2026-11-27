@@ -478,6 +478,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  PropagationQuorumFfi dco_decode_box_autoadd_propagation_quorum_ffi(
+    dynamic raw,
+  );
+
+  @protected
   PropagationStatusFfi dco_decode_box_autoadd_propagation_status_ffi(
     dynamic raw,
   );
@@ -530,9 +535,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   SearchContactsPayload dco_decode_box_autoadd_search_contacts_payload(
     dynamic raw,
   );
-
-  @protected
-  SeedPhrase dco_decode_box_autoadd_seed_phrase(dynamic raw);
 
   @protected
   ShareBillWithCourtPayload
@@ -720,6 +722,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   IdentityTypeFfi dco_decode_identity_type_ffi(dynamic raw);
+
+  @protected
+  IncomingChainQueueStatusFfi dco_decode_incoming_chain_queue_status_ffi(
+    dynamic raw,
+  );
 
   @protected
   InstanceId dco_decode_instance_id(dynamic raw);
@@ -976,6 +983,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   dco_decode_opt_box_autoadd_propagation_block_info_ffi(dynamic raw);
 
   @protected
+  PropagationQuorumFfi? dco_decode_opt_box_autoadd_propagation_quorum_ffi(
+    dynamic raw,
+  );
+
+  @protected
   PropagationStatusFfi? dco_decode_opt_box_autoadd_propagation_status_ffi(
     dynamic raw,
   );
@@ -1059,6 +1071,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PropagationMessageFfi dco_decode_propagation_message_ffi(dynamic raw);
+
+  @protected
+  PropagationQuorumFfi dco_decode_propagation_quorum_ffi(dynamic raw);
 
   @protected
   PropagationRelayFfi dco_decode_propagation_relay_ffi(dynamic raw);
@@ -1713,6 +1728,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  PropagationQuorumFfi sse_decode_box_autoadd_propagation_quorum_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   PropagationStatusFfi sse_decode_box_autoadd_propagation_status_ffi(
     SseDeserializer deserializer,
   );
@@ -1777,9 +1797,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   SearchContactsPayload sse_decode_box_autoadd_search_contacts_payload(
     SseDeserializer deserializer,
   );
-
-  @protected
-  SeedPhrase sse_decode_box_autoadd_seed_phrase(SseDeserializer deserializer);
 
   @protected
   ShareBillWithCourtPayload
@@ -2007,6 +2024,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   IdentityTypeFfi sse_decode_identity_type_ffi(SseDeserializer deserializer);
+
+  @protected
+  IncomingChainQueueStatusFfi sse_decode_incoming_chain_queue_status_ffi(
+    SseDeserializer deserializer,
+  );
 
   @protected
   InstanceId sse_decode_instance_id(SseDeserializer deserializer);
@@ -2339,6 +2361,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  PropagationQuorumFfi? sse_decode_opt_box_autoadd_propagation_quorum_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   PropagationStatusFfi? sse_decode_opt_box_autoadd_propagation_status_ffi(
     SseDeserializer deserializer,
   );
@@ -2438,6 +2465,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PropagationMessageFfi sse_decode_propagation_message_ffi(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  PropagationQuorumFfi sse_decode_propagation_quorum_ffi(
     SseDeserializer deserializer,
   );
 
@@ -3233,6 +3265,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_box_autoadd_propagation_quorum_ffi(
+    PropagationQuorumFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_propagation_status_ffi(
     PropagationStatusFfi self,
     SseSerializer serializer,
@@ -3301,12 +3339,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_box_autoadd_search_contacts_payload(
     SearchContactsPayload self,
-    SseSerializer serializer,
-  );
-
-  @protected
-  void sse_encode_box_autoadd_seed_phrase(
-    SeedPhrase self,
     SseSerializer serializer,
   );
 
@@ -3592,6 +3624,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_identity_type_ffi(
     IdentityTypeFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_incoming_chain_queue_status_ffi(
+    IncomingChainQueueStatusFfi self,
     SseSerializer serializer,
   );
 
@@ -4007,6 +4045,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_opt_box_autoadd_propagation_quorum_ffi(
+    PropagationQuorumFfi? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_box_autoadd_propagation_status_ffi(
     PropagationStatusFfi? self,
     SseSerializer serializer,
@@ -4135,6 +4179,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_propagation_message_ffi(
     PropagationMessageFfi self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_propagation_quorum_ffi(
+    PropagationQuorumFfi self,
     SseSerializer serializer,
   );
 

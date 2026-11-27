@@ -80,6 +80,7 @@ enum EbillFfiErrorCode {
   noConfirmedEmailForIdentIdentity,
   noFileForFileUploadId,
   notFound,
+  invalidIncomingBlock,
   internal,
   externalApi,
   crypto,

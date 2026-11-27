@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bitcredit | From event to verified chain</title>
+<style>
+:root{color-scheme:dark;--bg:#09111d;--panel:#101d2b;--line:#26394c;--text:#eef5ff;--muted:#a1b2c7;--blue:#6cb8ff;--mint:#57dfb2;--violet:#c0a3ff;--amber:#ffc46e;--shadow:0 18px 50px #0003;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 13% 0%,#142f4055,transparent 45%),radial-gradient(ellipse at 95% 10%,#24204255,transparent 40%),var(--bg);color:var(--text);min-height:100vh}button,select{font:inherit}button{cursor:pointer;color:inherit}button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--blue);outline-offset:3px}button:disabled{opacity:.35;cursor:default}.shell{max-width:1320px;padding:32px 38px 24px;margin:auto}.mast{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;margin-bottom:24px}.brand{display:flex;align-items:center;gap:10px;text-transform:uppercase;letter-spacing:.19em;font-size:11px;font-weight:750;color:#c5d5e6}.mark{display:grid;place-items:center;width:32px;height:32px;border:1px solid #3a6d70;border-radius:10px;background:#15363c;color:var(--mint)}h1{font-size:clamp(27px,3.7vw,44px);font-weight:680;letter-spacing:-.045em;line-height:1.09;margin:14px 0 9px}p{margin:0}.subtitle{color:var(--muted);font-size:14px;line-height:1.6}.pill{display:inline-flex;align-items:center;gap:8px;background:#152439;border:1px solid #34495e;border-radius:30px;padding:8px 12px;color:#b9cde1;white-space:nowrap;font-size:12px;font-weight:600}.dot{width:7px;height:7px;border-radius:50%;background:var(--mint);box-shadow:0 0 11px #57dfb266}.scenario-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:16px}.scenario{position:relative;text-align:left;display:flex;gap:10px;align-items:flex-start;min-height:86px;padding:14px;background:#101d2b;border:1px solid var(--line);border-radius:13px;transition:background .2s,border-color .2s,transform .2s}.scenario:hover{background:#17283a;transform:translateY(-1px)}.scenario[aria-pressed=true]{background:linear-gradient(135deg,#163b40,#142637 80%);border-color:#4cbbab;box-shadow:inset 0 0 20px #57dfb209}.sc-no{font-variant-numeric:tabular-nums;font-size:11px;color:#9fb6ca;padding-top:3px}.scenario[aria-pressed=true] .sc-no{color:var(--mint)}.sc-title{display:block;font-size:14px;font-weight:660;margin-bottom:5px}.sc-sub{display:block;font-size:11.5px;color:var(--muted);line-height:1.4}.stage{border:1px solid var(--line);border-radius:18px;background:linear-gradient(180deg,#111f2e,#0c1724);box-shadow:var(--shadow);overflow:hidden}.stage-top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:17px 20px 12px;border-bottom:1px solid #26394c99}.stage-label{display:flex;gap:10px;align-items:center;font-weight:660;font-size:13px}.eyebrow{font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);font-weight:650}.legend{display:flex;gap:14px;flex-wrap:wrap;justify-content:flex-end;color:var(--muted);font-size:11px}.legend span{display:flex;align-items:center;gap:5px}.legend i{width:7px;height:7px;border-radius:50%;display:inline-block;background:var(--c)}.graph-scroll{overflow-x:auto;overscroll-behavior-x:contain}.graph{display:block;width:100%;min-width:920px;height:auto;max-height:570px}.graph text{font-family:inherit;user-select:none}.gridline{stroke:#23394a;opacity:.35}.edge{fill:none;stroke:#354b62;stroke-width:1.8;marker-end:url(#arrow);stroke-linecap:round;stroke-linejoin:round;transition:stroke .25s,opacity .25s;opacity:.85}.edge.dashed{stroke-dasharray:5 6;opacity:.65}.edge.active{stroke:var(--active,#6cb8ff);stroke-width:2.8;opacity:1;marker-end:url(#arrowActive)}.node-bg{fill:#132337;stroke:#344960;stroke-width:1.25;transition:fill .25s,stroke .25s}.node.active .node-bg{stroke:var(--node-color);stroke-width:2;fill:#172b3e;filter:url(#glow)}.node-title{fill:#eef5ff;font-size:15px;font-weight:650;letter-spacing:-.2px}.node-kicker{fill:#91a6bf;font-size:9.5px;font-weight:650;letter-spacing:1.5px}.node-sub{fill:#a5b6c9;font-size:11px}.edge-label{fill:#91a6bf;font-size:10px;font-weight:550;letter-spacing:.15px}.icon-box{fill:#1d3448}.dynamic-label{fill:#c9d8e8;font-size:12px}.chip-label{font-size:11px;font-weight:700;text-anchor:middle;dominant-baseline:central}.small-mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:11px;font-weight:600}.relay-row{fill:#0c1928;stroke:#273d51}.relay-led{fill:#61788e}.relay-led.yes{fill:var(--mint)}.relay-led.no{fill:var(--amber)}.relay-status{fill:#9fb2c8;font-size:10px;text-anchor:end}.quorum-bar-bg{fill:#263b51}.quorum-bar{fill:var(--blue);transition:width .3s,fill .3s}.token{filter:url(#tokenGlow);pointer-events:none}.token rect{fill:#0d1b2a;stroke:var(--token-color);stroke-width:1.8}.token text{fill:var(--token-color);font-size:11px;font-weight:750;text-anchor:middle;dominant-baseline:central}.detail{display:grid;grid-template-columns:1fr minmax(260px,32%);gap:25px;border-top:1px solid var(--line);padding:18px 22px 19px;background:#112031}.narrative-top{display:flex;align-items:center;gap:10px;margin-bottom:8px}.step-tag{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:5px 8px;border-radius:5px;color:var(--step-color,var(--blue));border:1px solid color-mix(in srgb,var(--step-color,var(--blue)) 35%,transparent);background:color-mix(in srgb,var(--step-color,var(--blue)) 10%,transparent)}.step-count{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}.narrative h2{font-size:clamp(18px,2.2vw,25px);letter-spacing:-.025em;margin:0 0 5px;font-weight:660}.narrative p{font-size:13px;line-height:1.55;color:#b5c5d7;max-width:700px;min-height:41px}.rule{border-left:1px solid #354a5e;padding-left:21px;align-self:center}.rule-label{font-size:10px;text-transform:uppercase;letter-spacing:.13em;color:var(--mint);font-weight:700;margin-bottom:7px}.rule p{font-size:12.5px;color:#d1e0ef;line-height:1.6}.transport{display:flex;align-items:center;gap:12px;margin-top:16px}.controls{display:flex;gap:7px;align-items:center}.control{height:38px;border-radius:9px;border:1px solid #34485d;background:#122133;display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:0 12px;font-size:12px;font-weight:650;white-space:nowrap}.control:hover:not(:disabled){background:#1c3046}.control svg{width:15px;height:15px;flex-shrink:0}.play{background:var(--mint);color:#09241f;border-color:var(--mint);min-width:90px}.play:hover:not(:disabled){background:#8cf2cc}.timeline{flex:1;display:flex;gap:5px;align-items:center;height:38px}.segment{height:22px;padding:8px 0;border:0;background:transparent;flex:1;min-width:6px;position:relative}.segment::before{content:"";position:absolute;top:8px;height:5px;left:0;right:0;border-radius:5px;background:#293f54;transition:background .2s}.segment.complete::before{background:#488f88}.segment.current::before{background:var(--mint);box-shadow:0 0 9px #57dfb250}.segment:hover::before{background:var(--blue)}.settings{display:flex;gap:12px;align-items:center;font-size:12px;color:var(--muted)}.settings select{background:#132235;color:#dbe9f7;border:1px solid #34485d;border-radius:8px;height:36px;padding:0 7px}.tour{display:flex;align-items:center;gap:6px;white-space:nowrap}.tour input{accent-color:var(--mint);width:15px;height:15px}.footer{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-top:16px;color:#8da2b7;font-size:11px;line-height:1.6}.footer strong{color:#b6c8da;font-weight:650}.keyhint{white-space:nowrap;color:#94aabe}.kbd{font-family:inherit;display:inline-block;padding:0 4px;border:1px solid #3a4b5e;border-radius:4px;color:#bdcde0}.scroll-hint{display:none}.sr-only{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0,0,0,0)}
+@media(min-width:851px) and (max-height:1050px){.shell{padding-top:22px;padding-bottom:16px}.mast{margin-bottom:16px}h1{font-size:36px;margin:9px 0 5px}.mark{width:27px;height:27px}.scenario-grid{margin-bottom:12px}.scenario{min-height:70px;padding:11px 13px}.stage-top{padding:12px 19px 10px}.graph{max-height:430px}.detail{padding:13px 20px 14px}.transport{margin-top:12px}.footer{margin-top:11px}}
+@media(min-width:851px) and (max-height:800px){.shell{padding-top:16px}.mast{margin-bottom:12px}h1{font-size:31px}.graph{max-height:350px}.scenario{min-height:63px;padding:9px 12px}.scenario-grid{margin-bottom:10px}.detail{padding:10px 16px}.narrative p{min-height:0}.narrative h2{font-size:20px}.rule p{font-size:12px}.transport{margin-top:9px}.footer{margin-top:8px}}
+@media(max-width:850px){.shell{padding:22px 18px}.scenario-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.mast{align-items:flex-start}.mast>.pill{display:none}.stage-top{flex-wrap:wrap;gap:8px}.legend{justify-content:flex-start}.detail{grid-template-columns:1fr;gap:12px}.rule{border-left:0;border-top:1px solid var(--line);padding:12px 0 0}.narrative p{min-height:0}.transport{flex-wrap:wrap}.timeline{order:3;flex-basis:100%;height:20px}.settings{margin-left:auto}.scroll-hint{display:block;font-size:10px;color:#8da2b7;padding:3px 20px 8px}.footer{display:block}.keyhint{display:none}}@media(max-width:430px){.scenario{padding:10px;gap:6px;min-height:84px}.sc-title{font-size:12px}.sc-sub{font-size:10.5px}.shell{padding:18px 12px}.control{padding:0 9px}.settings{gap:7px}.tour{font-size:11px}.detail{padding:15px}.stage-top{padding:13px}.legend{gap:9px}.legend span{font-size:10px}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+<main class="shell">
+  <header class="mast">
+    <div><div class="brand"><span class="mark"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m3 7 9-4 9 4-9 4-9-4Zm0 5 9 4 9-4M3 17l9 4 9-4" stroke-linejoin="round" stroke-linecap="round"/></svg></span>Bitcredit / Nostr</div><h1>From event to verified chain</h1><p class="subtitle">A visual tour of the incoming verification and application loop.</p></div>
+    <span class="pill"><span class="dot"></span> Illustrative simulation</span>
+  </header>
+  <nav class="scenario-grid" aria-label="Choose a scenario" id="scenarios"></nav>
+  <section class="stage" aria-label="Animated incoming workflow">
+    <div class="stage-top"><div class="stage-label"><span class="dot" id="stageDot"></span> Incoming pipeline <span class="eyebrow">Client B</span></div><div class="legend"><span><i style="--c:var(--blue)"></i>Public block</span><span><i style="--c:var(--violet)"></i>Private invite / keys</span><span><i style="--c:var(--amber)"></i>Deferred</span><span><i style="--c:var(--mint)"></i>Verified / applied</span></div></div>
+    <div class="graph-scroll">
+      <svg class="graph" id="graph" viewBox="0 0 1160 460" role="img" aria-label="Relays deliver public events into a persistent pending queue, then quorum verification, verified queue, application, and local chain. Private invitations provide keys. Missing dependencies and insufficient quorum cause retries.">
+      <defs>
+        <pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="#39516a" opacity=".29"/></pattern>
+        <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M1 1 9 5 1 9" fill="none" stroke="#61788e" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></marker>
+        <marker id="arrowActive" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path id="activeArrow" d="M1 1 9 5 1 9" fill="none" stroke="#6cb8ff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></marker>
+        <filter id="glow" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="0" stdDeviation="6" flood-color="#5bd6c2" flood-opacity=".16"/></filter>
+        <filter id="tokenGlow" x="-50%" y="-100%" width="200%" height="300%"><feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#a5d8ff" flood-opacity=".25"/></filter>
+        <symbol id="icon-server" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 7h1m-1 10h1"/></symbol>
+        <symbol id="icon-queue" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="5" rx="2"/><rect x="3" y="14" width="18" height="5" rx="2"/><path d="M7 7.5h5M7 16.5h5"/></symbol>
+        <symbol id="icon-shield" viewBox="0 0 24 24"><path d="m12 3 8 3v6c0 4-4 7-8 9-4-2-8-5-8-9V6l8-3Z"/><path d="m8.5 12 2.5 2.5 4.5-5"/></symbol>
+        <symbol id="icon-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></symbol>
+        <symbol id="icon-key" viewBox="0 0 24 24"><circle cx="8" cy="9" r="4"/><path d="m11 12 9 9m-3-3 3-3m-6 0 3-3"/></symbol>
+        <symbol id="icon-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+        <symbol id="icon-apply" viewBox="0 0 24 24"><path d="M4 12h4l3 4 9-11M4 19h16"/></symbol>
+        <symbol id="icon-chain" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><path d="M10 6.5h7.5V14M6.5 10v7.5H14"/></symbol>
+      </defs>
+      <rect width="1160" height="460" fill="url(#grid)"/>
+      <text x="26" y="27" class="node-kicker">DISCOVERY</text><text x="253" y="27" class="node-kicker">DURABLE VERIFICATION</text><text x="708" y="27" class="node-kicker">VERIFIED WORK</text>
+      <text x="26" y="265" class="node-kicker">PRIVATE KEY RECOVERY</text><text x="480" y="265" class="node-kicker">DEPENDENCY HANDLING</text><text x="937" y="265" class="node-kicker">BUSINESS STATE</text>
+      <g id="edges">
+        <path id="discover" class="edge" d="M210 126 H250"/>
+        <path id="check" class="edge" d="M434 126 H478"/>
+        <path id="pass" class="edge" d="M662 126 H706"/>
+        <path id="retry" class="edge dashed" d="M570 202 V230 H342 V202"/>
+        <path id="toApply" class="edge" d="M838 202 V282"/>
+        <path id="invite" class="edge" d="M210 339 H250"/>
+        <path id="defer" class="edge" d="M706 342 H662"/>
+        <path id="resume" class="edge dashed" d="M570 282 V250 H754 V202"/>
+        <path id="wake" class="edge dashed" d="M342 404 V430 H570 V404"/>
+        <path id="commit" class="edge" d="M890 342 H934"/>
+      </g>
+      <text x="457" y="244" text-anchor="middle" class="edge-label">availability retry</text>
+      <text x="654" y="241" text-anchor="middle" class="edge-label">retry / wake</text>
+      <text x="453" y="445" text-anchor="middle" class="edge-label">keys become available</text>
+      <text x="851" y="242" class="edge-label">ready</text>
+      <g id="node-relays" class="node" style="--node-color:var(--blue)">
+        <rect class="node-bg" x="26" y="45" width="184" height="157" rx="12"/>
+        <rect class="icon-box" x="38" y="57" width="27" height="27" rx="7"/><use href="#icon-server" x="43" y="62" width="17" height="17" fill="none" stroke="#8bc8ff" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/>
+        <text x="75" y="69" class="node-title">Nostr relays</text><text x="75" y="83" class="node-sub">Exact event copies</text>
+        <g id="relayRows"></g>
+      </g>
+      <g id="node-pending" class="node" style="--node-color:var(--blue)">
+        <rect class="node-bg" x="250" y="45" width="184" height="157" rx="12"/>
+        <rect class="icon-box" x="262" y="57" width="27" height="27" rx="7"/><use href="#icon-queue" x="267" y="62" width="17" height="17" fill="none" stroke="#8bc8ff" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/>
+        <text x="299" y="69" class="node-title">Pending</text><text x="299" y="83" class="node-sub">Saved before checking</text>
+        <g id="pendingItems"></g><text x="262" y="187" class="node-sub" id="pendingNote">Durable incoming queue</text>
+      </g>
+      <g id="node-verify" class="node" style="--node-color:var(--blue)">
+        <rect class="node-bg" x="478" y="45" width="184" height="157" rx="12"/>
+        <rect class="icon-box" x="490" y="57" width="27" height="27" rx="7"/><use href="#icon-shield" x="495" y="62" width="17" height="17" fill="none" stroke="#8bc8ff" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/>
+        <text x="527" y="69" class="node-title">Verify quorum</text><text x="527" y="83" class="node-sub">Strict majority</text>
+        <text id="verifyCount" x="490" y="123" fill="#eef5ff" font-size="28" font-weight="680">—</text><text x="490" y="141" class="node-sub" id="verifyLabel">Need 2 of 3 copies</text>
+        <rect x="490" y="151" width="160" height="6" rx="3" class="quorum-bar-bg"/><rect id="quorumBar" x="490" y="151" width="0" height="6" rx="3" class="quorum-bar"/><line x1="596.7" x2="596.7" y1="148" y2="160" stroke="#e0ecfa" stroke-width="1.5" opacity=".75"/>
+        <text x="490" y="186" class="node-sub" id="verifyNote">Awaiting a candidate</text>
+      </g>
+      <g id="node-verified" class="node" style="--node-color:var(--mint)">
+        <rect class="node-bg" x="706" y="45" width="184" height="157" rx="12"/>
+        <rect x="718" y="57" width="27" height="27" rx="7" fill="#173c3b"/><use href="#icon-queue" x="723" y="62" width="17" height="17" fill="none" stroke="#57dfb2" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/>
+        <text x="755" y="69" class="node-title">Verified</text><text x="755" y="83" class="node-sub">Quorum established</text>
+        <g id="verifiedItems"></g><text x="718" y="187" class="node-sub" id="verifiedNote">Still needs validation</text>
+      </g>
+      <g id="node-criteria" class="node" style="--node-color:var(--mint)">
+        <rect x="934" y="45" width="200" height="157" rx="12" fill="#0d1a28" stroke="#263b50" stroke-dasharray="3 4"/>
+        <text x="948" y="65" class="node-kicker">APPLICATION GATES</text>
+        <g id="gates"></g>
+        <text x="948" y="187" class="node-sub">Quorum is not consensus.</text>
+      </g>
+      <g id="node-private" class="node" style="--node-color:var(--violet)">
+        <rect class="node-bg" x="26" y="282" width="184" height="122" rx="12"/>
+        <rect x="38" y="294" width="27" height="27" rx="7" fill="#322948"/><use href="#icon-mail" x="43" y="299" width="17" height="17" fill="none" stroke="#c0a3ff" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/>
+        <text x="75" y="306" class="node-title">Private invite</text><text x="75" y="320" class="node-sub">GiftWrap message</text>
+        <g id="inviteItems"></g><text x="38" y="389" class="node-sub" id="inviteNote">Independent of public blocks</text>
+      </g>
+      <g id="node-keys" class="node" style="--node-color:var(--violet)">
+        <rect class="node-bg" x="250" y="282" width="184" height="122" rx="12"/>
+        <rect x="262" y="294" width="27" height="27" rx="7" fill="#322948"/><use href="#icon-key" x="267" y="299" width="17" height="17" fill="none" stroke="#c0a3ff" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/>
+        <text x="299" y="306" class="node-title">Chain keys</text><text x="299" y="320" class="node-sub">Persisted locally</text>
+        <g id="keyItems"></g><text x="262" y="389" class="node-sub" id="keyNote">Awaiting invite</text>
+      </g>
+      <g id="node-wait" class="node" style="--node-color:var(--amber)">
+        <rect class="node-bg" x="478" y="282" width="184" height="122" rx="12"/>
+        <rect x="490" y="294" width="27" height="27" rx="7" fill="#403327"/><use href="#icon-clock" x="495" y="299" width="17" height="17" fill="none" stroke="#ffc46e" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/>
+        <text x="527" y="306" class="node-title">Deferred</text><text x="527" y="320" class="node-sub">Still verified</text>
+        <g id="waitItems"></g><text x="490" y="389" class="node-sub" id="waitNote">No blocked candidates</text>
+      </g>
+      <g id="node-apply" class="node" style="--node-color:var(--mint)">
+        <rect class="node-bg" x="706" y="282" width="184" height="122" rx="12"/>
+        <rect x="718" y="294" width="27" height="27" rx="7" fill="#173c3b"/><use href="#icon-apply" x="723" y="299" width="17" height="17" fill="none" stroke="#57dfb2" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/>
+        <text x="755" y="306" class="node-title">Apply</text><text x="755" y="320" class="node-sub">Validate continuation</text>
+        <g id="applyItems"></g><text x="718" y="389" class="node-sub" id="applyNote">Append only when valid</text>
+      </g>
+      <g id="node-chain" class="node" style="--node-color:var(--mint)">
+        <rect class="node-bg" x="934" y="282" width="200" height="122" rx="12"/>
+        <rect x="946" y="294" width="27" height="27" rx="7" fill="#173c3b"/><use href="#icon-chain" x="951" y="299" width="17" height="17" fill="none" stroke="#57dfb2" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/>
+        <text x="983" y="306" class="node-title">Local chain</text><text x="983" y="320" class="node-sub">Committed blocks</text>
+        <g id="chainItems"></g><text x="946" y="389" class="node-sub" id="chainNote">No local blocks yet</text>
+      </g>
+      <g id="token" class="token" visibility="hidden"><rect x="-21" y="-11" width="42" height="22" rx="7"/><text id="tokenText" x="0" y="0">B1</text></g>
+      </svg>
+    </div>
+    <div class="scroll-hint">Swipe the diagram horizontally to explore all stages.</div>
+    <div class="detail">
+      <div class="narrative" aria-live="polite" aria-atomic="true"><div class="narrative-top"><span class="step-tag" id="phase">Ready</span><span class="step-count" id="stepCount"></span></div><h2 id="stepTitle"></h2><p id="stepDescription"></p></div>
+      <aside class="rule"><div class="rule-label">The key idea</div><p id="takeaway"></p></aside>
+    </div>
+  </section>
+  <div class="transport">
+    <div class="controls"><button class="control" id="back" title="Previous step" aria-label="Previous step"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 5v14M19 5l-10 7 10 7V5Z"/></svg></button><button class="control play" id="play" aria-label="Play or pause"></button><button class="control" id="next" title="Next step" aria-label="Next step"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 5v14M5 5l10 7-10 7V5Z"/></svg></button><button class="control" id="restart" title="Restart scenario" aria-label="Restart scenario"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11a9 9 0 1 1 3 7M3 4v7h7"/></svg></button></div>
+    <div class="timeline" id="timeline" aria-label="Scenario steps"></div>
+    <div class="settings"><label class="tour"><input type="checkbox" id="tour" checked> Auto tour</label><label><span class="sr-only">Playback speed</span><select id="speed"><option value="0.65">0.65×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label></div>
+  </div>
+  <footer class="footer"><p><strong>Conceptual model.</strong> Three configured relays, quorum 2/3. Timing is compressed; cards show logical states, not exact database rows. B1, B2, B3 are consecutive public blocks of one bill or company.</p><p class="keyhint"><span class="kbd">Space</span> play/pause &nbsp; <span class="kbd">←</span> <span class="kbd">→</span> step</p></footer>
+</main>
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const svgNS='http://www.w3.org/2000/svg';
+const C={blue:'#6cb8ff',mint:'#57dfb2',violet:'#c0a3ff',amber:'#ffc46e',muted:'#8fa8bd'};
+const defaultState=()=>({relayEvent:null,relays:[null,null,null],pending:[],verified:[],checking:null,checks:null,apply:null,wait:[],keys:false,invite:'none',chain:[],gate:null,pendingNote:'Durable incoming queue',verifyNote:'Awaiting a candidate',applyNote:'Append only when valid',keyNote:'Awaiting invite',waitNote:'No blocked candidates'});
+const step=(phase,title,desc,patch={},nodes=[],edge=null,token=null,color='blue',duration=2450)=>({phase,title,desc,patch,nodes,edge,token,color,duration});
+const scenarios=[
+ {name:'Happy path',sub:'Invite first, then a public block',takeaway:'Invites provide access. Relay quorum establishes availability. Only successful application changes the local business state.',initial:{},steps:[
+  step('Start','Client B is ready','A new bill or company is shared with Client B. Its public blocks and private invitation can arrive independently.',{},['relays','private'],null,null,'blue',3000),
+  step('Invite','The private invitation arrives','The invitation contains the chain keys. They are persisted independently of public block verification.',{invite:'received',keys:true,keyNote:'Keys saved • wake work'},['private','keys'],'invite','KEY','violet'),
+  step('Discover','A public block is discovered','B1 is available on two of the three configured relays. The signed event is saved to the incoming queue before verification.',{relayEvent:'B1',relays:[true,true,false],pending:['B1'],pendingNote:'B1 saved to disk',invite:'saved'},['relays','pending'],'discover','B1'),
+  step('Verify','Check exact event availability','The verifier asks the configured relays for B1. Two matching signed event copies satisfy the saved majority policy.',{checking:'B1',checks:2,verifyNote:'2/3 • quorum satisfied'},['verify','pending'],'check','B1'),
+  step('Verified','Move to the verified queue','Availability is established. B1 is now eligible for protocol validation; it is not yet a committed block.',{pending:[],verified:['B1'],checking:null,pendingNote:'Durable incoming queue'},['verify','verified'],'pass','B1','mint'),
+  step('Apply','Validate the genesis block','The keys are available, there is no missing predecessor, and the block passes protocol checks.',{verified:[],apply:'B1',gate:{keys:'yes',prev:'yes',valid:'yes'},applyNote:'Valid genesis'},['verified','apply','criteria'],'toApply','B1','mint'),
+  step('Applied','Commit B1 to the local chain','The block is appended and the candidate is marked applied. Replays will not append the same block again.',{apply:null,chain:['B1'],applyNote:'Append only when valid',gate:null},['apply','chain'],'commit','B1','mint',3300)
+ ]},
+ {name:'Missing keys',sub:'Public block arrives before invite',takeaway:'MissingKeys is a temporary application state, not a rejection. Receiving the private invite wakes the already verified block.',initial:{},steps:[
+  step('Start','The public event wins the race','B1 is discoverable before Client B has received the private chain invitation.',{relayEvent:'B1',relays:[true,true,true]},['relays'],null,null,'blue',2700),
+  step('Discover','Persist the event without keys','The public chain ID is enough to enqueue the signed event. Possessing the decryption keys is not required at this stage.',{pending:['B1'],pendingNote:'B1 saved to disk'},['relays','pending'],'discover','B1'),
+  step('Verify','Availability does not require keys','The exact signed event is found on all three relays. The majority threshold is satisfied.',{checking:'B1',checks:3,verifyNote:'3/3 • quorum satisfied'},['verify','pending'],'check','B1'),
+  step('Verified','B1 is quorum verified','The candidate becomes eligible for application even though its private invite has not arrived.',{pending:[],verified:['B1'],checking:null,pendingNote:'Durable incoming queue'},['verify','verified'],'pass','B1','mint'),
+  step('Apply','Application discovers missing keys','B1 cannot be decoded and validated yet. This is a recoverable missing dependency, not evidence of an invalid block.',{verified:[],apply:'B1',gate:{keys:'no',prev:'unknown',valid:'unknown'},applyNote:'Cannot decrypt yet'},['apply','criteria'],'toApply','B1','amber'),
+  step('Deferred','Wait for the invitation','B1 remains durably verified with a MissingKeys retry reason. The worker backs off; it need not query the relays again for this event.',{apply:null,wait:[{id:'B1',reason:'MissingKeys'}],waitNote:'Retry scheduled',applyNote:'Append only when valid'},['apply','wait'],'defer','B1','amber',3100),
+  step('Invite','The delayed invitation arrives','The GiftWrap message is processed, and the keys are saved to local storage.',{invite:'received',keys:true,keyNote:'Keys saved • wake work'},['private','keys'],'invite','KEY','violet'),
+  step('Wake','Make the waiting candidate due','Persisting the keys wakes deferred application work for this chain. B1 does not lose its established quorum.',{invite:'saved',waitNote:'Dependency resolved',gate:{keys:'yes',prev:'unknown',valid:'unknown'}},['keys','wait'],'wake','KEY','violet'),
+  step('Retry','Return to application','The same verified event becomes ready to apply. No fresh event ID or repeat publication is necessary.',{wait:[],verified:['B1'],waitNote:'No blocked candidates'},['wait','verified'],'resume','B1','mint'),
+  step('Apply','Validate with the recovered keys','B1 can now be decrypted, checked and applied as a valid genesis block.',{verified:[],apply:'B1',gate:{keys:'yes',prev:'yes',valid:'yes'},applyNote:'Valid genesis'},['apply','criteria'],'toApply','B1','mint'),
+  step('Applied','The shared chain appears','B1 is committed exactly once. The private invite and public block could arrive in either order.',{apply:null,chain:['B1'],gate:null,applyNote:'Append only when valid'},['apply','chain'],'commit','B1','mint',3300)
+ ]},
+ {name:'Missing predecessor',sub:'B3 arrives before B2',takeaway:'A verified successor cannot skip a gap. Historical discovery finds its predecessor, which must independently reach quorum and pass validation.',initial:{keys:true,keyNote:'Keys already saved',invite:'saved',chain:['B1']},steps:[
+  step('Start','Client B already has block B1','The chain keys are known, but the network delivers B3 before its required predecessor B2.',{relayEvent:'B3',relays:[true,true,true]},['relays','chain'],null,null,'blue',2800),
+  step('Discover','B3 enters the durable queue','Out-of-order events are allowed into the incoming queue; chain order is enforced later.',{pending:['B3'],pendingNote:'B3 saved to disk'},['relays','pending'],'discover','B3'),
+  step('Verify','B3 reaches majority','B3 is found on all three relays. It may be verified independently of B2.',{checking:'B3',checks:3,verifyNote:'3/3 • quorum satisfied'},['pending','verify'],'check','B3'),
+  step('Verified','B3 is ready for application','The verifier records the successful availability result. It does not infer that all earlier blocks are present.',{pending:[],verified:['B3'],checking:null,pendingNote:'Durable incoming queue'},['verify','verified'],'pass','B3','mint'),
+  step('Apply','B2 is required before B3','B3 references a predecessor that is not committed locally. The worker cannot append it to B1.',{verified:[],apply:'B3',gate:{keys:'yes',prev:'no',valid:'unknown'},applyNote:'Predecessor missing'},['apply','criteria','chain'],'toApply','B3','amber'),
+  step('Deferred','B3 waits for the gap to close','The candidate stays verified with MissingPredecessor. Gap repair or historical catch-up can discover B2.',{apply:null,wait:[{id:'B3',reason:'MissingPredecessor'}],waitNote:'Gap repair / catch-up',applyNote:'Append only when valid'},['apply','wait'],'defer','B3','amber',3000),
+  step('Discover','Historical discovery finds B2','The predecessor is fetched and durably enqueued. A reply or root reference can help find it, but the block hash establishes actual linkage.',{relayEvent:'B2',relays:[true,true,false],pending:['B2'],checks:null,verifyNote:'Awaiting a candidate',pendingNote:'B2 saved to disk'},['relays','pending','wait'],'discover','B2'),
+  step('Verify','Verify the predecessor independently','Two relays serve the exact B2 event. B3 being verified does not exempt B2 from its own quorum check.',{checking:'B2',checks:2,verifyNote:'2/3 • quorum satisfied'},['pending','verify'],'check','B2'),
+  step('Verified','B2 is ready','The application worker can now inspect B2 as a possible valid continuation of B1.',{pending:[],verified:['B2'],checking:null,pendingNote:'Durable incoming queue'},['verify','verified'],'pass','B2','mint'),
+  step('Apply','Validate B2 against B1','B2 has the right predecessor, the keys are available and protocol validation succeeds.',{verified:[],apply:'B2',gate:{keys:'yes',prev:'yes',valid:'yes'},applyNote:'Valid continuation'},['apply','criteria'],'toApply','B2','mint'),
+  step('Applied','Commit B2 and wake B3','The local tip advances to B2. Successful application makes the dependent candidate due again.',{apply:null,chain:['B1','B2'],waitNote:'Predecessor resolved',gate:null,applyNote:'Append only when valid'},['apply','chain','wait'],'commit','B2','mint'),
+  step('Retry','B3 returns to ready work','The previously verified successor can now be checked against the new local tip.',{wait:[],verified:['B3'],waitNote:'No blocked candidates'},['wait','verified'],'resume','B3','mint'),
+  step('Apply','Validate B3 against B2','The gap is closed. B3 passes the remaining application checks.',{verified:[],apply:'B3',gate:{keys:'yes',prev:'yes',valid:'yes'},applyNote:'Valid continuation'},['apply','criteria'],'toApply','B3','mint'),
+  step('Applied','The chain converges in order','The committed sequence is B1 → B2 → B3, even though B3 reached the client before B2.',{apply:null,chain:['B1','B2','B3'],gate:null,applyNote:'Append only when valid'},['apply','chain'],'commit','B3','mint',3300)
+ ]},
+ {name:'Quorum recovery',sub:'Only one relay has the event',takeaway:'An event stays pending until a majority serves that exact signed event. Retrying availability is different from retrying application.',initial:{keys:true,keyNote:'Keys already saved',invite:'saved',chain:['B1']},steps:[
+  step('Start','Only one relay has B2','Client B knows the keys and has B1. Relay replication of the new block is incomplete.',{relayEvent:'B2',relays:[true,false,false]},['relays','chain'],null,null,'blue',2800),
+  step('Discover','Save B2 locally','The signed event is durably queued even though availability on the remaining relays is not established.',{pending:['B2'],pendingNote:'B2 saved to disk'},['relays','pending'],'discover','B2'),
+  step('Verify','One copy is not quorum','Only R1 serves B2. A strict majority of three relays requires two copies.',{checking:'B2',checks:1,verifyNote:'1/3 • insufficient quorum'},['verify','pending'],'check','B2','amber'),
+  step('Retry','Leave B2 pending','The failed availability check is retried on a schedule. B2 never reaches the application stage while it lacks quorum.',{checking:null,pendingNote:'Backoff • retry later',verifyNote:'Insufficient quorum'},['verify','pending'],'retry','B2','amber',3100),
+  step('Recover','A second relay receives B2','The sender’s outgoing delivery retry or relay recovery makes the same signed event available on R2.',{relays:[true,true,false],checks:null,verifyNote:'Awaiting retry',pendingNote:'Retry becomes due'},['relays','pending'],null,null,'blue',2800),
+  step('Verify','The next check reaches quorum','The verifier independently confirms B2 on R1 and R2. R3 is still missing, but two copies are enough.',{checking:'B2',checks:2,verifyNote:'2/3 • quorum satisfied'},['verify','pending'],'check','B2','blue'),
+  step('Verified','B2 moves to verified work','The saved quorum requirement has been met. No application rule has been relaxed.',{pending:[],checking:null,verified:['B2'],pendingNote:'Durable incoming queue'},['verify','verified'],'pass','B2','mint'),
+  step('Apply','Validate the next block','B2 has the expected predecessor B1, the keys are present and the protocol checks pass.',{verified:[],apply:'B2',gate:{keys:'yes',prev:'yes',valid:'yes'},applyNote:'Valid continuation'},['apply','criteria'],'toApply','B2','mint'),
+  step('Applied','Progress without unanimity','B2 is committed. The third relay can catch up later; the required majority was already available.',{apply:null,chain:['B1','B2'],gate:null,applyNote:'Append only when valid'},['apply','chain'],'commit','B2','mint',3300)
+ ]}
+];
+let scene=0,index=0,playing=!matchMedia('(prefers-reduced-motion: reduce)').matches,speed=1,elapsed=0,lastTime=null,raf=0;
+const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const icons={play:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',pause:'<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>'};
+function el(tag,attrs={},text){const e=document.createElementNS(svgNS,tag);for(const [k,v] of Object.entries(attrs))e.setAttribute(k,v);if(text!==undefined)e.textContent=text;return e;}
+function add(parent,tag,attrs,text){const e=el(tag,attrs,text);parent.append(e);return e;}
+function clear(id){const e=$(id);e.replaceChildren();return e;}
+function label(parent,x,y,text,fill=C.muted,size=11,weight=550){return add(parent,'text',{x,y,fill,'font-size':size,'font-weight':weight},text);}
+function chip(parent,x,y,text,color=C.blue,w=42){add(parent,'rect',{x,y,width:w,height:24,rx:6,fill:color,'fill-opacity':'.10',stroke:color,'stroke-opacity':'.62'});add(parent,'text',{x:x+w/2,y:y+12,fill:color,class:'chip-label'},text);}
+function renderList(id,items,x,y,color,empty){const g=clear(id);if(!items.length){label(g,x,y+16,empty,'#7189a3',12,500);return;}items.forEach((item,i)=>chip(g,x+i*51,y,item,color));}
+function renderRelays(s){const g=clear('relayRows');s.relays.forEach((v,i)=>{const y=93+i*30;add(g,'rect',{x:38,y,width:160,height:24,rx:5,class:'relay-row'});add(g,'circle',{cx:48,cy:y+12,r:3.5,class:'relay-led '+(v===true?'yes':v===false?'no':'')});label(g,58,y+16,'R'+(i+1),'#c7d8e8',11,650);add(g,'text',{x:188,y:y+16,class:'relay-status',fill:v===true?C.mint:v===false?C.amber:C.muted},v===true?`${s.relayEvent} present`:v===false?`${s.relayEvent} absent`:'no event yet');});}
+function renderGates(s){const g=clear('gates');const rows=[['Keys available','keys'],['Predecessor valid','prev'],['Protocol checks','valid']];rows.forEach(([name,key],i)=>{const y=90+i*30,v=s.gate?.[key]||'unknown',c=v==='yes'?C.mint:v==='no'?C.amber:'#6f859d';add(g,'circle',{cx:955,cy:y,r:7,fill:c,'fill-opacity':'.12',stroke:c,'stroke-width':'1.1'});add(g,'text',{x:955,y:y+.5,fill:c,'font-size':11,'font-weight':700,'text-anchor':'middle','dominant-baseline':'central'},v==='yes'?'✓':v==='no'?'!':'·');label(g,970,y+4,name,v==='unknown'?'#91a6bf':'#d7e5f5',11.5,550);});}
+function stateAt(){const sc=scenarios[scene],s=Object.assign(defaultState(),sc.initial);for(let i=0;i<=index;i++)Object.assign(s,sc.steps[i].patch);return s;}
+function render(){const sc=scenarios[scene],st=sc.steps[index],s=stateAt(),color=C[st.color];
+ renderRelays(s);renderList('pendingItems',s.pending,262,111,C.blue,'Empty');renderList('verifiedItems',s.verified,718,111,C.mint,'Empty');
+ $('pendingNote').textContent=s.pendingNote;$('verifyCount').textContent=s.checks===null?'—':`${s.checks} / 3`;$('verifyCount').setAttribute('fill',s.checks===null?'#eef5ff':s.checks>=2?C.mint:C.amber);$('verifyNote').textContent=s.verifyNote;$('quorumBar').setAttribute('width',s.checks===null?0:s.checks*160/3);$('quorumBar').style.fill=s.checks>=2?C.mint:s.checks===null?C.blue:C.amber;
+ const inv=clear('inviteItems');if(s.invite==='none')label(inv,38,352,'Not received','#7189a3',12,500);else chip(inv,38,333,s.invite==='received'?'Key invite':'Processed',C.violet,104);
+ const kg=clear('keyItems');if(s.keys)chip(kg,262,333,'Available ✓',C.violet,112);else label(kg,262,352,'No chain keys',C.amber,12,600);$('keyNote').textContent=s.keyNote;
+ const wg=clear('waitItems');if(s.wait.length){const w=s.wait[0];chip(wg,490,333,w.id,C.amber,34);label(wg,531,349,w.reason,C.amber,w.reason.length>15?10:11,600);}else label(wg,490,352,'Empty','#7189a3',12,500);$('waitNote').textContent=s.waitNote;
+ renderList('applyItems',s.apply?[s.apply]:[],718,333,C.mint,'Idle');$('applyNote').textContent=s.applyNote;
+ const cg=clear('chainItems');if(!s.chain.length)label(cg,946,352,'Empty','#7189a3',12,500);else s.chain.forEach((id,i)=>{if(i)add(cg,'line',{x1:946+(i-1)*52+39,y1:345,x2:946+i*52,y2:345,stroke:C.mint,'stroke-opacity':'.65','stroke-width':'1.8'});chip(cg,946+i*52,333,id,C.mint,39);});$('chainNote').textContent=s.chain.length?`Tip: ${s.chain.at(-1)} • ${s.chain.length} committed`:'No local blocks yet';
+ renderGates(s);
+ document.querySelectorAll('.node.active').forEach(n=>n.classList.remove('active'));st.nodes.forEach(n=>$('node-'+n)?.classList.add('active'));document.querySelectorAll('.edge.active').forEach(n=>n.classList.remove('active'));if(st.edge){$(st.edge).classList.add('active');$(st.edge).style.setProperty('--active',color);$('activeArrow').setAttribute('stroke',color);} 
+ const tok=$('token');tok.style.setProperty('--token-color',color);$('tokenText').textContent=st.token||'';tok.setAttribute('visibility',st.edge&&st.token?'visible':'hidden');drawToken();
+ $('phase').textContent=st.phase;$('phase').style.setProperty('--step-color',color);$('stageDot').style.background=color;$('stageDot').style.boxShadow=`0 0 11px ${color}66`;$('stepCount').textContent=`STEP ${String(index+1).padStart(2,'0')} / ${String(sc.steps.length).padStart(2,'0')}`;$('stepTitle').textContent=st.title;$('stepDescription').textContent=st.desc;$('takeaway').textContent=sc.takeaway;
+ document.querySelectorAll('.scenario').forEach((b,i)=>b.setAttribute('aria-pressed',String(i===scene)));renderTimeline();updateControls();
+}
+function renderTimeline(){const tl=$('timeline');tl.replaceChildren();scenarios[scene].steps.forEach((st,i)=>{const b=document.createElement('button');b.className='segment'+(i<index?' complete':i===index?' current':'');b.title=`${i+1}. ${st.title}`;b.setAttribute('aria-label',b.title);if(i===index)b.setAttribute('aria-current','step');b.onclick=()=>{playing=false;go(i);};tl.append(b);});}
+function updateControls(){$('back').disabled=index===0;$('next').disabled=index===scenarios[scene].steps.length-1;$('play').innerHTML=playing?icons.pause+'Pause':icons.play+'Play';$('play').setAttribute('aria-label',playing?'Pause animation':'Play animation');}
+function drawToken(){const st=scenarios[scene].steps[index];if(!st.edge||!st.token)return;const p=$(st.edge),len=p.getTotalLength();const staticView=reduced||(!playing&&elapsed===0);const travel=Math.min(1100,st.duration*.55);let t=staticView?.5:Math.max(0,Math.min(1,(elapsed-140)/travel));const opacity=staticView?1:Math.max(0,Math.min(1,elapsed/140,(travel+430-elapsed)/260));t=t*t*(3-2*t);const pos=p.getPointAtLength(len*t);$('token').setAttribute('transform',`translate(${pos.x} ${pos.y})`);$('token').setAttribute('opacity',opacity);}
+function go(i){index=Math.max(0,Math.min(scenarios[scene].steps.length-1,i));elapsed=0;lastTime=null;render();}
+function selectScene(i,manual=false){scene=i;if(manual){$('tour').checked=false;playing=!reduced;}go(0);}
+function toggle(){if(!playing&&index===scenarios[scene].steps.length-1&&elapsed>=scenarios[scene].steps[index].duration){go(0);}playing=!playing;lastTime=null;updateControls();}
+function tick(now){if(playing){if(lastTime!==null)elapsed+=Math.min(100,now-lastTime)*speed;lastTime=now;drawToken();if(elapsed>=scenarios[scene].steps[index].duration){if(index<scenarios[scene].steps.length-1)go(index+1);else if($('tour').checked)selectScene((scene+1)%scenarios.length);else{playing=false;lastTime=null;updateControls();}}}else lastTime=null;raf=requestAnimationFrame(tick);}
+scenarios.forEach((sc,i)=>{const b=document.createElement('button');b.className='scenario';b.type='button';b.setAttribute('aria-pressed','false');b.innerHTML=`<span class="sc-no">0${i+1}</span><span><span class="sc-title">${sc.name}</span><span class="sc-sub">${sc.sub}</span></span>`;b.onclick=()=>selectScene(i,true);$('scenarios').append(b);});
+$('back').onclick=()=>{playing=false;go(index-1);};$('next').onclick=()=>{playing=false;go(index+1);};$('restart').onclick=()=>go(0);$('play').onclick=toggle;$('speed').onchange=e=>speed=Number(e.target.value);
+window.addEventListener('keydown',e=>{if(['INPUT','SELECT','BUTTON'].includes(document.activeElement?.tagName))return;if(e.code==='Space'){e.preventDefault();toggle();}else if(e.key==='ArrowRight'){e.preventDefault();playing=false;go(index+1);}else if(e.key==='ArrowLeft'){e.preventDefault();playing=false;go(index-1);}});
+// Freeze the animation while the tab is hidden instead of skipping a sequence.
+document.addEventListener('visibilitychange',()=>{lastTime=null;});
+render();raf=requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>

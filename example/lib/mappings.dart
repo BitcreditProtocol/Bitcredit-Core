@@ -77,25 +77,45 @@ Object? _simplify(Object? value) {
       'companies': value.companies.map(_simplify).toList(),
     };
   }
+  if (value is data.IncomingChainQueueStatusFfi) {
+    return {
+      'pending': _simplify(value.pending),
+      'verified': _simplify(value.verified),
+      'applied': _simplify(value.applied),
+      'rejected': _simplify(value.rejected),
+      'readyToApply': _simplify(value.readyToApply),
+      'missingKeys': _simplify(value.missingKeys),
+      'missingPredecessor': _simplify(value.missingPredecessor),
+      'transientApplicationFailures': _simplify(
+        value.transientApplicationFailures,
+      ),
+      'conflictingForks': _simplify(value.conflictingForks),
+    };
+  }
   if (value is data.PropagationStatusFfi) {
     return {
       'id': value.id,
       'subjectType': value.subjectType,
       'subjectId': value.subjectId,
       'createdAt': _simplify(value.createdAt),
-
       'lastBlock': value.lastBlock == null
           ? null
           : {
               'type': value.lastBlock!.blockType,
               'height': _simplify(value.lastBlock!.blockHeight),
             },
-
+      'quorum': value.quorum == null
+        ? null
+        : {
+          'propagated': value.quorum!.propagated,
+          'requiredAcks': _simplify(value.quorum!.requiredAcks),
+          'totalRelays': _simplify(value.quorum!.totalRelays),
+          'confirmedRelays': value.quorum!.confirmedRelays,
+        },
       'messages': value.messages.map((message) {
         final accepted = message.relays
             .where((relay) => relay.acceptedAt != null)
             .length;
-
         return {
           'id': message.id,
           'eventType': message.eventType,

@@ -9,6 +9,7 @@ use bcr_ebill_core::{
         event::{BillChainEvent, CompanyChainEvent, IdentityChainEvent},
     },
 };
+use bcr_ebill_persistence::traits::propagation::IncomingChainQueueStatus;
 use bcr_ebill_persistence::traits::{
     nostr::NostrChainEvent, propagation::PreparedPropagationMessage,
 };
@@ -51,6 +52,18 @@ pub trait BlockTransportServiceApi: ServiceTraitBounds {
     async fn resync_company_chain(&self, company_id: &NodeId, mode: ResyncMode) -> Result<()>;
     /// Resync identity chain
     async fn resync_identity_chain(&self, mode: ResyncMode) -> Result<()>;
+    /// Locally discovered incoming events for a bill
+    async fn get_incoming_bill_queue_status(
+        &self,
+        bill_id: &BillId,
+    ) -> Result<IncomingChainQueueStatus>;
+    /// Locally discovered incoming events for a company
+    async fn get_incoming_company_queue_status(
+        &self,
+        company_id: &NodeId,
+    ) -> Result<IncomingChainQueueStatus>;
+    /// Incoming events for the identity chain
+    async fn get_incoming_identity_queue_status(&self) -> Result<IncomingChainQueueStatus>;
     /// Validates that the given list of blocks exist in the resolved chain from Nostr
     async fn validate_bill_blocks_exist_on_nostr_chain(
         &self,
